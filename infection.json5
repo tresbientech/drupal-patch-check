@@ -16,9 +16,9 @@
     },
     "timeout": 10,
     // The floor is the score the suite already reaches, so a change that
-    // adds code its tests do not check fails. Measured at 74.13% on
-    // 2026-08-30 over 549 mutants. Raise it when the score rises; never
+    // adds code its tests do not check fails. Measured at 74.73% on
+    // 2026-08-30 over 554 mutants. Raise it when the score rises; never
     // lower it to make a change pass.
-    "minMsi": 74.1,
-    "minCoveredMsi": 74.1
+    "minMsi": 74.7,
+    "minCoveredMsi": 74.7
 }

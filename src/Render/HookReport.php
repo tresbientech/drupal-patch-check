@@ -37,7 +37,7 @@ final class HookReport
             '<info>drupatch</info>: %d patch%s against %s — %s',
             $total,
             1 === $total ? '' : 'es',
-            $plan->against(),
+            $plan->judgedAgainst(),
             self::tally($plan)
         )];
 
@@ -55,7 +55,14 @@ final class HookReport
             $lines[] = \sprintf('  %-13s %s %s  %s', $row->verdict, $row->package, $row->version, $row->label());
         }
         if ($shown > 0) {
-            $lines[] = '  run `'.self::COMMAND.'` for the detail, `--target 11.4.5` to plan an upgrade';
+            $hint = '  run `'.self::COMMAND.'` for the detail';
+            // Naming a version here would sooner or later name the one
+            // the site already runs, which reads as advice to upgrade to
+            // where it is.
+            if ($plan->targetIsInstalled) {
+                $hint .= ', or `--target <version>` before a core upgrade';
+            }
+            $lines[] = $hint;
         }
 
         if ($plan->isBlocked()) {

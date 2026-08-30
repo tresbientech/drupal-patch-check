@@ -115,6 +115,15 @@ final class Plan
     }
 
     /**
+     * The same core said in full: a bare version reads as a target, so
+     * the one the site already runs says so.
+     */
+    public function judgedAgainst(): string
+    {
+        return $this->against().($this->targetIsInstalled ? ' (the core this site runs)' : '');
+    }
+
+    /**
      * True when a package has no release for the target and so blocks the
      * upgrade whatever its patches say.
      */

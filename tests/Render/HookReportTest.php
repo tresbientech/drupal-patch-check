@@ -50,6 +50,49 @@ final class HookReportTest extends TestCase
         self::assertStringContainsString('composer drupal-patch-check', \implode("\n", HookReport::lines($this->plan())));
     }
 
+    // A bare version on the first line reads as a target, and the hook is
+    // never given one: it always judges the core the site runs.
+    public function testSaysTheVersionIsTheCoreTheSiteRuns(): void
+    {
+        $first = HookReport::lines($this->planFrom([
+            'target_core' => '11.4.5',
+            'target_is_installed' => true,
+            'counts' => ['still-needed' => 1],
+            'patches' => [$this->row()],
+        ]))[0];
+
+        self::assertStringContainsString('11.4.5 (the core this site runs)', $first);
+    }
+
+    // The hint used to name 11.4.5, which on a site running 11.4.5 read as
+    // advice to upgrade to where it already is.
+    public function testTheTargetHintNamesNoVersion(): void
+    {
+        $lines = HookReport::lines($this->planFrom([
+            'target_core' => '11.4.5',
+            'target_is_installed' => true,
+            'counts' => ['needs-reroll' => 1],
+            'patches' => [$this->row(['verdict' => 'needs-reroll'])],
+        ]));
+        $hint = $lines[\count($lines) - 1];
+
+        self::assertStringContainsString('--target <version>', $hint);
+        self::assertStringNotContainsString('11.4.5', $hint, 'the hint must not name the core the site already runs');
+    }
+
+    public function testNoTargetHintWhenThePlanAlreadyRanAgainstAnotherCore(): void
+    {
+        $lines = HookReport::lines($this->planFrom([
+            'target_core' => '11.5.0',
+            'counts' => ['needs-reroll' => 1],
+            'patches' => [$this->row(['verdict' => 'needs-reroll'])],
+        ]));
+        $hint = $lines[\count($lines) - 1];
+
+        self::assertStringContainsString('for the detail', $hint);
+        self::assertStringNotContainsString('--target', $hint, 'the plan already ran against a core the site has not installed');
+    }
+
     public function testPrintsAWarningTheTallyDependsOn(): void
     {
         $plan = $this->planFrom([

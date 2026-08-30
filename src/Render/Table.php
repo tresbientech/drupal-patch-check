@@ -21,11 +21,10 @@ final class Table
     {
         $total = \count($plan->patches);
         $lines = [\sprintf(
-            '<info>Drupal Code Query</info>: %d patch%s against %s%s',
+            '<info>Drupal Code Query</info>: %d patch%s against %s',
             $total,
             1 === $total ? '' : 'es',
-            $plan->against(),
-            $plan->targetIsInstalled ? ' (the core this site runs)' : ''
+            $plan->judgedAgainst()
         ), ''];
 
         foreach ($plan->warnings as $warning) {
