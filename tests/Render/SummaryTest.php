@@ -126,6 +126,24 @@ final class SummaryTest extends TestCase
         self::assertSame(Outcome::CLEAN, $summary['exit_code']);
     }
 
+    // A reader has to be able to tell an answer composer made from one
+    // the service's release table made.
+    public function testCountsWhatDecidedEachRow(): void
+    {
+        $plan = $this->planFrom(['patches' => [
+            $this->row(['package' => 'drupal/a', 'decided_by' => 'composer']),
+            $this->row(['package' => 'drupal/b', 'decided_by' => 'composer']),
+            $this->row(['package' => 'drupal/c', 'decided_by' => 'bundle']),
+        ]]);
+
+        self::assertSame(['bundle' => 1, 'composer' => 2], Value::counts(Summary::of($plan), 'decided_by'));
+    }
+
+    public function testSaysNothingAboutSourcesWhenNoRowNamesOne(): void
+    {
+        self::assertSame([], Value::counts(Summary::of($this->plan()), 'decided_by'));
+    }
+
     public function testASiteWithNothingToSayStillCarriesAShape(): void
     {
         $summary = Summary::of($this->planFrom());

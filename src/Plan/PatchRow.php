@@ -44,6 +44,8 @@ final class PatchRow
         public readonly string $strictRefused,
         /** An earlier patch of the package that did not apply. */
         public readonly string $judgedWithout,
+        /** Where the release this row is about came from: composer, or the bundle. */
+        public readonly string $decidedBy,
         public readonly ?Reroll $reroll,
     ) {
     }
@@ -74,6 +76,7 @@ final class PatchRow
             Value::str($result, 'error'),
             Value::str($result, 'strict_refused'),
             Value::str($result, 'judged_without'),
+            Value::str($data, 'decided_by'),
             $reroll,
         );
     }

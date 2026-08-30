@@ -17,11 +17,15 @@ use Tresbien\Drupatch\Plan\Value;
  */
 final class Site
 {
+    /**
+     * @param array<string, string> $constraints
+     */
     private function __construct(
         private readonly string $root,
         private readonly string $composerJson,
         private readonly string $composerLock,
         private readonly Resolution $patches,
+        private readonly array $constraints,
     ) {
     }
 
@@ -50,7 +54,16 @@ final class Site
 
         $extra = Value::keyed($composer->getPackage()->getExtra());
 
-        return new self($root, $json, $lock, (new Reader($root))->read($extra, $installed));
+        // What the site requires, so a candidate can be resolved inside
+        // the constraint rather than past it.
+        $constraints = [];
+        foreach ([$composer->getPackage()->getRequires(), $composer->getPackage()->getDevRequires()] as $set) {
+            foreach ($set as $name => $link) {
+                $constraints[$name] = $link->getConstraint()->getPrettyString();
+            }
+        }
+
+        return new self($root, $json, $lock, (new Reader($root))->read($extra, $installed), $constraints);
     }
 
     /**
@@ -70,6 +83,17 @@ final class Site
     public function composerLock(): string
     {
         return $this->composerLock;
+    }
+
+    /**
+     * The site's own requirement for each patched package, keyed by
+     * composer name. A package the site does not require is left out.
+     *
+     * @return array<string, string>
+     */
+    public function constraints(): array
+    {
+        return $this->constraints;
     }
 
     public function patches(): Resolution

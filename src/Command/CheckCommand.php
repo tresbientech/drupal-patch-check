@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tresbien\Drupatch\Command;
 
 use Composer\Command\BaseCommand;
+use Composer\Composer;
 use Composer\Util\ProcessExecutor;
 use RuntimeException;
 use Symfony\Component\Console\Input\InputInterface;
@@ -17,6 +18,7 @@ use Tresbien\Drupatch\Plan\Plan;
 use Tresbien\Drupatch\Plan\Value;
 use Tresbien\Drupatch\Render\Summary;
 use Tresbien\Drupatch\Render\Table;
+use Tresbien\Drupatch\Resolve\Candidates;
 use Tresbien\Drupatch\Site;
 use Tresbien\Drupatch\Write\ConfigRewriter;
 use Tresbien\Drupatch\Write\PatchFiles;
@@ -125,6 +127,32 @@ final class CheckCommand extends BaseCommand
         return $narrowed;
     }
 
+    /**
+     * What composer would install for each patched package, or nothing
+     * when it cannot say. A site with no repository in reach still gets
+     * the server's answer.
+     *
+     * @return array<string, string>
+     */
+    private function candidates(Composer $composer, Site $site, string $target): array
+    {
+        $resolver = Candidates::forSite($composer);
+        if (null === $resolver) {
+            return [];
+        }
+        $wanted = [];
+        $constraints = $site->constraints();
+        foreach ($site->patches()->patches as $patch) {
+            $package = $patch['package'];
+            $wanted[$package] = $constraints[$package] ?? '';
+        }
+        if ([] === $wanted) {
+            return [];
+        }
+
+        return $resolver->forTarget($target, $wanted);
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $target = $input->getOption('target');
@@ -138,8 +166,11 @@ final class CheckCommand extends BaseCommand
             foreach ($site->patches()->notes as $note) {
                 $output->writeln('<comment>drupatch: '.$note.'</comment>');
             }
+            // A bare run judges what the lock installs, so there is no
+            // candidate to resolve and no repository to ask.
+            $candidates = '' === $target ? [] : $this->candidates($composer, $site, $target);
             $plan = Client::fromComposer($composer, $this->getIO())
-                ->plan($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll);
+                ->plan($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates);
             // The whole site is sent because the server needs the whole
             // lock; the narrowing happens here, so everything after it
             // is about the packages that were asked for.

@@ -36,6 +36,7 @@ final class Summary
             'unclear' => self::packagesWith($plan, PatchRow::UNKNOWN),
             'shipped' => self::packagesWith($plan, PatchRow::SHIPPED),
             'blocked' => $plan->noRelease,
+            'decided_by' => self::sources($plan),
             'exit_code' => Outcome::of($plan, $strict),
         ];
         if ('' !== $plan->targetFrom) {
@@ -43,6 +44,25 @@ final class Summary
         }
 
         return $summary;
+    }
+
+    /**
+     * How many rows each source decided, so a reader can tell an answer
+     * composer made from one the service's release table made.
+     *
+     * @return array<string, int>
+     */
+    private static function sources(Plan $plan): array
+    {
+        $counts = [];
+        foreach ($plan->patches as $row) {
+            if ('' !== $row->decidedBy) {
+                $counts[$row->decidedBy] = ($counts[$row->decidedBy] ?? 0) + 1;
+            }
+        }
+        \ksort($counts);
+
+        return $counts;
     }
 
     /**

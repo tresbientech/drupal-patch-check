@@ -49,7 +49,10 @@ final class Client
     /**
      * @throws RuntimeException when the call or the answer failed
      */
-    public function plan(string $composerJson, string $composerLock, Resolution $patches, string $targetCore = '', bool $reroll = false): Plan
+    /**
+     * @param array<string, string> $candidates composer name to the release composer would install
+     */
+    public function plan(string $composerJson, string $composerLock, Resolution $patches, string $targetCore = '', bool $reroll = false, array $candidates = []): Plan
     {
         // `patches` turns on the half that judges them; `patch_config`
         // carries the declarations this plugin resolved, so the server
@@ -62,6 +65,10 @@ final class Client
             'patch_config' => $patches->patches,
             'target_core' => $targetCore,
             'reroll' => $reroll,
+            // What composer itself picked, when it was in reach. The
+            // server's own answer comes from a daily copy of drupal.org
+            // and one constraint at a time.
+            'candidates' => (object) $candidates,
         ], \JSON_THROW_ON_ERROR);
 
         try {

@@ -43,6 +43,13 @@ composer drupal-patch-check
 | `--target=11.4.5` | Judge the patches against the releases that core version would bring in, before you move to it. |
 | `--target=latest` | The same, against the newest core release your own constraint allows. Nothing to type, so a scheduled job stays correct. |
 | `--strict` | Also fail on a patch that could not be judged and on a package with no release. |
+
+With `--target`, the plugin asks composer itself which release each patched
+package would move to, using the site's own repositories, stability rules and
+platform. That answer is sent with the request, and every row says whether it
+was decided by `composer` or by the service's daily copy of drupal.org. A bare
+run judges the releases the lock installs, so it resolves nothing and makes no
+repository request.
 | `--reroll` | Write a re-rolled patch file for each patch that no longer applies. |
 | `--fix` | Rewrite the patch declarations: drop what shipped, point the rest at their re-rolls. Implies `--reroll`. |
 | `--force` | Let `--fix` write a file that already has uncommitted changes. |

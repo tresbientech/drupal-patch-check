@@ -305,6 +305,17 @@ final class PlanTest extends TestCase
         self::assertSame('11.4.5', $plan->judgedAgainst());
     }
 
+    public function testARowSaysWhatDecidedItsRelease(): void
+    {
+        $plan = Plan::fromArray(['plan' => ['patches' => [
+            ['package' => 'drupal/webform', 'verdict' => 'still-needed', 'decided_by' => 'composer'],
+            ['package' => 'drupal/token', 'verdict' => 'still-needed'],
+        ]]]);
+
+        self::assertSame('composer', $plan->patches[0]->decidedBy);
+        self::assertSame('', $plan->patches[1]->decidedBy, 'a row that names no source says nothing');
+    }
+
     private function wholeSite(): Plan
     {
         return Plan::fromArray([
