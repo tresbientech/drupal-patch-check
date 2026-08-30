@@ -98,6 +98,19 @@ final class PatchFilesTest extends TestCase
         self::assertStringContainsString('src/Form.php:42', (string) \file_get_contents($this->root.'/'.$written[0]->path));
     }
 
+    // The directory is created before anything is written into it, and a
+    // suite running as root would not notice an unusable mode.
+    public function testTheDirectoryItCreatesIsUsableByItsOwner(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->rerolledRow(['status' => 'clean', 'patch' => "diff\n"])]]);
+
+        $written = PatchFiles::forPlan($this->root, $plan)->write($plan);
+        $dir = \dirname($this->root.\DIRECTORY_SEPARATOR.$written[0]->path);
+
+        self::assertDirectoryExists($dir);
+        self::assertSame(0o700, \fileperms($dir) & 0o700, 'the owner must be able to read, write and enter it');
+    }
+
     public function testWritesBesideThePatchesTheSiteAlreadyKeeps(): void
     {
         $plan = $this->plan(['status' => 'clean', 'patch' => "diff\n"], 'patchs/webform.patch');
