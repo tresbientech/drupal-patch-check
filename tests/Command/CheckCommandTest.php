@@ -27,7 +27,7 @@ final class CheckCommandTest extends TestCase
     {
         $definition = (new CheckCommand())->getDefinition();
 
-        foreach (['target', 'reroll', 'fix', 'force', 'json', 'package'] as $option) {
+        foreach (['target', 'reroll', 'fix', 'force', 'json', 'package', 'strict'] as $option) {
             self::assertTrue($definition->hasOption($option), $option.' is not an option');
         }
     }

@@ -284,6 +284,27 @@ final class PlanTest extends TestCase
         self::assertSame(['needs-reroll' => 1, 'still-needed' => 1], Value::counts($nested, 'counts'));
     }
 
+    // --target latest resolves to a version, and the report says which
+    // constraint chose it rather than repeating the word.
+    public function testSaysWhichConstraintChoseTheTarget(): void
+    {
+        $plan = Plan::fromArray([
+            'target_core' => '11.4.5',
+            'target_from' => 'drupal/core-recommended',
+            'plan' => ['patches' => []],
+        ]);
+
+        self::assertSame('11.4.5 (the newest drupal/core-recommended allows)', $plan->judgedAgainst());
+        self::assertStringNotContainsString('latest', $plan->judgedAgainst());
+    }
+
+    public function testANamedTargetSaysNothingAboutAConstraint(): void
+    {
+        $plan = Plan::fromArray(['target_core' => '11.4.5', 'plan' => ['patches' => []]]);
+
+        self::assertSame('11.4.5', $plan->judgedAgainst());
+    }
+
     private function wholeSite(): Plan
     {
         return Plan::fromArray([

@@ -28,6 +28,8 @@ final class Plan
         public readonly string $coreInstalled,
         public readonly bool $targetIsInstalled,
         public readonly string $bundleDate,
+        /** The package whose constraint decided the target, for `--target latest`. */
+        public readonly string $targetFrom,
         public readonly array $counts,
         public readonly array $packageCounts,
         public readonly array $noRelease,
@@ -71,6 +73,7 @@ final class Plan
             Value::str($data, 'core_installed'),
             Value::bool($data, 'target_is_installed'),
             Value::str($data, 'bundle_date'),
+            Value::str($data, 'target_from'),
             Value::counts($plan, 'counts'),
             Value::counts($data, 'counts'),
             Value::strings($plan, 'no_release'),
@@ -128,6 +131,7 @@ final class Plan
             $this->coreInstalled,
             $this->targetIsInstalled,
             $this->bundleDate,
+            $this->targetFrom,
             $counts,
             [],
             $noRelease,
@@ -201,6 +205,10 @@ final class Plan
      */
     public function judgedAgainst(): string
     {
+        if ('' !== $this->targetFrom) {
+            return $this->against().' (the newest '.$this->targetFrom.' allows)';
+        }
+
         return $this->against().($this->targetIsInstalled ? ' (the core this site runs)' : '');
     }
 

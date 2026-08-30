@@ -16,6 +16,16 @@ final class PatchRow
      */
     public const CLEAN_VERDICTS = ['shipped', 'still-needed'];
 
+    /**
+     * Verdicts a run reports without failing. `unknown` is as often a
+     * mirror that lags a release as a real problem, and neither is
+     * something the repository can fix, so a scheduled job is not woken
+     * by one unless it asked to be.
+     */
+    public const TOLERATED_VERDICTS = ['shipped', 'still-needed', 'unknown'];
+
+    public const UNKNOWN = 'unknown';
+
     public const SHIPPED = 'shipped';
 
     public const NEEDS_REROLL = 'needs-reroll';
@@ -74,6 +84,21 @@ final class PatchRow
     public function needsAction(): bool
     {
         return !\in_array($this->verdict, self::CLEAN_VERDICTS, true);
+    }
+
+    /**
+     * Whether the row should fail a run. A patch that will not apply
+     * should; one the service could not judge should only when the run
+     * asked to be woken by those too. A verdict this plugin does not know
+     * always fails, so a new one is never read as fine.
+     */
+    public function fails(bool $strict): bool
+    {
+        if ($strict) {
+            return $this->needsAction();
+        }
+
+        return !\in_array($this->verdict, self::TOLERATED_VERDICTS, true);
     }
 
     /**

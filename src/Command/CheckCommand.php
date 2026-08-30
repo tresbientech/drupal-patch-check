@@ -15,6 +15,7 @@ use Tresbien\Drupatch\Outcome;
 use Tresbien\Drupatch\Plan\Client;
 use Tresbien\Drupatch\Plan\Plan;
 use Tresbien\Drupatch\Plan\Value;
+use Tresbien\Drupatch\Render\Summary;
 use Tresbien\Drupatch\Render\Table;
 use Tresbien\Drupatch\Site;
 use Tresbien\Drupatch\Write\ConfigRewriter;
@@ -38,11 +39,12 @@ final class CheckCommand extends BaseCommand
             // guesses from the install line. Both resolve.
             ->setAliases(['drupatch-check'])
             ->setDescription("Check this site's composer patches against the releases it installs")
-            ->addOption('target', null, InputOption::VALUE_REQUIRED, 'Core version to plan against, e.g. 11.4.5. Without it the installed releases are checked.')
+            ->addOption('target', null, InputOption::VALUE_REQUIRED, 'Core version to plan against, e.g. 11.4.5, or `latest` for the newest core your own constraint allows. Without it the installed releases are checked.')
             ->addOption('reroll', null, InputOption::VALUE_NONE, 'Write a re-rolled patch file for every patch that no longer applies')
             ->addOption('fix', null, InputOption::VALUE_NONE, 'Rewrite the patch declarations: drop what shipped upstream, point the rest at their re-rolls. Implies --reroll.')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Let --fix rewrite a file that already has uncommitted changes')
             ->addOption('package', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only this package, repeatable: drupal/webform or webform. Narrows the report, --reroll and --fix, and the exit code with them.')
+            ->addOption('strict', null, InputOption::VALUE_NONE, 'Fail on a patch that could not be judged and on a package with no release, as well as on one that will not apply')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Print the plan as one JSON object');
     }
 
@@ -149,8 +151,11 @@ final class CheckCommand extends BaseCommand
             return Outcome::FAILED;
         }
 
+        $strict = true === $input->getOption('strict');
         if (true === $input->getOption('json')) {
-            $output->writeln((string) \json_encode($plan->raw + ['written' => \array_map(
+            $output->writeln((string) \json_encode($plan->raw + [
+                'summary' => Summary::of($plan, $strict),
+            ] + ['written' => \array_map(
                 static fn (WrittenFile $file): array => ['path' => $file->path, 'status' => $file->status],
                 $written
             )], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES));
@@ -175,6 +180,6 @@ final class CheckCommand extends BaseCommand
             }
         }
 
-        return Outcome::of($plan);
+        return Outcome::of($plan, $strict);
     }
 }

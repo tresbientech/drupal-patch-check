@@ -18,15 +18,25 @@ final class Outcome
     public const FAILED = 2;
 
     /**
-     * A plan needs action when any patch is not one of the two clean
-     * verdicts, or when a package has no release for the target and
-     * blocks the upgrade. The clean verdicts are the allowlist: a verdict
-     * the server adds later reads as work, never as fine.
+     * A plan fails when a patch will not apply, or carries a verdict this
+     * plugin does not know. The known-good list is the allowlist, so a
+     * verdict the server adds later reads as work rather than as fine.
+     *
+     * A verdict the service could not reach, and a package with no
+     * release for the target, are reported without failing: a lagging
+     * mirror is not something the repository can fix, and a scheduled job
+     * that woke for one would soon be ignored. Strict adds both, for a
+     * run that would rather be woken than miss a finding.
      */
-    public static function of(Plan $plan): int
+    public static function of(Plan $plan, bool $strict = false): int
     {
-        if ([] !== $plan->needingAction() || $plan->isBlocked()) {
+        if ($strict && $plan->isBlocked()) {
             return self::ACTION_NEEDED;
+        }
+        foreach ($plan->patches as $row) {
+            if ($row->fails($strict)) {
+                return self::ACTION_NEEDED;
+            }
         }
 
         return self::CLEAN;
