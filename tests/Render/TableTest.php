@@ -79,7 +79,8 @@ final class TableTest extends TestCase
 
         $lines = Table::lines($plan);
 
-        self::assertStringContainsString('9 core patch(es) were not judged', $lines[2], 'the warning belongs above the rows, not under them');
+        self::assertSame('  <comment>! 9 core patch(es) were not judged: 11.4 does not name a core release.</comment>', $lines[2], 'the warning belongs above the rows, marked and whole');
+        self::assertSame('', $lines[3], 'a blank line separates the warnings from the packages');
     }
 
     public function testEndsWithBothTallies(): void

@@ -58,7 +58,9 @@ final class HookReportTest extends TestCase
             'patches' => [$this->row()],
         ]);
 
-        self::assertStringContainsString('not judged', \implode("\n", HookReport::lines($plan)));
+        $lines = HookReport::lines($plan);
+
+        self::assertSame('  <comment>! 9 core patch(es) were not judged: 11.4 does not name a core release.</comment>', $lines[1], 'the warning goes under the tally, marked and whole');
     }
 
     public function testNamesThePackagesThatBlockAnUpgrade(): void
