@@ -55,7 +55,11 @@ final class Table
         }
 
         $lines[] = '';
-        $lines[] = '  packages: '.self::tally($plan->packageCounts);
+        // A run narrowed to some packages has no site-wide package
+        // tally to quote, so it prints only the patch one.
+        if ([] !== $plan->packageCounts) {
+            $lines[] = '  packages: '.self::tally($plan->packageCounts);
+        }
         $lines[] = '  patches:  '.self::tally($plan->counts);
 
         if ($plan->isBlocked()) {

@@ -81,6 +81,87 @@ final class Plan
         );
     }
 
+    /**
+     * The same plan narrowed to some packages, for a run scoped with
+     * --package. The counts are recomputed from the rows that are left,
+     * so a scoped report never quotes the site's totals.
+     *
+     * @param list<string> $packages composer names or drupal.org project names
+     */
+    public function onlyPackages(array $packages): self
+    {
+        if ([] === $packages) {
+            return $this;
+        }
+        $wanted = [];
+        foreach ($packages as $name) {
+            $wanted[self::normalisePackage($name)] = true;
+        }
+        $patches = \array_values(\array_filter(
+            $this->patches,
+            static fn (PatchRow $row): bool => isset($wanted[self::normalisePackage($row->package)])
+        ));
+        $counts = [];
+        foreach ($patches as $row) {
+            $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) + 1;
+        }
+        $noRelease = \array_values(\array_filter(
+            $this->noRelease,
+            static fn (string $name): bool => isset($wanted[self::normalisePackage($name)])
+        ));
+        // --json owes the scope it was asked for, not the whole site.
+        $raw = $this->raw;
+        $raw['scope'] = $packages;
+        if (isset($raw['plan']) && \is_array($raw['plan'])) {
+            $nested = Value::keyed($raw['plan']);
+            $nested['patches'] = \array_values(\array_filter(
+                Value::objects($nested, 'patches'),
+                static fn (array $row): bool => isset($wanted[self::normalisePackage(Value::str($row, 'package'))])
+            ));
+            $nested['counts'] = $counts;
+            $nested['no_release'] = $noRelease;
+            $raw['plan'] = $nested;
+        }
+
+        return new self(
+            $this->targetCore,
+            $this->coreInstalled,
+            $this->targetIsInstalled,
+            $this->bundleDate,
+            $counts,
+            [],
+            $noRelease,
+            $patches,
+            $this->missingFiles,
+            $this->warnings,
+            $raw,
+        );
+    }
+
+    /**
+     * A package under one name: `drupal/webform` and `webform` are the
+     * same thing to a person typing --package.
+     */
+    private static function normalisePackage(string $name): string
+    {
+        return \strtolower(\str_replace('drupal/', '', \trim($name)));
+    }
+
+    /**
+     * The packages the plan has rows for, in plan order.
+     *
+     * @return list<string>
+     */
+    public function packages(): array
+    {
+        $seen = [];
+        foreach ($this->patches as $row) {
+            $seen[$row->package] = true;
+        }
+
+        return \array_keys($seen);
+    }
+
     public function hasPatches(): bool
     {
         return [] !== $this->patches;

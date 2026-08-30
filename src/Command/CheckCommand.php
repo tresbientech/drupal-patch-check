@@ -42,6 +42,7 @@ final class CheckCommand extends BaseCommand
             ->addOption('reroll', null, InputOption::VALUE_NONE, 'Write a re-rolled patch file for every patch that no longer applies')
             ->addOption('fix', null, InputOption::VALUE_NONE, 'Rewrite the patch declarations: drop what shipped upstream, point the rest at their re-rolls. Implies --reroll.')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Let --fix rewrite a file that already has uncommitted changes')
+            ->addOption('package', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only this package, repeatable: drupal/webform or webform. Narrows the report, --reroll and --fix, and the exit code with them.')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Print the plan as one JSON object');
     }
 
@@ -95,6 +96,33 @@ final class CheckCommand extends BaseCommand
         return $lines;
     }
 
+    /**
+     * The plan the run is about: the whole site, or the packages --package
+     * named.
+     *
+     * @throws RuntimeException when a named package declares no patch
+     */
+    private function narrow(Plan $plan, InputInterface $input): Plan
+    {
+        $option = $input->getOption('package');
+        $packages = [];
+        foreach (\is_array($option) ? $option : [] as $name) {
+            if (\is_string($name) && '' !== \trim($name)) {
+                $packages[] = \trim($name);
+            }
+        }
+        if ([] === $packages) {
+            return $plan;
+        }
+        $declared = $plan->packages();
+        $narrowed = $plan->onlyPackages($packages);
+        if (!$narrowed->hasPatches()) {
+            throw new RuntimeException(\sprintf('no patch is declared for %s; this site declares patches for %s', \implode(', ', $packages), [] === $declared ? 'nothing' : \implode(', ', $declared)));
+        }
+
+        return $narrowed;
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $target = $input->getOption('target');
@@ -110,6 +138,10 @@ final class CheckCommand extends BaseCommand
             }
             $plan = Client::fromComposer($composer, $this->getIO())
                 ->plan($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll);
+            // The whole site is sent because the server needs the whole
+            // lock; the narrowing happens here, so everything after it
+            // is about the packages that were asked for.
+            $plan = $this->narrow($plan, $input);
             $written = $reroll ? PatchFiles::forPlan($site->root(), $plan)->write($plan) : [];
         } catch (Throwable $e) {
             $output->writeln('<error>drupatch: '.$e->getMessage().'</error>');

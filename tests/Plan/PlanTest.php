@@ -7,6 +7,7 @@ namespace Tresbien\Drupatch\Tests\Plan;
 use PHPUnit\Framework\TestCase;
 use Tresbien\Drupatch\Plan\InvalidPlan;
 use Tresbien\Drupatch\Plan\Plan;
+use Tresbien\Drupatch\Plan\Value;
 
 /**
  * The boundary between the server's JSON and the plugin's data.
@@ -193,5 +194,110 @@ final class PlanTest extends TestCase
         ]]]]);
 
         self::assertSame('no release for 11.4.5', $plan->patches[0]->reason());
+    }
+
+    // --package narrows the run: the report, the writes, the fix and the
+    // exit code are all about what was named.
+    public function testNarrowsToTheNamedPackages(): void
+    {
+        $plan = $this->wholeSite();
+
+        $only = $plan->onlyPackages(['drupal/webform']);
+
+        self::assertSame(['drupal/webform'], $only->packages());
+        self::assertCount(2, $only->patches);
+        self::assertSame(['needs-reroll' => 1, 'still-needed' => 1], $only->counts, 'the counts are recomputed from what is left');
+        self::assertSame([], $only->packageCounts, 'a scoped run quotes no site-wide package tally');
+        self::assertSame([], $only->noRelease, 'a package that was not named does not block a scoped run');
+    }
+
+    public function testAPackageIsNamedWithOrWithoutTheDrupalPrefix(): void
+    {
+        $plan = $this->wholeSite();
+
+        self::assertSame($plan->onlyPackages(['drupal/webform'])->packages(), $plan->onlyPackages(['webform'])->packages());
+        self::assertSame(['drupal/webform'], $plan->onlyPackages(['WebForm'])->packages());
+        self::assertSame(['drupal/webform'], $plan->onlyPackages(['  webform  '])->packages(), 'a name typed with spaces is the same name');
+    }
+
+    // A caller reads [0], so dropping the rows before it must renumber.
+    public function testWhatNarrowingKeepsIsARenumberedList(): void
+    {
+        $only = $this->wholeSite()->onlyPackages(['token']);
+
+        self::assertSame([0], \array_keys($only->patches));
+        self::assertSame('drupal/token', $only->patches[0]->package);
+        self::assertSame([0], \array_keys(Value::objects(Value::keyed(Value::object($only->raw, 'plan')), 'patches')));
+    }
+
+    public function testTheNarrowedCountsAddUpPerVerdict(): void
+    {
+        $plan = Plan::fromArray(['plan' => ['patches' => [
+            ['package' => 'drupal/webform', 'verdict' => 'still-needed', 'title' => 'a'],
+            ['package' => 'drupal/webform', 'verdict' => 'still-needed', 'title' => 'b'],
+            ['package' => 'drupal/token', 'verdict' => 'shipped', 'title' => 'c'],
+        ]]]);
+
+        self::assertSame(['still-needed' => 2], $plan->onlyPackages(['webform'])->counts);
+    }
+
+    public function testTheNarrowedBlockedListIsARenumberedList(): void
+    {
+        $plan = Plan::fromArray([
+            'plan' => [
+                'no_release' => ['drupal/autotitle', 'drupal/domain'],
+                'patches' => [['package' => 'drupal/domain', 'verdict' => 'unknown', 'title' => 'a']],
+            ],
+        ]);
+
+        self::assertSame([0], \array_keys($plan->onlyPackages(['domain'])->noRelease));
+    }
+
+    public function testNarrowingKeepsABlockedPackageThatWasNamed(): void
+    {
+        $only = $this->wholeSite()->onlyPackages(['domain']);
+
+        self::assertSame(['drupal/domain'], $only->noRelease);
+        self::assertTrue($only->isBlocked());
+    }
+
+    public function testNarrowingToNothingLeavesAPlanWithNoPatches(): void
+    {
+        self::assertFalse($this->wholeSite()->onlyPackages(['drupal/nothing'])->hasPatches());
+    }
+
+    public function testAnEmptyPackageListLeavesThePlanAlone(): void
+    {
+        $plan = $this->wholeSite();
+
+        self::assertSame($plan, $plan->onlyPackages([]));
+    }
+
+    // --json owes the scope it was asked for.
+    public function testNarrowingRewritesWhatJsonWouldPrint(): void
+    {
+        $raw = $this->wholeSite()->onlyPackages(['webform'])->raw;
+        $nested = Value::keyed(Value::object($raw, 'plan'));
+
+        self::assertSame(['webform'], $raw['scope']);
+        self::assertCount(2, Value::objects($nested, 'patches'));
+        self::assertSame(['needs-reroll' => 1, 'still-needed' => 1], Value::counts($nested, 'counts'));
+    }
+
+    private function wholeSite(): Plan
+    {
+        return Plan::fromArray([
+            'target_core' => '11.4.5',
+            'counts' => ['current' => 30, 'no_release' => 1],
+            'plan' => [
+                'counts' => ['needs-reroll' => 1, 'still-needed' => 2],
+                'no_release' => ['drupal/domain'],
+                'patches' => [
+                    ['package' => 'drupal/webform', 'verdict' => 'needs-reroll', 'title' => 'a'],
+                    ['package' => 'drupal/webform', 'verdict' => 'still-needed', 'title' => 'b'],
+                    ['package' => 'drupal/token', 'verdict' => 'still-needed', 'title' => 'c'],
+                ],
+            ],
+        ]);
     }
 }

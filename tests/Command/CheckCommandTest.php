@@ -27,8 +27,18 @@ final class CheckCommandTest extends TestCase
     {
         $definition = (new CheckCommand())->getDefinition();
 
-        foreach (['target', 'reroll', 'fix', 'force', 'json'] as $option) {
+        foreach (['target', 'reroll', 'fix', 'force', 'json', 'package'] as $option) {
             self::assertTrue($definition->hasOption($option), $option.' is not an option');
         }
+    }
+
+    // --package is repeatable, because a person updating two modules
+    // should not have to run the command twice.
+    public function testThePackageOptionTakesMoreThanOne(): void
+    {
+        $option = (new CheckCommand())->getDefinition()->getOption('package');
+
+        self::assertTrue($option->isArray());
+        self::assertTrue($option->isValueRequired());
     }
 }

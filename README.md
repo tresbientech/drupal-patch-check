@@ -36,6 +36,7 @@ composer drupal-patch-check
 | `--reroll` | Write a re-rolled patch file for each patch that no longer applies. |
 | `--fix` | Rewrite the patch declarations: drop what shipped, point the rest at their re-rolls. Implies `--reroll`. |
 | `--force` | Let `--fix` write a file that already has uncommitted changes. |
+| `--package=drupal/webform` | Only this package. Repeatable, and `webform` works too. Narrows the report, `--reroll`, `--fix` and the exit code. |
 | `--json` | Print the plan as one JSON object. |
 
 Exit code 0 means nothing needs work, 1 means a patch or a package does,
