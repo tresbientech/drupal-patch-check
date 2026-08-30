@@ -17,12 +17,20 @@ composer require --dev tresbientech/drupatch
 The plugin subscribes to `post-update-cmd`. It prints and stops. It writes
 no file, and a failure on its side never fails the update.
 
+Your patch manager applies the patches before this runs, so a patch that
+still applies is something it has already proved. The hook reports only what
+composer cannot: patches whose fix is now upstream, ones it could not judge,
+and packages with no release for the core you are on.
+
 ```
-drupatch: 12 patches against the installed core — 1 needs-reroll, 2 shipped, 9 still-needed
-  needs-reroll  drupal/webform 6.2.9  Fix conditional element states
+drupatch: 1 unclear, 2 can go after this update
+  unknown       drupal/domain 3.0.1  Domain content translations permissions
   shipped       drupal/token 1.15.0  Cache tag on token replacement
-  run `composer drupal-patch-check` for the detail, `--target 11.4.5` to plan an upgrade
+  shipped       drupal/redis 1.11.0  Default null cache_prefix
+  run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade
 ```
+
+When every patch applies and nothing is blocked, it prints nothing.
 
 ## The command
 

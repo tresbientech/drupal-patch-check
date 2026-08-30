@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tresbien\Drupatch\Render;
 
+use Tresbien\Drupatch\Plan\PatchRow;
 use Tresbien\Drupatch\Plan\Plan;
 
 /**
@@ -20,49 +21,43 @@ final class HookReport
     /** Longest list before the tail becomes an ellipsis. */
     private const MAX_ROWS = 20;
 
-    /** Order the tally reads in: what needs work first. */
-    private const TALLY_ORDER = ['needs-reroll', 'unknown', 'shipped', 'still-needed'];
+    /**
+     * What each verdict means to a person reading the hook, worst first.
+     * still-needed is absent: composer applied those during the update.
+     */
+    private const MENTION_ORDER = [
+        'needs-reroll' => 'need a re-roll',
+        'unknown' => 'unclear',
+        'shipped' => 'can go',
+    ];
 
     /**
      * @return list<string>
      */
     public static function lines(Plan $plan): array
     {
-        if (!$plan->hasPatches()) {
+        $rows = $plan->worthMentioning();
+        // Composer applies a package's patches during the update, and
+        // this hook runs after it. A patch that still applies is
+        // something composer has already proved, so saying it again is
+        // noise; what composer cannot say is that a patch can be deleted.
+        if ([] === $rows && !$plan->isBlocked() && [] === $plan->warnings) {
             return [];
         }
 
-        $total = \count($plan->patches);
-        $lines = [\sprintf(
-            '<info>drupatch</info>: %d patch%s against %s — %s',
-            $total,
-            1 === $total ? '' : 'es',
-            $plan->judgedAgainst(),
-            self::tally($plan)
-        )];
-
+        $lines = ['<info>drupatch</info>: '.self::headline($rows)];
         foreach ($plan->warnings as $warning) {
             $lines[] = '  <comment>! '.$warning.'</comment>';
         }
 
         $shown = 0;
-        foreach ($plan->worthMentioning() as $row) {
+        foreach ($rows as $row) {
             if (self::MAX_ROWS === $shown) {
                 $lines[] = '  …';
                 break;
             }
             ++$shown;
             $lines[] = \sprintf('  %-13s %s %s  %s', $row->verdict, $row->package, $row->version, $row->label());
-        }
-        if ($shown > 0) {
-            $hint = '  run `'.self::COMMAND.'` for the detail';
-            // Naming a version here would sooner or later name the one
-            // the site already runs, which reads as advice to upgrade to
-            // where it is.
-            if ($plan->targetIsInstalled) {
-                $hint .= ', or `--target <version>` before a core upgrade';
-            }
-            $lines[] = $hint;
         }
 
         if ($plan->isBlocked()) {
@@ -75,31 +70,39 @@ final class HookReport
                 \implode(', ', \array_slice($blocking, 0, 10))
             );
         }
+        $lines[] = '  run `'.self::COMMAND.'` for the detail, or `--target <version>` before a core upgrade';
 
         return $lines;
     }
 
     /**
-     * The verdicts as counts, the ones needing work first. A verdict the
-     * plugin does not know still appears: it comes from the counts, not
-     * from a list of names.
+     * The first line: what is left to decide, not what composer already
+     * applied.
+     *
+     * @param list<PatchRow> $rows
      */
-    private static function tally(Plan $plan): string
+    private static function headline(array $rows): string
     {
+        $counts = [];
+        foreach ($rows as $row) {
+            $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) + 1;
+        }
         $parts = [];
-        $counts = $plan->counts;
-        foreach (self::TALLY_ORDER as $verdict) {
+        foreach (self::MENTION_ORDER as $verdict => $phrase) {
             if (($counts[$verdict] ?? 0) > 0) {
-                $parts[] = $counts[$verdict].' '.$verdict;
+                $parts[] = $counts[$verdict].' '.$phrase;
                 unset($counts[$verdict]);
             }
         }
         foreach ($counts as $verdict => $count) {
-            if ($count > 0) {
-                $parts[] = $count.' '.$verdict;
-            }
+            $parts[] = $count.' '.$verdict;
+        }
+        // The blocked line below names the packages, so the headline
+        // says only that no patch is waiting on a person.
+        if ([] === $parts) {
+            return 'no patch needs a decision';
         }
 
-        return [] === $parts ? 'no verdicts' : \implode(', ', $parts);
+        return \implode(', ', $parts).' after this update';
     }
 }
