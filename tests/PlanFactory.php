@@ -19,12 +19,41 @@ trait PlanFactory
      */
     private function planFrom(array $overrides = []): Plan
     {
-        return Plan::fromArray($overrides + [
+        $flat = $overrides + [
             'target_core' => '11.4.5',
             'counts' => [],
             'package_counts' => [],
             'patches' => [],
-        ]);
+        ];
+
+        return Plan::fromArray(self::wire($flat));
+    }
+
+    /**
+     * The shape the server answers with: the scan at the top level, the
+     * patch half nested under `plan`. Tests name the fields flat, so the
+     * split lives here rather than in every case.
+     *
+     * @param array<string, mixed> $flat
+     *
+     * @return array<string, mixed>
+     */
+    private static function wire(array $flat): array
+    {
+        $nested = [];
+        $body = [];
+        foreach ($flat as $key => $value) {
+            if (\in_array($key, ['counts', 'no_release', 'patches', 'missing_files', 'warnings'], true)) {
+                $nested[$key] = $value;
+            } elseif ('package_counts' === $key) {
+                $body['counts'] = $value;
+            } else {
+                $body[$key] = $value;
+            }
+        }
+        $body['plan'] = $nested;
+
+        return $body;
     }
 
     /**

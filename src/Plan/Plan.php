@@ -46,29 +46,37 @@ final class Plan
     public static function fromArray(array $decoded): self
     {
         $data = Value::keyed($decoded);
-        if (!\array_key_exists('patches', $data) && !\array_key_exists('counts', $data)) {
-            throw new InvalidPlan('the answer carries neither patches nor counts, so it is not a plan');
+        if (!\array_key_exists('plan', $data)) {
+            throw new InvalidPlan('the answer carries no plan, so the patches were not judged');
         }
-        if (isset($data['patches']) && !\is_array($data['patches'])) {
+        if (!\is_array($data['plan'])) {
+            throw new InvalidPlan('the answer\'s plan is not an object');
+        }
+        $plan = Value::keyed($data['plan']);
+        if (isset($plan['patches']) && !\is_array($plan['patches'])) {
             throw new InvalidPlan('the answer\'s patches are not a list');
         }
 
         $patches = [];
-        foreach (Value::objects($data, 'patches') as $row) {
+        foreach (Value::objects($plan, 'patches') as $row) {
             $patches[] = PatchRow::fromArray($row);
         }
 
+        // The scan is the top level and the patch half is nested, so the
+        // two tallies keep the name each answers to: `counts` on the
+        // outside is package statuses, `counts` inside the plan is
+        // verdicts.
         return new self(
             Value::str($data, 'target_core'),
             Value::str($data, 'core_installed'),
             Value::bool($data, 'target_is_installed'),
             Value::str($data, 'bundle_date'),
+            Value::counts($plan, 'counts'),
             Value::counts($data, 'counts'),
-            Value::counts($data, 'package_counts'),
-            Value::strings($data, 'no_release'),
+            Value::strings($plan, 'no_release'),
             $patches,
-            Value::strings($data, 'missing_files'),
-            Value::strings($data, 'warnings'),
+            Value::strings($plan, 'missing_files'),
+            Value::strings($plan, 'warnings'),
             $data,
         );
     }

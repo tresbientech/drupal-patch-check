@@ -74,7 +74,7 @@ manager with the same shape works. One with its own shape prints a note.
 ## What leaves the site
 
 Every run sends `composer.json`, `composer.lock` and the text of the
-declared patches to `https://api.tresbien.tech/v1/upgrade/plan`. The call
+declared patches to `https://api.tresbien.tech/v1/composer/scan`. The call
 goes through composer's own HTTP client, so the site's proxy and
 certificate settings apply. The answer is the plan.
 
@@ -84,7 +84,7 @@ The endpoint is configurable:
 {
     "extra": {
         "drupatch": {
-            "endpoint": "https://api.tresbien.tech/v1/upgrade/plan"
+            "endpoint": "https://api.tresbien.tech/v1/composer/scan"
         }
     }
 }

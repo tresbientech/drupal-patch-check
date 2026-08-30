@@ -21,7 +21,7 @@ use Tresbien\Drupatch\PatchConfig\Resolution;
  */
 final class Client
 {
-    public const DEFAULT_ENDPOINT = 'https://api.tresbien.tech/v1/upgrade/plan';
+    public const DEFAULT_ENDPOINT = 'https://api.tresbien.tech/v1/composer/scan';
 
     /**
      * Whole-request budget. Composer's connect timeout is a fixed 10s and
@@ -51,11 +51,15 @@ final class Client
      */
     public function plan(string $composerJson, string $composerLock, Resolution $patches, string $targetCore = '', bool $reroll = false): Plan
     {
+        // `patches` turns on the half that judges them; `patch_config`
+        // carries the declarations this plugin resolved, so the server
+        // never has to guess a patch manager's shape.
         $body = \json_encode([
             'composer_json' => $composerJson,
             'composer_lock' => $composerLock,
+            'patches' => true,
             'patch_files' => (object) $patches->files,
-            'patches' => $patches->patches,
+            'patch_config' => $patches->patches,
             'target_core' => $targetCore,
             'reroll' => $reroll,
         ], \JSON_THROW_ON_ERROR);
