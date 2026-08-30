@@ -1,0 +1,24 @@
+{
+    // Mutation testing: Infection injects small changes into src and
+    // reports how many the suite catches. It is the one check that fails
+    // a test which runs the code without asserting what it does.
+    "$schema": "vendor/infection/infection/resources/schema.json",
+    "source": {
+        "directories": ["src"]
+    },
+    // To a file, not stderr: a mutation diff containing angle brackets
+    // makes Symfony's console formatter parse it as markup and abort.
+    "logs": {
+        "text": "infection.log"
+    },
+    "mutators": {
+        "@default": true
+    },
+    "timeout": 10,
+    // The floor is the score the suite already reaches, so a change that
+    // adds code its tests do not check fails. Measured at 73.28% on
+    // 2026-08-29 over 539 mutants. Raise it when the score rises; never
+    // lower it to make a change pass.
+    "minMsi": 73,
+    "minCoveredMsi": 73
+}

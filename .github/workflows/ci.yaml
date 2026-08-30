@@ -1,0 +1,68 @@
+# The plugin runs inside other people's composer processes, so the matrix
+# is the point: it claims php >=8.1 and composer-plugin-api ^2.0, and only
+# a run on those proves it.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.1', '8.2', '8.3', '8.4']
+        composer: ['lowest', 'latest']
+        # composer 2.2 is older than PHP 8.4 and emits deprecations there
+        # that say nothing about this plugin.
+        include:
+          - php: '8.4'
+            composer: 'lowest'
+            tolerated: true
+    continue-on-error: ${{ matrix.tolerated == true }}
+    name: php ${{ matrix.php }} / composer ${{ matrix.composer }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      # Infection needs PHP 8.3 and would block installing anything on 8.1
+      # or 8.2. It belongs to the quality job, so it comes out of the
+      # throwaway checkout here. Ignoring the platform instead would apply
+      # to every package: composer then installs symfony/console 8, which
+      # is PHP 8.4 syntax and dies with a ParseError.
+      - name: Install dependencies
+        run: |
+          composer remove --dev --no-update infection/infection --no-interaction
+          if [ "${{ matrix.composer }}" = "lowest" ]; then
+            composer update --prefer-lowest --prefer-stable --no-progress --no-interaction
+          else
+            composer update --no-progress --no-interaction
+          fi
+      - run: composer test
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          # Infection needs a coverage driver; pcov is the fast one.
+          coverage: pcov
+      - run: composer install --no-progress --no-interaction
+      - run: composer validate --strict
+      - run: composer normalize --dry-run
+      - run: composer cs:check
+      - run: composer stan
+      # The floor is what the suite already scores. A change that drops
+      # below it has added code its tests do not check.
+      - run: composer mutate
+      - name: Escaped mutants
+        if: failure()
+        run: cat infection.log
