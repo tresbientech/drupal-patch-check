@@ -30,6 +30,10 @@ final class PatchRow
         public readonly string $verdict,
         public readonly string $note,
         public readonly string $error,
+        /** Why a strict apply refused a patch a looser one accepted. */
+        public readonly string $strictRefused,
+        /** An earlier patch of the package that did not apply. */
+        public readonly string $judgedWithout,
         public readonly ?Reroll $reroll,
     ) {
     }
@@ -58,6 +62,8 @@ final class PatchRow
             Value::str($data, 'verdict'),
             Value::str($data, 'note'),
             Value::str($result, 'error'),
+            Value::str($result, 'strict_refused'),
+            Value::str($result, 'judged_without'),
             $reroll,
         );
     }

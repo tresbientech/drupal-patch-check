@@ -83,6 +83,45 @@ final class TableTest extends TestCase
         self::assertSame('', $lines[3], 'a blank line separates the warnings from the packages');
     }
 
+    // The verdict is still-needed, so the row is not work; the line says
+    // the patch needed a looser reading than git apply gives.
+    public function testSaysWhenAStrictApplyRefusedAPatchThatStillApplies(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->row([
+            'verdict' => 'still-needed',
+            'result' => ['strict_refused' => 'the patch carries the packaging block as context'],
+        ])]]);
+
+        $lines = Table::lines($plan);
+        $row = \array_search('    still-needed  Fix the alter hook', $lines, true);
+
+        self::assertIsInt($row);
+        self::assertSame(
+            '                  the patch carries the packaging block as context',
+            $lines[$row + 1],
+            'the note belongs under its row, indented and whole'
+        );
+    }
+
+    // A row that only broke because of an earlier patch must say so, or
+    // the wrong patch gets re-rolled.
+    public function testNamesTheEarlierPatchARowWasJudgedWithout(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->row([
+            'verdict' => 'needs-reroll',
+            'result' => ['judged_without' => 'Domain content translations permissions_files'],
+        ])]]);
+
+        $lines = Table::lines($plan);
+        $row = \array_search('    needs-reroll  Fix the alter hook', $lines, true);
+
+        self::assertIsInt($row);
+        self::assertSame(
+            '                  judged without "Domain content translations permissions_files", which did not apply',
+            $lines[$row + 1]
+        );
+    }
+
     public function testEndsWithBothTallies(): void
     {
         $out = \implode("\n", Table::lines($this->plan()));

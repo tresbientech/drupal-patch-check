@@ -106,6 +106,21 @@ final class HookReportTest extends TestCase
         self::assertSame('  <comment>! 9 core patch(es) were not judged: 11.4 does not name a core release.</comment>', $lines[1], 'the warning goes under the tally, marked and whole');
     }
 
+    // A loosely applied patch is not work, so the hook prints the tally
+    // and nothing else about it.
+    public function testTheHookSaysNothingAboutALooselyAppliedPatch(): void
+    {
+        $lines = HookReport::lines($this->planFrom([
+            'counts' => ['still-needed' => 1],
+            'patches' => [$this->row([
+                'verdict' => 'still-needed',
+                'result' => ['strict_refused' => 'the patch carries the packaging block as context'],
+            ])],
+        ]));
+
+        self::assertStringNotContainsString('packaging block', \implode("\n", $lines));
+    }
+
     public function testNamesThePackagesThatBlockAnUpgrade(): void
     {
         self::assertStringContainsString('drupal/domain', \implode("\n", HookReport::lines($this->plan())));

@@ -202,4 +202,39 @@ final class ReaderTest extends TestCase
         self::assertCount(2, $resolution->patches);
         self::assertCount(1, $resolution->files);
     }
+
+    // A patch manager applies a package's patches in the order the site
+    // declares them, so the resolution has to keep it whatever shape the
+    // declaration takes.
+    public function testKeepsTheOrderEachPackageDeclaresItsPatchesIn(): void
+    {
+        $declared = [
+            'Domain content translations permissions' => 'patchs/1.patch',
+            'Domain content translations permissions_files' => 'patchs/2.patch',
+            'Domain content translations permissions core' => 'patchs/3.patch',
+            'Pass the D11 redirect destination and time services' => 'patchs/4.patch',
+            'Import AccessResult used by the translations access override' => 'patchs/5.patch',
+        ];
+        $sorted = \array_keys($declared);
+        \sort($sorted);
+        self::assertNotSame(\array_keys($declared), $sorted, 'this case must distinguish declared order from sorted');
+
+        $resolution = (new Reader($this->root))->read(['patches' => ['drupal/domain' => $declared]]);
+
+        self::assertSame(\array_keys($declared), \array_column($resolution->patches, 'title'));
+    }
+
+    public function testKeepsTheOrderOfAListShapedDeclaration(): void
+    {
+        $resolution = (new Reader($this->root))->read(['patches' => ['drupal/domain' => [
+            'patchs/b.patch',
+            'patchs/a.patch',
+            'patchs/c.patch',
+        ]]]);
+
+        self::assertSame(
+            ['patchs/b.patch', 'patchs/a.patch', 'patchs/c.patch'],
+            \array_column($resolution->patches, 'source')
+        );
+    }
 }

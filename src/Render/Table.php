@@ -41,6 +41,16 @@ final class Table
                 if ('' !== $row->reason()) {
                     $lines[] = '                  '.$row->reason();
                 }
+                // The verdict stands; this says the patch needed a
+                // looser reading than git apply gives.
+                if ('' !== $row->strictRefused) {
+                    $lines[] = '                  '.$row->strictRefused;
+                }
+                // The row may be a consequence of the named patch, so
+                // that one is the thing to fix first.
+                if ('' !== $row->judgedWithout) {
+                    $lines[] = '                  judged without "'.$row->judgedWithout.'", which did not apply';
+                }
             }
         }
 
