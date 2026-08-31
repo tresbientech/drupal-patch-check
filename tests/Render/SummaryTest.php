@@ -21,9 +21,9 @@ final class SummaryTest extends TestCase
             'target_core' => '11.4.5',
             'no_release' => ['drupal/autotitle'],
             'patches' => [
-                $this->row(['package' => 'drupal/webform', 'verdict' => 'needs-reroll', 'title' => 'a']),
-                $this->row(['package' => 'drupal/webform', 'verdict' => 'still-needed', 'title' => 'b']),
-                $this->row(['package' => 'drupal/token', 'verdict' => 'shipped', 'title' => 'c']),
+                $this->row(['package' => 'drupal/webform', 'verdict' => 'conflicts', 'title' => 'a']),
+                $this->row(['package' => 'drupal/webform', 'verdict' => 'applies', 'title' => 'b']),
+                $this->row(['package' => 'drupal/token', 'verdict' => 'merged', 'title' => 'c']),
                 $this->row(['package' => 'drupal/autotitle', 'verdict' => 'unknown', 'title' => 'd']),
             ],
         ]);
@@ -33,9 +33,9 @@ final class SummaryTest extends TestCase
     {
         $summary = Summary::of($this->plan());
 
-        self::assertSame(['drupal/webform'], $summary['needs_reroll']);
+        self::assertSame(['drupal/webform'], $summary['conflicts']);
         self::assertSame(['drupal/autotitle'], $summary['unclear']);
-        self::assertSame(['drupal/token'], $summary['shipped']);
+        self::assertSame(['drupal/token'], $summary['merged']);
         self::assertSame(['drupal/autotitle'], $summary['blocked']);
     }
 
@@ -47,17 +47,17 @@ final class SummaryTest extends TestCase
         $counts = Value::counts(Summary::of($plan), 'counts');
 
         self::assertSame(\count($plan->patches), \array_sum($counts));
-        self::assertSame(['needs-reroll' => 1, 'shipped' => 1, 'still-needed' => 1, 'unknown' => 1], $counts);
+        self::assertSame(['applies' => 1, 'conflicts' => 1, 'merged' => 1, 'unknown' => 1], $counts);
     }
 
     public function testAPackageIsNamedOnceHoweverManyRowsItHas(): void
     {
         $plan = $this->planFrom(['patches' => [
-            $this->row(['package' => 'drupal/webform', 'verdict' => 'needs-reroll', 'title' => 'a']),
-            $this->row(['package' => 'drupal/webform', 'verdict' => 'needs-reroll', 'title' => 'b']),
+            $this->row(['package' => 'drupal/webform', 'verdict' => 'conflicts', 'title' => 'a']),
+            $this->row(['package' => 'drupal/webform', 'verdict' => 'conflicts', 'title' => 'b']),
         ]]);
 
-        self::assertSame(['drupal/webform'], Summary::of($plan)['needs_reroll']);
+        self::assertSame(['drupal/webform'], Summary::of($plan)['conflicts']);
     }
 
     public function testCarriesTheExitCodeTheRunWillUse(): void
@@ -96,12 +96,12 @@ final class SummaryTest extends TestCase
     public function testCountsEveryRowOfAVerdictNotJustTheFirst(): void
     {
         $plan = $this->planFrom(['patches' => [
-            $this->row(['verdict' => 'still-needed', 'title' => 'a']),
-            $this->row(['verdict' => 'still-needed', 'title' => 'b']),
-            $this->row(['verdict' => 'still-needed', 'title' => 'c']),
+            $this->row(['verdict' => 'applies', 'title' => 'a']),
+            $this->row(['verdict' => 'applies', 'title' => 'b']),
+            $this->row(['verdict' => 'applies', 'title' => 'c']),
         ]]);
 
-        self::assertSame(['still-needed' => 3], Value::counts(Summary::of($plan), 'counts'));
+        self::assertSame(['applies' => 3], Value::counts(Summary::of($plan), 'counts'));
     }
 
     public function testSaysWhichConstraintChoseTheTarget(): void
@@ -120,8 +120,8 @@ final class SummaryTest extends TestCase
     {
         $summary = Summary::of($this->plan()->onlyPackages(['token']));
 
-        self::assertSame(['shipped' => 1], $summary['counts']);
-        self::assertSame([], $summary['needs_reroll']);
+        self::assertSame(['merged' => 1], $summary['counts']);
+        self::assertSame([], $summary['conflicts']);
         self::assertSame([], $summary['blocked'], 'a package that was not named does not block a scoped run');
         self::assertSame(Outcome::CLEAN, $summary['exit_code']);
     }
@@ -149,7 +149,7 @@ final class SummaryTest extends TestCase
         $summary = Summary::of($this->planFrom());
 
         self::assertSame([], $summary['counts']);
-        self::assertSame([], $summary['needs_reroll']);
+        self::assertSame([], $summary['conflicts']);
         self::assertSame(Outcome::CLEAN, $summary['exit_code']);
     }
 
@@ -163,9 +163,9 @@ final class SummaryTest extends TestCase
                 'target_core',
                 'target_is_installed',
                 'counts',
-                'needs_reroll',
+                'conflicts',
                 'unclear',
-                'shipped',
+                'merged',
                 'blocked',
                 'decided_by',
                 'exit_code',

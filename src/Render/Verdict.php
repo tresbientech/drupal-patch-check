@@ -22,10 +22,10 @@ final class Verdict
      * @var array<string, array{string, string, int}>
      */
     private const KNOWN = [
-        'needs-reroll' => ['!', 'error', 0],
+        'conflicts' => ['!', 'error', 0],
         'unknown' => ['?', 'comment', 1],
-        'still-needed' => ['·', '', 2],
-        'shipped' => ['✓', 'info', 3],
+        'applies' => ['·', '', 2],
+        'merged' => ['✓', 'info', 3],
     ];
 
     /**

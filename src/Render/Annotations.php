@@ -20,9 +20,9 @@ final class Annotations
 {
     /** The annotation level each verdict is written at. */
     private const LEVELS = [
-        PatchRow::NEEDS_REROLL => 'error',
+        PatchRow::CONFLICTS => 'error',
         PatchRow::UNKNOWN => 'warning',
-        PatchRow::SHIPPED => 'notice',
+        PatchRow::MERGED => 'notice',
     ];
 
     /**

@@ -24,12 +24,50 @@ final class Coverage
     ) {
     }
 
-    public static function of(Site $site): self
+    /**
+     * What a run covered, narrowed to the packages it was asked about.
+     *
+     * A run scoped with --package is answering for those packages, so a
+     * patch held back on another one is not part of the answer.
+     *
+     * @param list<string> $packages composer names or short names, empty for the whole site
+     */
+    public static function of(Site $site, array $packages = []): self
     {
-        return new self(
-            \count($site->patches()->patches),
-            $site->patches()->heldBack,
-        );
+        $resolution = $site->patches();
+        if ([] === $packages) {
+            return new self(\count($resolution->patches), $resolution->heldBack);
+        }
+
+        $wanted = [];
+        foreach ($packages as $name) {
+            $wanted[self::shortName($name)] = true;
+        }
+        $patches = 0;
+        foreach ($resolution->patches as $patch) {
+            if (isset($wanted[self::shortName($patch['package'])])) {
+                ++$patches;
+            }
+        }
+        $heldBack = [];
+        foreach ($resolution->heldBack as $line) {
+            if (isset($wanted[self::shortName(\explode(' ', $line)[0])])) {
+                $heldBack[] = $line;
+            }
+        }
+
+        return new self($patches, $heldBack);
+    }
+
+    /**
+     * A package named the way --package accepts it: either spelling of
+     * drupal/webform reduces to the same key.
+     */
+    private static function shortName(string $package): string
+    {
+        $slash = \strrpos($package, '/');
+
+        return false === $slash ? $package : \substr($package, $slash + 1);
     }
 
     /**

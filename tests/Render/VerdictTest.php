@@ -24,17 +24,17 @@ final class VerdictTest extends TestCase
      */
     public static function knownVerdicts(): iterable
     {
-        yield 'needs-reroll' => ['needs-reroll', '!', 0];
+        yield 'conflicts' => ['conflicts', '!', 0];
         yield 'unknown' => ['unknown', '?', 1];
-        yield 'still-needed' => ['still-needed', '·', 2];
-        yield 'shipped' => ['shipped', '✓', 3];
+        yield 'applies' => ['applies', '·', 2];
+        yield 'merged' => ['merged', '✓', 3];
     }
 
     public function testTheWorkSortsAboveTheFinishedRows(): void
     {
-        self::assertLessThan(Verdict::rank('still-needed'), Verdict::rank('needs-reroll'));
-        self::assertLessThan(Verdict::rank('still-needed'), Verdict::rank('unknown'));
-        self::assertLessThan(Verdict::rank('shipped'), Verdict::rank('still-needed'));
+        self::assertLessThan(Verdict::rank('applies'), Verdict::rank('conflicts'));
+        self::assertLessThan(Verdict::rank('applies'), Verdict::rank('unknown'));
+        self::assertLessThan(Verdict::rank('merged'), Verdict::rank('applies'));
     }
 
     public function testAVerdictTheServerAddedLaterIsNotKnown(): void
@@ -50,7 +50,7 @@ final class VerdictTest extends TestCase
     public function testAVerdictTheServerAddedLaterSortsWithTheWork(): void
     {
         self::assertLessThan(
-            Verdict::rank('still-needed'),
+            Verdict::rank('applies'),
             Verdict::rank('needs-a-human'),
             'an unknown verdict counts as work, so it must not sort with the finished rows',
         );
@@ -58,22 +58,22 @@ final class VerdictTest extends TestCase
 
     public function testAMarkIsWrappedInItsColour(): void
     {
-        self::assertSame('<error>!</error>', Verdict::marked('needs-reroll'));
+        self::assertSame('<error>!</error>', Verdict::marked('conflicts'));
         self::assertSame('<comment>?</comment>', Verdict::marked('unknown'));
-        self::assertSame('<info>✓</info>', Verdict::marked('shipped'));
+        self::assertSame('<info>✓</info>', Verdict::marked('merged'));
     }
 
     public function testAMarkWithNoColourIsPrintedBare(): void
     {
-        self::assertSame('', Verdict::tag('still-needed'));
-        self::assertSame('·', Verdict::marked('still-needed'));
+        self::assertSame('', Verdict::tag('applies'));
+        self::assertSame('·', Verdict::marked('applies'));
     }
 
     public function testEveryMarkIsDistinct(): void
     {
         $marks = \array_map(
             static fn (string $verdict): string => Verdict::mark($verdict),
-            ['needs-reroll', 'unknown', 'still-needed', 'shipped'],
+            ['conflicts', 'unknown', 'applies', 'merged'],
         );
 
         self::assertSame($marks, \array_unique($marks));

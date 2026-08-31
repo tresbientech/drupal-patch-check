@@ -6,6 +6,7 @@ namespace Tresbien\Drupatch\Tests\Plan;
 
 use PHPUnit\Framework\TestCase;
 use Tresbien\Drupatch\Plan\InvalidPlan;
+use Tresbien\Drupatch\Plan\PatchRow;
 use Tresbien\Drupatch\Plan\Plan;
 use Tresbien\Drupatch\Plan\Value;
 
@@ -23,12 +24,12 @@ final class PlanTest extends TestCase
             'counts' => ['current' => 30],
             'rows' => [['package' => 'drupal/webform', 'status' => 'current']],
             'plan' => [
-                'counts' => ['needs-reroll' => 1],
+                'counts' => ['conflicts' => 1],
                 'no_release' => ['drupal/domain'],
                 'missing_files' => ['patchs/local.patch'],
                 'patches' => [[
                     'package' => 'drupal/webform', 'project' => 'webform', 'installed' => '6.2.9', 'version' => '6.3.2',
-                    'title' => 'Fix a', 'source' => 'patches/a.patch', 'verdict' => 'needs-reroll',
+                    'title' => 'Fix a', 'source' => 'patches/a.patch', 'verdict' => 'conflicts',
                     'result' => ['tag' => '6.3.2', 'reroll' => ['status' => 'clean', 'patch' => "diff\n", 'verified' => true]],
                 ]],
             ],
@@ -52,10 +53,10 @@ final class PlanTest extends TestCase
     {
         $plan = Plan::fromArray([
             'counts' => ['current' => 30, 'no_release' => 1],
-            'plan' => ['counts' => ['still-needed' => 2]],
+            'plan' => ['counts' => ['applies' => 2]],
         ]);
 
-        self::assertSame(['still-needed' => 2], $plan->counts, 'the verdict tally is the nested one');
+        self::assertSame(['applies' => 2], $plan->counts, 'the verdict tally is the nested one');
         self::assertSame(['current' => 30, 'no_release' => 1], $plan->packageCounts);
     }
 
@@ -74,7 +75,7 @@ final class PlanTest extends TestCase
             'a_field_from_a_later_version' => ['anything'],
             'plan' => [
                 'counts' => [],
-                'patches' => [['package' => 'drupal/webform', 'verdict' => 'shipped', 'confidence' => 0.9]],
+                'patches' => [['package' => 'drupal/webform', 'verdict' => 'merged', 'confidence' => 0.9]],
                 'a_nested_field_from_a_later_version' => 1,
             ],
         ]);
@@ -100,19 +101,19 @@ final class PlanTest extends TestCase
     {
         $this->expectException(InvalidPlan::class);
 
-        Plan::fromArray(['plan' => ['patches' => [['title' => 'nameless', 'verdict' => 'shipped']]]]);
+        Plan::fromArray(['plan' => ['patches' => [['title' => 'nameless', 'verdict' => 'merged']]]]);
     }
 
     public function testAProjectIsDerivedFromThePackageWhenTheServerOmitsIt(): void
     {
-        $plan = Plan::fromArray(['plan' => ['patches' => [['package' => 'drupal/webform', 'verdict' => 'shipped']]]]);
+        $plan = Plan::fromArray(['plan' => ['patches' => [['package' => 'drupal/webform', 'verdict' => 'merged']]]]);
 
         self::assertSame('webform', $plan->patches[0]->project);
     }
 
     public function testAMissingOptionalFieldBecomesADefaultRatherThanAFailure(): void
     {
-        $plan = Plan::fromArray(['plan' => ['patches' => [['package' => 'drupal/webform', 'verdict' => 'shipped']]]]);
+        $plan = Plan::fromArray(['plan' => ['patches' => [['package' => 'drupal/webform', 'verdict' => 'merged']]]]);
 
         self::assertSame('', $plan->targetCore);
         self::assertSame('the installed core', $plan->against());
@@ -123,7 +124,7 @@ final class PlanTest extends TestCase
     public function testAFieldOfTheWrongTypeIsTreatedAsAbsent(): void
     {
         $plan = Plan::fromArray(['plan' => [
-            'counts' => ['needs-reroll' => 'many', 'unknown' => 2],
+            'counts' => ['conflicts' => 'many', 'unknown' => 2],
             'no_release' => ['drupal/domain', 42],
             'patches' => [],
         ]]);
@@ -146,9 +147,9 @@ final class PlanTest extends TestCase
     public function testTheSelectionsAreRenumberedLists(): void
     {
         $plan = Plan::fromArray(['plan' => ['patches' => [
-            ['package' => 'drupal/token', 'verdict' => 'still-needed'],
-            ['package' => 'drupal/webform', 'verdict' => 'needs-reroll'],
-            ['package' => 'drupal/domain', 'verdict' => 'shipped'],
+            ['package' => 'drupal/token', 'verdict' => 'applies'],
+            ['package' => 'drupal/webform', 'verdict' => 'conflicts'],
+            ['package' => 'drupal/domain', 'verdict' => 'merged'],
         ]]]);
 
         $action = $plan->needingAction();
@@ -163,7 +164,7 @@ final class PlanTest extends TestCase
 
     public function testAPatchThatAppliesIsNeitherWorkNorWorthALine(): void
     {
-        $plan = Plan::fromArray(['plan' => ['patches' => [['package' => 'drupal/webform', 'verdict' => 'still-needed']]]]);
+        $plan = Plan::fromArray(['plan' => ['patches' => [['package' => 'drupal/webform', 'verdict' => 'applies']]]]);
 
         self::assertFalse($plan->patches[0]->needsAction());
         self::assertFalse($plan->patches[0]->needsMention());
@@ -171,7 +172,7 @@ final class PlanTest extends TestCase
 
     public function testAShippedPatchIsNoWorkButStillWorthALine(): void
     {
-        $plan = Plan::fromArray(['plan' => ['patches' => [['package' => 'drupal/webform', 'verdict' => 'shipped']]]]);
+        $plan = Plan::fromArray(['plan' => ['patches' => [['package' => 'drupal/webform', 'verdict' => 'merged']]]]);
 
         self::assertFalse($plan->patches[0]->needsAction(), 'nothing is broken');
         self::assertTrue($plan->patches[0]->needsMention(), 'the patch can be deleted, so say so');
@@ -180,7 +181,7 @@ final class PlanTest extends TestCase
     public function testARowFallsBackToItsSourceWhenItHasNoTitle(): void
     {
         $plan = Plan::fromArray(['plan' => ['patches' => [[
-            'package' => 'drupal/webform', 'verdict' => 'shipped', 'source' => 'https://www.drupal.org/files/issues/a.patch',
+            'package' => 'drupal/webform', 'verdict' => 'merged', 'source' => 'https://www.drupal.org/files/issues/a.patch',
         ]]]]);
 
         self::assertSame('https://www.drupal.org/files/issues/a.patch', $plan->patches[0]->label());
@@ -206,7 +207,7 @@ final class PlanTest extends TestCase
 
         self::assertSame(['drupal/webform'], $only->packages());
         self::assertCount(2, $only->patches);
-        self::assertSame(['needs-reroll' => 1, 'still-needed' => 1], $only->counts, 'the counts are recomputed from what is left');
+        self::assertSame(['conflicts' => 1, 'applies' => 1], $only->counts, 'the counts are recomputed from what is left');
         self::assertSame([], $only->packageCounts, 'a scoped run quotes no site-wide package tally');
         self::assertSame([], $only->noRelease, 'a package that was not named does not block a scoped run');
     }
@@ -233,12 +234,12 @@ final class PlanTest extends TestCase
     public function testTheNarrowedCountsAddUpPerVerdict(): void
     {
         $plan = Plan::fromArray(['plan' => ['patches' => [
-            ['package' => 'drupal/webform', 'verdict' => 'still-needed', 'title' => 'a'],
-            ['package' => 'drupal/webform', 'verdict' => 'still-needed', 'title' => 'b'],
-            ['package' => 'drupal/token', 'verdict' => 'shipped', 'title' => 'c'],
+            ['package' => 'drupal/webform', 'verdict' => 'applies', 'title' => 'a'],
+            ['package' => 'drupal/webform', 'verdict' => 'applies', 'title' => 'b'],
+            ['package' => 'drupal/token', 'verdict' => 'merged', 'title' => 'c'],
         ]]]);
 
-        self::assertSame(['still-needed' => 2], $plan->onlyPackages(['webform'])->counts);
+        self::assertSame(['applies' => 2], $plan->onlyPackages(['webform'])->counts);
     }
 
     public function testTheNarrowedBlockedListIsARenumberedList(): void
@@ -280,7 +281,7 @@ final class PlanTest extends TestCase
 
         self::assertSame(['webform'], $raw['scope']);
         self::assertCount(2, Value::objects($nested, 'patches'));
-        self::assertSame(['needs-reroll' => 1, 'still-needed' => 1], Value::counts($nested, 'counts'));
+        self::assertSame(['conflicts' => 1, 'applies' => 1], Value::counts($nested, 'counts'));
     }
 
     // --target latest resolves to a version, and the report says which
@@ -293,22 +294,81 @@ final class PlanTest extends TestCase
             'plan' => ['patches' => []],
         ]);
 
-        self::assertSame('11.4.5 (the newest drupal/core-recommended allows)', $plan->judgedAgainst());
-        self::assertStringNotContainsString('latest', $plan->judgedAgainst());
+        self::assertSame('for a move to core 11.4.5 (the newest drupal/core-recommended allows)', $plan->scenario());
+        self::assertStringNotContainsString('latest', $plan->scenario());
     }
 
     public function testANamedTargetSaysNothingAboutAConstraint(): void
     {
         $plan = Plan::fromArray(['target_core' => '11.4.5', 'plan' => ['patches' => []]]);
 
-        self::assertSame('11.4.5', $plan->judgedAgainst());
+        self::assertSame('for a move to core 11.4.5', $plan->scenario());
+    }
+
+    // A patch is judged against its own package's release. The core
+    // version only decides which release that is.
+    public function testTheHeadlineNamesTheMoveRatherThanWhatPatchesMeet(): void
+    {
+        $plan = Plan::fromArray(['target_core' => '11.4.5', 'plan' => ['patches' => []]]);
+
+        self::assertStringNotContainsString('against', $plan->scenario());
+    }
+
+    public function testARunAgainstTheInstalledCoreSaysSo(): void
+    {
+        $plan = Plan::fromArray(['target_is_installed' => true, 'plan' => ['patches' => []]]);
+
+        self::assertSame('against the releases this site installs', $plan->scenario());
+    }
+
+    // A site can run a plugin newer than the service it asks, so the old
+    // words are read into the new ones at the boundary and nothing below
+    // it sees two names for one thing.
+    public function testTheVerdictsThisServiceUsedBeforeAreStillUnderstood(): void
+    {
+        $plan = Plan::fromArray(['plan' => ['patches' => [
+            ['package' => 'drupal/a', 'source' => 'a.patch', 'verdict' => 'shipped'],
+            ['package' => 'drupal/b', 'source' => 'b.patch', 'verdict' => 'still-needed'],
+            ['package' => 'drupal/c', 'source' => 'c.patch', 'verdict' => 'needs-reroll'],
+            ['package' => 'drupal/d', 'source' => 'd.patch', 'verdict' => 'unknown'],
+        ]]]);
+
+        self::assertSame(
+            ['merged', 'applies', 'conflicts', 'unknown'],
+            \array_map(static fn (PatchRow $row): string => $row->verdict, $plan->patches),
+        );
+    }
+
+    public function testAnOldVerdictStillDecidesTheExitCode(): void
+    {
+        $plan = Plan::fromArray(['plan' => ['patches' => [
+            ['package' => 'drupal/c', 'source' => 'c.patch', 'verdict' => 'needs-reroll'],
+        ]]]);
+
+        self::assertTrue($plan->patches[0]->conflicts());
+        self::assertTrue($plan->patches[0]->needsAction());
+    }
+
+    public function testTheNewVerdictsAreUnderstoodUnchanged(): void
+    {
+        $plan = Plan::fromArray(['plan' => ['patches' => [
+            ['package' => 'drupal/a', 'source' => 'a.patch', 'verdict' => 'merged'],
+            ['package' => 'drupal/b', 'source' => 'b.patch', 'verdict' => 'applies'],
+            ['package' => 'drupal/c', 'source' => 'c.patch', 'verdict' => 'conflicts'],
+        ]]]);
+
+        self::assertSame(
+            ['merged', 'applies', 'conflicts'],
+            \array_map(static fn (PatchRow $row): string => $row->verdict, $plan->patches),
+        );
+        self::assertTrue($plan->patches[0]->isMerged());
     }
 
     public function testARowSaysWhatDecidedItsRelease(): void
     {
         $plan = Plan::fromArray(['plan' => ['patches' => [
-            ['package' => 'drupal/webform', 'verdict' => 'still-needed', 'decided_by' => 'composer'],
-            ['package' => 'drupal/token', 'verdict' => 'still-needed'],
+            ['package' => 'drupal/webform', 'verdict' => 'applies', 'decided_by' => 'composer'],
+            ['package' => 'drupal/token', 'verdict' => 'applies'],
         ]]]);
 
         self::assertSame('composer', $plan->patches[0]->decidedBy);
@@ -321,12 +381,12 @@ final class PlanTest extends TestCase
             'target_core' => '11.4.5',
             'counts' => ['current' => 30, 'no_release' => 1],
             'plan' => [
-                'counts' => ['needs-reroll' => 1, 'still-needed' => 2],
+                'counts' => ['conflicts' => 1, 'applies' => 2],
                 'no_release' => ['drupal/domain'],
                 'patches' => [
-                    ['package' => 'drupal/webform', 'verdict' => 'needs-reroll', 'title' => 'a'],
-                    ['package' => 'drupal/webform', 'verdict' => 'still-needed', 'title' => 'b'],
-                    ['package' => 'drupal/token', 'verdict' => 'still-needed', 'title' => 'c'],
+                    ['package' => 'drupal/webform', 'verdict' => 'conflicts', 'title' => 'a'],
+                    ['package' => 'drupal/webform', 'verdict' => 'applies', 'title' => 'b'],
+                    ['package' => 'drupal/token', 'verdict' => 'applies', 'title' => 'c'],
                 ],
             ],
         ]);

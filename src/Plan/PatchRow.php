@@ -14,7 +14,7 @@ final class PatchRow
      * as work, including one this plugin has never heard of: a verdict
      * added to the server later must not read as "fine".
      */
-    public const CLEAN_VERDICTS = ['shipped', 'still-needed'];
+    public const CLEAN_VERDICTS = [self::MERGED, self::APPLIES];
 
     /**
      * Verdicts a run reports without failing. `unknown` is as often a
@@ -22,13 +22,31 @@ final class PatchRow
      * something the repository can fix, so a scheduled job is not woken
      * by one unless it asked to be.
      */
-    public const TOLERATED_VERDICTS = ['shipped', 'still-needed', 'unknown'];
+    public const TOLERATED_VERDICTS = [self::MERGED, self::APPLIES, self::UNKNOWN];
 
     public const UNKNOWN = 'unknown';
 
-    public const SHIPPED = 'shipped';
+    /** The release already carries the change, so the patch can go. */
+    public const MERGED = 'merged';
 
-    public const NEEDS_REROLL = 'needs-reroll';
+    /** The patch applies to the release cleanly. */
+    public const APPLIES = 'applies';
+
+    /** The patch does not apply and has to be re-rolled. */
+    public const CONFLICTS = 'conflicts';
+
+    /**
+     * What each verdict was called before 0.6.1.
+     *
+     * A site can run a plugin newer than the service it asks, so a plan
+     * arriving in the old words is read into the new ones here, at the
+     * boundary, and nothing below this line has two names for one thing.
+     */
+    private const RENAMED = [
+        'shipped' => self::MERGED,
+        'still-needed' => self::APPLIES,
+        'needs-reroll' => self::CONFLICTS,
+    ];
 
     private function __construct(
         public readonly string $package,
@@ -74,7 +92,7 @@ final class PatchRow
             Value::str($data, 'installed'),
             Value::str($data, 'title'),
             Value::str($data, 'source'),
-            Value::str($data, 'verdict'),
+            self::RENAMED[Value::str($data, 'verdict')] ?? Value::str($data, 'verdict'),
             Value::str($data, 'note'),
             Value::str($result, 'error'),
             Value::str($result, 'strict_refused'),
@@ -117,7 +135,7 @@ final class PatchRow
      */
     public function firstFailure(): string
     {
-        return $this->needsReroll() ? $this->failedHunk : '';
+        return $this->conflicts() ? $this->failedHunk : '';
     }
 
     /**
@@ -136,23 +154,23 @@ final class PatchRow
     }
 
     /**
-     * Whether the row is worth a line of its own. A shipped patch needs
+     * Whether the row is worth a line of its own. A merged patch needs
      * no action and is still worth saying: it can be deleted. Only a
      * patch that applies and is still required stays in the tally alone.
      */
     public function needsMention(): bool
     {
-        return 'still-needed' !== $this->verdict;
+        return self::APPLIES !== $this->verdict;
     }
 
-    public function isShipped(): bool
+    public function isMerged(): bool
     {
-        return self::SHIPPED === $this->verdict;
+        return self::MERGED === $this->verdict;
     }
 
-    public function needsReroll(): bool
+    public function conflicts(): bool
     {
-        return self::NEEDS_REROLL === $this->verdict;
+        return self::CONFLICTS === $this->verdict;
     }
 
     /**

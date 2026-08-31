@@ -16,12 +16,12 @@ final class HookReportTest extends TestCase
     private function plan(): Plan
     {
         return $this->planFrom([
-            'counts' => ['needs-reroll' => 1, 'shipped' => 1, 'still-needed' => 1],
+            'counts' => ['conflicts' => 1, 'merged' => 1, 'applies' => 1],
             'no_release' => ['drupal/domain'],
             'patches' => [
-                $this->row(['title' => 'Fix a', 'verdict' => 'needs-reroll']),
-                $this->row(['title' => 'Fix b', 'verdict' => 'still-needed']),
-                $this->row(['package' => 'drupal/core', 'version' => '11.4.5', 'title' => 'Menu cache', 'verdict' => 'shipped']),
+                $this->row(['title' => 'Fix a', 'verdict' => 'conflicts']),
+                $this->row(['title' => 'Fix b', 'verdict' => 'applies']),
+                $this->row(['package' => 'drupal/core', 'version' => '11.4.5', 'title' => 'Menu cache', 'verdict' => 'merged']),
             ],
         ]);
     }
@@ -31,7 +31,7 @@ final class HookReportTest extends TestCase
     public function testSaysNothingWhenComposerHasAlreadySaidItAll(): void
     {
         $plan = $this->planFrom([
-            'counts' => ['still-needed' => 46],
+            'counts' => ['applies' => 46],
             'patches' => [$this->row(), $this->row(['title' => 'another'])],
         ]);
 
@@ -44,16 +44,16 @@ final class HookReportTest extends TestCase
 
         self::assertStringContainsString('1 need a re-roll', $first);
         self::assertStringContainsString('1 can go', $first);
-        self::assertStringNotContainsString('still-needed', $first, 'composer already applied those');
+        self::assertStringNotContainsString('applies', $first, 'composer already applied those');
     }
 
     public function testTheHeadlineCountsEachVerdictAndReadsWhole(): void
     {
         $first = HookReport::lines($this->planFrom([
-            'counts' => ['shipped' => 2, 'unknown' => 1],
+            'counts' => ['merged' => 2, 'unknown' => 1],
             'patches' => [
-                $this->row(['verdict' => 'shipped', 'title' => 'a']),
-                $this->row(['verdict' => 'shipped', 'title' => 'b']),
+                $this->row(['verdict' => 'merged', 'title' => 'a']),
+                $this->row(['verdict' => 'merged', 'title' => 'b']),
                 $this->row(['verdict' => 'unknown', 'title' => 'c']),
             ],
         ]))[0];
@@ -96,9 +96,9 @@ final class HookReportTest extends TestCase
     {
         $rows = [];
         for ($i = 0; $i < 25; ++$i) {
-            $rows[] = $this->row(['verdict' => 'shipped', 'title' => 'Fix '.$i]);
+            $rows[] = $this->row(['verdict' => 'merged', 'title' => 'Fix '.$i]);
         }
-        $lines = HookReport::lines($this->planFrom(['counts' => ['shipped' => 25], 'patches' => $rows]));
+        $lines = HookReport::lines($this->planFrom(['counts' => ['merged' => 25], 'patches' => $rows]));
 
         self::assertContains('  …', $lines);
         self::assertStringContainsString('Fix 19', \implode("\n", $lines));
@@ -121,7 +121,7 @@ final class HookReportTest extends TestCase
 
         self::assertStringContainsString('Fix a', $lines);
         self::assertStringContainsString('Menu cache', $lines);
-        self::assertStringNotContainsString('Fix b', $lines, 'a still-needed patch is what composer just applied');
+        self::assertStringNotContainsString('Fix b', $lines, 'a applies patch is what composer just applied');
     }
 
     // An unclear row is the one verdict that says nothing on its own: it
@@ -147,14 +147,14 @@ final class HookReportTest extends TestCase
     public function testARowWithNothingToExplainStaysOneLine(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row([
-            'verdict' => 'shipped',
+            'verdict' => 'merged',
             'package' => 'drupal/token',
             'title' => 'Cache tag on token replacement',
         ])]]);
 
         $lines = HookReport::lines($plan);
 
-        self::assertStringContainsString('shipped', $lines[1]);
+        self::assertStringContainsString('merged', $lines[1]);
         self::assertStringStartsWith('  run `', $lines[2]);
     }
 
@@ -165,9 +165,9 @@ final class HookReportTest extends TestCase
             static fn (string $line): bool => 1 === \preg_match('/^  (<\\w+>)?[!?·✓*]/u', $line),
         ));
 
-        self::assertCount(2, $rows, 'a still-needed patch stays in the tally');
-        self::assertStringStartsWith('  <error>!</error> needs-reroll', $rows[0]);
-        self::assertStringStartsWith('  <info>✓</info> shipped', $rows[1]);
+        self::assertCount(2, $rows, 'a applies patch stays in the tally');
+        self::assertStringStartsWith('  <error>!</error> conflicts', $rows[0]);
+        self::assertStringStartsWith('  <info>✓</info> merged', $rows[1]);
     }
 
     public function testPointsAtTheCommandThatShowsMore(): void
@@ -191,7 +191,7 @@ final class HookReportTest extends TestCase
     public function testPrintsAWarningTheTallyDependsOn(): void
     {
         $plan = $this->planFrom([
-            'counts' => ['still-needed' => 1],
+            'counts' => ['applies' => 1],
             'warnings' => ['9 core patch(es) were not judged: 11.4 does not name a core release.'],
             'patches' => [$this->row()],
         ]);
@@ -206,9 +206,9 @@ final class HookReportTest extends TestCase
     public function testTheHookSaysNothingAboutALooselyAppliedPatch(): void
     {
         $lines = HookReport::lines($this->planFrom([
-            'counts' => ['still-needed' => 1],
+            'counts' => ['applies' => 1],
             'patches' => [$this->row([
-                'verdict' => 'still-needed',
+                'verdict' => 'applies',
                 'result' => ['strict_refused' => 'the patch carries the packaging block as context'],
             ])],
         ]));
@@ -226,26 +226,38 @@ final class HookReportTest extends TestCase
     public function testABlockedPackageAloneSaysNothing(): void
     {
         self::assertSame([], HookReport::lines($this->planFrom([
-            'counts' => ['still-needed' => 1],
+            'counts' => ['applies' => 1],
             'no_release' => ['drupal/domain'],
             'patches' => [$this->row()],
         ])));
     }
 
     // What the site itself can change is worth one line, even when every
-    // patch applies.
-    public function testAWarningAloneIsWorthSpeaking(): void
+    // patch applies, so long as the package carries a patch at all.
+    public function testAWarningAboutAPatchedPackageIsWorthSpeaking(): void
     {
         $lines = HookReport::lines($this->planFrom([
-            'counts' => ['still-needed' => 1],
-            'no_release' => ['drupal/select2'],
-            'warnings' => ['drupal/select2 2.0.0 supports 11.4.5; the site requires 2.x-dev@dev. Widen it to ^2.0.'],
+            'counts' => ['applies' => 1],
+            'no_release' => ['drupal/webform'],
+            'warnings' => ['drupal/webform 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.'],
             'patches' => [$this->row()],
         ]));
 
         self::assertStringContainsString('no patch needs a decision', $lines[0]);
-        self::assertStringContainsString('Widen it to ^2.0.', $lines[1]);
+        self::assertStringContainsString('Widen it to ^6.3.', $lines[1]);
         self::assertStringNotContainsString('no release for', \implode("\n", $lines));
+    }
+
+    // The hook is about patches too. A blocked package carrying none has
+    // nothing here to caveat.
+    public function testAWarningAboutAPackageWithNoPatchesSaysNothing(): void
+    {
+        self::assertSame([], HookReport::lines($this->planFrom([
+            'counts' => ['applies' => 1],
+            'no_release' => ['drupal/select2'],
+            'warnings' => ['drupal/select2 2.0.0 supports 11.4.5; the site requires 2.x-dev@dev. Widen it to ^2.0.'],
+            'patches' => [$this->row()],
+        ])));
     }
 
     public function testSaysNothingWhenTheSiteDeclaresNoPatches(): void

@@ -31,14 +31,14 @@ final class NextSteps
     public static function of(array $counts): array
     {
         $out = [];
-        $reroll = $counts[PatchRow::NEEDS_REROLL] ?? 0;
+        $reroll = $counts[PatchRow::CONFLICTS] ?? 0;
         if ($reroll > 0) {
             $out[] = [
                 'flag' => '--reroll',
                 'effect' => 1 === $reroll ? 'writes the re-roll' : 'writes the '.$reroll.' re-rolls',
             ];
         }
-        $shipped = $counts[PatchRow::SHIPPED] ?? 0;
+        $shipped = $counts[PatchRow::MERGED] ?? 0;
         if ($shipped > 0) {
             $out[] = [
                 'flag' => '--fix',

@@ -141,7 +141,7 @@ final class PatchFilesTest extends TestCase
 
     public function testAPatchWithNoRerollWritesNothing(): void
     {
-        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'still-needed'])]]);
+        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'applies'])]]);
 
         self::assertSame([], PatchFiles::forPlan($this->root, $plan)->write($plan));
         self::assertSame([], self::paths($this->root.'/*'));

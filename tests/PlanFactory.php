@@ -69,7 +69,7 @@ trait PlanFactory
             'version' => '6.2.9',
             'title' => 'Fix the alter hook',
             'source' => 'patchs/webform.patch',
-            'verdict' => 'still-needed',
+            'verdict' => 'applies',
         ];
     }
 
@@ -81,7 +81,7 @@ trait PlanFactory
      */
     private function rerolledRow(array $reroll, array $fields = []): array
     {
-        return $this->row($fields + ['verdict' => 'needs-reroll', 'result' => ['reroll' => $reroll]]);
+        return $this->row($fields + ['verdict' => 'conflicts', 'result' => ['reroll' => $reroll]]);
     }
 
     private function writtenFile(string $path, string $status = 'clean', string $package = 'drupal/webform', string $title = 'Fix a', bool $verified = true): WrittenFile

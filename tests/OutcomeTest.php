@@ -14,8 +14,8 @@ final class OutcomeTest extends TestCase
     public function testEveryPatchApplyingOrShippedIsClean(): void
     {
         $plan = $this->planFrom(['patches' => [
-            $this->row(['verdict' => 'still-needed']),
-            $this->row(['verdict' => 'shipped']),
+            $this->row(['verdict' => 'applies']),
+            $this->row(['verdict' => 'merged']),
         ]]);
 
         self::assertSame(Outcome::CLEAN, Outcome::of($plan));
@@ -23,7 +23,7 @@ final class OutcomeTest extends TestCase
 
     public function testAPatchThatNoLongerAppliesNeedsAction(): void
     {
-        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'needs-reroll'])]]);
+        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'conflicts'])]]);
 
         self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan));
     }
@@ -58,7 +58,7 @@ final class OutcomeTest extends TestCase
 
     public function testAPatchThatWillNotApplyFailsEitherWay(): void
     {
-        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'needs-reroll'])]]);
+        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'conflicts'])]]);
 
         self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan));
         self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true));
@@ -88,8 +88,8 @@ final class OutcomeTest extends TestCase
         $plan = $this->planFrom([
             'no_release' => ['drupal/select2'],
             'patches' => [
-                $this->row(['package' => 'drupal/select2', 'verdict' => 'still-needed']),
-                $this->row(['package' => 'drupal/select2', 'verdict' => 'still-needed']),
+                $this->row(['package' => 'drupal/select2', 'verdict' => 'applies']),
+                $this->row(['package' => 'drupal/select2', 'verdict' => 'applies']),
             ],
         ]);
 
@@ -114,8 +114,8 @@ final class OutcomeTest extends TestCase
         $plan = $this->planFrom([
             'no_release' => ['drupal/domain'],
             'patches' => [
-                $this->row(['verdict' => 'still-needed']),
-                $this->row(['verdict' => 'shipped']),
+                $this->row(['verdict' => 'applies']),
+                $this->row(['verdict' => 'merged']),
                 $this->row(['verdict' => 'unknown']),
             ],
         ]);
@@ -128,8 +128,8 @@ final class OutcomeTest extends TestCase
     public function testNarrowingDecidesWhatTheExitCodeIsAbout(): void
     {
         $plan = $this->planFrom(['patches' => [
-            $this->row(['package' => 'drupal/token', 'verdict' => 'still-needed']),
-            $this->row(['package' => 'drupal/webform', 'verdict' => 'needs-reroll']),
+            $this->row(['package' => 'drupal/token', 'verdict' => 'applies']),
+            $this->row(['package' => 'drupal/webform', 'verdict' => 'conflicts']),
         ]]);
 
         self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan));

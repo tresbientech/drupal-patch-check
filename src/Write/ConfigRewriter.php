@@ -37,12 +37,12 @@ final class ConfigRewriter
 
         $changes = [];
         foreach ($plan->patches as $row) {
-            if ($row->isShipped()) {
+            if ($row->isMerged()) {
                 $changes[] = new Change(Change::DROPPED, $row->package, $row->title, '');
                 continue;
             }
             $path = $files[$row->key()] ?? '';
-            if ($row->needsReroll() && '' !== $path) {
+            if ($row->conflicts() && '' !== $path) {
                 $changes[] = new Change(Change::REPOINTED, $row->package, $row->title, $path);
             }
         }

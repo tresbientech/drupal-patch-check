@@ -30,12 +30,12 @@ final class AnnotationsTest extends TestCase
 
     public function testARowNeedingARerollIsAnError(): void
     {
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [$this->row([
-            'verdict' => 'needs-reroll', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
         ])]]);
 
         self::assertSame(
-            ['::error file=composer.json,line=5::needs-reroll drupal/webform 6.2.9: Style fix'],
+            ['::error file=composer.json,line=5::conflicts drupal/webform 6.2.9: Style fix'],
             $this->lines($plan),
         );
     }
@@ -51,17 +51,17 @@ final class AnnotationsTest extends TestCase
 
     public function testAShippedRowIsANotice(): void
     {
-        $plan = $this->planFrom(['counts' => ['shipped' => 1], 'patches' => [$this->row([
-            'verdict' => 'shipped', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
+        $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row([
+            'verdict' => 'merged', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
         ])]]);
 
-        self::assertStringStartsWith('::notice file=composer.json,line=5::shipped drupal/webform 6.2.9: Style fix', $this->lines($plan)[0]);
+        self::assertStringStartsWith('::notice file=composer.json,line=5::merged drupal/webform 6.2.9: Style fix', $this->lines($plan)[0]);
     }
 
     public function testAPatchThatStillAppliesGetsNoAnnotation(): void
     {
-        $plan = $this->planFrom(['counts' => ['still-needed' => 1], 'patches' => [$this->row([
-            'verdict' => 'still-needed', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row([
+            'verdict' => 'applies', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
         ])]]);
 
         self::assertSame([], $this->lines($plan));
@@ -69,36 +69,36 @@ final class AnnotationsTest extends TestCase
 
     public function testAPatchDeclaredByUrlIsAnchoredToo(): void
     {
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [$this->row([
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
             'package' => 'drupal/memcache', 'project' => 'memcache', 'version' => '2.8.0',
-            'verdict' => 'needs-reroll', 'title' => 'Transaction-aware backend',
+            'verdict' => 'conflicts', 'title' => 'Transaction-aware backend',
             'source' => 'https://www.drupal.org/files/issues/memcache.patch',
         ])]]);
 
         self::assertSame(
-            ['::error file=composer.json,line=8::needs-reroll drupal/memcache 2.8.0: Transaction-aware backend'],
+            ['::error file=composer.json,line=8::conflicts drupal/memcache 2.8.0: Transaction-aware backend'],
             $this->lines($plan),
         );
     }
 
     public function testAnExternalPatchesFileIsNamedInstead(): void
     {
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [$this->row([
-            'verdict' => 'needs-reroll', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
         ])]]);
 
         $document = "{\n  \"patches\": {\n    \"drupal/webform\": {\n      \"Style fix\": \"patchs/webform-style.patch\"\n";
 
         self::assertSame(
-            ['::error file=patches.json,line=4::needs-reroll drupal/webform 6.2.9: Style fix'],
+            ['::error file=patches.json,line=4::conflicts drupal/webform 6.2.9: Style fix'],
             Annotations::lines($plan, 'patches.json', Lines::in($document)),
         );
     }
 
     public function testASourceThatIsNotInTheDocumentAnchorsToTheFirstLine(): void
     {
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [$this->row([
-            'verdict' => 'needs-reroll', 'title' => 'Gone', 'source' => 'patchs/gone.patch',
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts', 'title' => 'Gone', 'source' => 'patchs/gone.patch',
         ])]]);
 
         self::assertStringStartsWith('::error file=composer.json,line=1::', $this->lines($plan)[0]);
@@ -106,13 +106,13 @@ final class AnnotationsTest extends TestCase
 
     public function testTheMessageNamesWhatARerollMustFix(): void
     {
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [$this->row([
-            'verdict' => 'needs-reroll', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
             'result' => ['hunks_failed' => [['file' => 'src/Element/Webform.php', 'reason' => 'context differs']]],
         ])]]);
 
         self::assertSame(
-            ['::error file=composer.json,line=5::needs-reroll drupal/webform 6.2.9: Style fix; src/Element/Webform.php: context differs'],
+            ['::error file=composer.json,line=5::conflicts drupal/webform 6.2.9: Style fix; src/Element/Webform.php: context differs'],
             $this->lines($plan),
         );
     }
@@ -120,11 +120,11 @@ final class AnnotationsTest extends TestCase
     public function testOneLinePerAnnotatedRow(): void
     {
         $plan = $this->planFrom([
-            'counts' => ['needs-reroll' => 1, 'shipped' => 1, 'still-needed' => 1],
+            'counts' => ['conflicts' => 1, 'merged' => 1, 'applies' => 1],
             'patches' => [
-                $this->row(['verdict' => 'needs-reroll', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch']),
-                $this->row(['verdict' => 'shipped', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch']),
-                $this->row(['verdict' => 'still-needed', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch']),
+                $this->row(['verdict' => 'conflicts', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch']),
+                $this->row(['verdict' => 'merged', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch']),
+                $this->row(['verdict' => 'applies', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch']),
             ],
         ]);
 
@@ -134,20 +134,20 @@ final class AnnotationsTest extends TestCase
     public function testATitleCarryingAColonAndCommasSurvivesIntact(): void
     {
         $title = 'CORPUPLIFT-1703: Geodis .htaccess customizations (IP bans, HTTPS, redirects)';
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [$this->row([
-            'verdict' => 'needs-reroll', 'title' => $title, 'source' => 'patchs/webform-style.patch',
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts', 'title' => $title, 'source' => 'patchs/webform-style.patch',
         ])]]);
 
         $line = $this->lines($plan)[0];
 
         self::assertStringEndsWith($title, $line, 'the message body takes a colon and a comma unescaped');
-        self::assertStringStartsWith('::error file=composer.json,line=5::needs-reroll', $line, 'nothing of the title reaches a property');
+        self::assertStringStartsWith('::error file=composer.json,line=5::conflicts', $line, 'nothing of the title reaches a property');
     }
 
     public function testAPercentSignIsEscaped(): void
     {
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [$this->row([
-            'verdict' => 'needs-reroll', 'title' => '100% of hunks failed', 'source' => 'patchs/webform-style.patch',
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts', 'title' => '100% of hunks failed', 'source' => 'patchs/webform-style.patch',
         ])]]);
 
         self::assertStringEndsWith('100%25 of hunks failed', $this->lines($plan)[0]);
@@ -155,8 +155,8 @@ final class AnnotationsTest extends TestCase
 
     public function testANewlineNeverBreaksTheLine(): void
     {
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [$this->row([
-            'verdict' => 'needs-reroll', 'title' => "Two\r\nlines", 'source' => 'patchs/webform-style.patch',
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts', 'title' => "Two\r\nlines", 'source' => 'patchs/webform-style.patch',
         ])]]);
 
         $lines = $this->lines($plan);
@@ -167,8 +167,8 @@ final class AnnotationsTest extends TestCase
 
     public function testAPercentIsEscapedBeforeTheNewlineIsEncoded(): void
     {
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [$this->row([
-            'verdict' => 'needs-reroll', 'title' => '%0A', 'source' => 'patchs/webform-style.patch',
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts', 'title' => '%0A', 'source' => 'patchs/webform-style.patch',
         ])]]);
 
         self::assertStringEndsWith('%250A', $this->lines($plan)[0], 'a literal %0A in a title is not read back as a newline');

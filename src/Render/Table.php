@@ -29,15 +29,15 @@ final class Table
         $titleWidth = Budget::title($width, $trailing);
         $total = \count($plan->patches);
         $lines = [\sprintf(
-            '<info>Drupal Code Query</info>: %d patch%s against %s',
+            '<info>Drupal Code Query</info>: %d patch%s %s',
             $total,
             1 === $total ? '' : 'es',
-            $plan->judgedAgainst()
+            $plan->scenario()
         ), ''];
 
         $grouped = self::byPackage($plan);
         $placed = self::warningsByPackage($plan->warnings, \array_keys($grouped));
-        $loose = \array_diff($plan->warnings, \array_merge([], ...\array_values($placed)));
+        $loose = self::aboutNoPackage($plan->warnings, \array_merge($plan->packages(), $plan->noRelease));
 
         foreach ($loose as $warning) {
             $lines[] = self::warning($warning);
@@ -58,7 +58,7 @@ final class Table
             $lines[] = '  '.self::heading($rows[0]).'   '.self::packageTally($rows);
             foreach ($rows as $row) {
                 $lines[] = \rtrim(\sprintf(
-                    '    %s %-13s %s  %s',
+                    '    %s %-9s %s  %s',
                     Verdict::marked($row->verdict),
                     $row->verdict,
                     Budget::pad(Budget::fit($row->label(), $titleWidth), $titleWidth),
@@ -186,12 +186,15 @@ final class Table
     }
 
     /**
-     * Patches under their package, worst package first.
+     * Patches under their package, in the order the site declares them.
      *
-     * Ordering is total: a package sorts by its worst verdict then by
-     * name, and a row by its verdict then by its label. The alphabetical
-     * tie is what makes two runs on one plan byte-identical, so a CI log
-     * can be diffed against the last one.
+     * That is the order composer applies them, and a patch judged
+     * without an earlier one cites that earlier one by title. Any other
+     * order can print the cited patch below the row citing it.
+     *
+     * A package appears once, at its first declaration. The order is the
+     * document's, so two runs on one plan stay byte-identical and a CI
+     * log can be diffed against the last one.
      *
      * @return array<string, non-empty-list<PatchRow>>
      */
@@ -201,11 +204,6 @@ final class Table
         foreach ($plan->patches as $row) {
             $grouped[$row->package][] = $row;
         }
-        foreach ($grouped as $package => $rows) {
-            \usort($rows, static fn (PatchRow $a, PatchRow $b): int => [Verdict::rank($a->verdict), $a->label()] <=> [Verdict::rank($b->verdict), $b->label()]);
-            $grouped[$package] = $rows;
-        }
-        \uksort($grouped, static fn (string $a, string $b): int => [self::worst($grouped[$a]), $a] <=> [self::worst($grouped[$b]), $b]);
 
         return $grouped;
     }
@@ -223,8 +221,7 @@ final class Table
      *
      * A warning about a package opens with its name, which is the only
      * handle the plugin has: the sentence is built by the service and
-     * arrives as text. A warning matching no printed package is left out
-     * here and printed above the report instead.
+     * arrives as text.
      *
      * @param list<string> $warnings
      * @param list<string> $packages
@@ -247,15 +244,35 @@ final class Table
     }
 
     /**
-     * The rank of the package's worst verdict.
+     * The warnings that name no package at all.
      *
-     * @param non-empty-list<PatchRow> $rows
+     * One of those is about the run rather than about a package, so it
+     * leads the report and says the counts below cannot be trusted.
+     *
+     * The names checked are every patched package plus every blocked
+     * one, which together are the packages a warning can be about. So a
+     * warning naming a blocked package that carries no patch matches
+     * here and is dropped: the report is about patches, and that package
+     * has none.
+     *
+     * @param list<string> $warnings
+     * @param list<string> $packages
+     *
+     * @return list<string>
      */
-    private static function worst(array $rows): int
+    private static function aboutNoPackage(array $warnings, array $packages): array
     {
-        $ranks = \array_map(static fn (PatchRow $row): int => Verdict::rank($row->verdict), $rows);
+        $out = [];
+        foreach ($warnings as $warning) {
+            foreach ($packages as $package) {
+                if (\str_starts_with($warning, $package.' ')) {
+                    continue 2;
+                }
+            }
+            $out[] = $warning;
+        }
 
-        return \min($ranks);
+        return $out;
     }
 
     /**

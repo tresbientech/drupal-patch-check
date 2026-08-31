@@ -16,12 +16,12 @@ final class TableTest extends TestCase
     private function plan(): Plan
     {
         return $this->planFrom([
-            'counts' => ['needs-reroll' => 1, 'still-needed' => 1, 'unknown' => 1],
+            'counts' => ['conflicts' => 1, 'applies' => 1, 'unknown' => 1],
             'package_counts' => ['current' => 30, 'no_release' => 1],
             'no_release' => ['drupal/domain'],
             'patches' => [
-                $this->row(['installed' => '6.2.9', 'version' => '6.3.2', 'title' => 'Fix a', 'verdict' => 'needs-reroll']),
-                $this->row(['installed' => '6.2.9', 'version' => '6.3.2', 'title' => 'Fix b', 'verdict' => 'still-needed']),
+                $this->row(['installed' => '6.2.9', 'version' => '6.3.2', 'title' => 'Fix a', 'verdict' => 'conflicts']),
+                $this->row(['installed' => '6.2.9', 'version' => '6.3.2', 'title' => 'Fix b', 'verdict' => 'applies']),
                 $this->row([
                     'package' => 'drupal/domain', 'project' => 'domain', 'installed' => '2.0.1', 'version' => '',
                     'title' => 'Fix c', 'verdict' => 'unknown', 'note' => 'drupal/domain has no release for 11.4.5',
@@ -38,7 +38,7 @@ final class TableTest extends TestCase
     public function testGroupsPatchesUnderTheirPackage(): void
     {
         $lines = Table::lines($this->plan());
-        $webform = \array_search('  drupal/webform 6.2.9 → 6.3.2   1 needs-reroll, 1 still-needed', $lines, true);
+        $webform = \array_search('  drupal/webform 6.2.9 → 6.3.2   1 conflicts, 1 applies', $lines, true);
 
         self::assertIsInt($webform);
         self::assertStringContainsString('Fix a', $lines[$webform + 1]);
@@ -54,8 +54,8 @@ final class TableTest extends TestCase
 
     public function testNamesTheFileARerollWillHaveToFix(): void
     {
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [$this->row([
-            'verdict' => 'needs-reroll',
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts',
             'result' => ['hunks_failed' => [
                 ['file' => 'tests/src/Functional/SimplesitemapTest.php', 'reason' => 'does not exist in index'],
                 ['file' => 'src/Manager.php', 'reason' => 'patch does not apply'],
@@ -71,8 +71,8 @@ final class TableTest extends TestCase
 
     public function testSaysNothingAboutFailedHunksOnAVerdictThatStands(): void
     {
-        $plan = $this->planFrom(['counts' => ['still-needed' => 1], 'patches' => [$this->row([
-            'verdict' => 'still-needed',
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row([
+            'verdict' => 'applies',
             'result' => ['hunks_failed' => [['file' => 'src/Manager.php', 'reason' => 'patch does not apply']]],
         ])]]);
 
@@ -81,14 +81,14 @@ final class TableTest extends TestCase
 
     public function testRendersARerollWithoutFailedHunksAsBefore(): void
     {
-        $plan = $this->planFrom(['counts' => ['needs-reroll' => 1], 'patches' => [
-            $this->row(['verdict' => 'needs-reroll', 'title' => 'Fix a']),
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [
+            $this->row(['verdict' => 'conflicts', 'title' => 'Fix a']),
         ]]);
         $lines = Table::lines($plan);
-        $at = \array_search('  drupal/webform 6.2.9   1 needs-reroll', $lines, true);
+        $at = \array_search('  drupal/webform 6.2.9   1 conflicts', $lines, true);
 
         self::assertIsInt($at);
-        self::assertStringContainsString('needs-reroll', $lines[$at + 1]);
+        self::assertStringContainsString('conflicts', $lines[$at + 1]);
         self::assertStringContainsString('Fix a', $lines[$at + 1]);
         self::assertSame('', $lines[$at + 2] ?? '');
     }
@@ -123,20 +123,20 @@ final class TableTest extends TestCase
         self::assertSame('', $lines[3], 'a blank line separates the warnings from the packages');
     }
 
-    // The verdict is still-needed, so the row is not work; the line says
+    // The verdict is applies, so the row is not work; the line says
     // the patch needed a looser reading than git apply gives.
     public function testSaysWhenAStrictApplyRefusedAPatchThatStillApplies(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row([
-            'verdict' => 'still-needed',
+            'verdict' => 'applies',
             'result' => ['strict_refused' => 'the patch carries the packaging block as context'],
         ])]]);
 
         $lines = Table::lines($plan);
-        $row = self::rowWith($lines, '· still-needed  Fix the alter hook');
+        $row = self::rowWith($lines, '· applies   Fix the alter hook');
 
         self::assertSame(
-            '                    the patch carries the packaging block as context',
+            '                the patch carries the packaging block as context',
             $lines[$row + 1],
             'the note belongs under its row, indented and whole'
         );
@@ -147,55 +147,72 @@ final class TableTest extends TestCase
     public function testNamesTheEarlierPatchARowWasJudgedWithout(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row([
-            'verdict' => 'needs-reroll',
+            'verdict' => 'conflicts',
             'result' => ['judged_without' => 'Domain content translations permissions_files'],
         ])]]);
 
         $lines = Table::lines($plan);
-        $row = self::rowWith($lines, '<error>!</error> needs-reroll  Fix the alter hook');
+        $row = self::rowWith($lines, '<error>!</error> conflicts Fix the alter hook');
 
         self::assertSame(
-            '                    judged without "Domain content translations permissions_files", which did not apply',
+            '                judged without "Domain content translations permissions_files", which did not apply',
             $lines[$row + 1]
         );
     }
 
-    public function testThePackageNeedingAPersonComesFirst(): void
+    // composer.json order is the order composer applies them, so it is
+    // the only order in which a patch judged without an earlier one can
+    // cite a row already printed.
+    public function testPackagesKeepTheOrderTheSiteDeclaresThem(): void
     {
         $plan = $this->planFrom(['patches' => [
-            $this->row(['package' => 'drupal/zzz', 'title' => 'Fix z', 'verdict' => 'shipped']),
-            $this->row(['package' => 'drupal/aaa', 'title' => 'Fix a', 'verdict' => 'needs-reroll']),
+            $this->row(['package' => 'drupal/zzz', 'title' => 'Fix z', 'verdict' => 'merged']),
+            $this->row(['package' => 'drupal/aaa', 'title' => 'Fix a', 'verdict' => 'conflicts']),
         ]]);
 
         self::assertSame(
-            ['drupal/aaa', 'drupal/zzz'],
+            ['drupal/zzz', 'drupal/aaa'],
             self::packagesInOrder(Table::lines($plan)),
         );
     }
 
-    public function testPackagesWithTheSameWorstVerdictSortByName(): void
+    public function testRowsKeepTheOrderTheSiteDeclaresThem(): void
     {
         $plan = $this->planFrom(['patches' => [
-            $this->row(['package' => 'drupal/token', 'title' => 'Fix t', 'verdict' => 'needs-reroll']),
-            $this->row(['package' => 'drupal/admin', 'title' => 'Fix b', 'verdict' => 'needs-reroll']),
-            $this->row(['package' => 'drupal/media', 'title' => 'Fix m', 'verdict' => 'needs-reroll']),
+            $this->row(['title' => 'Zebra', 'verdict' => 'merged']),
+            $this->row(['title' => 'Alpha', 'verdict' => 'merged']),
+            $this->row(['title' => 'Yak', 'verdict' => 'conflicts']),
         ]]);
 
-        self::assertSame(
-            ['drupal/admin', 'drupal/media', 'drupal/token'],
-            self::packagesInOrder(Table::lines($plan)),
-        );
+        self::assertSame(['Zebra', 'Alpha', 'Yak'], self::titlesInOrder(Table::lines($plan)));
     }
 
-    public function testRowsInsideAPackageSortByVerdictThenTitle(): void
+    // A package interleaved with others in composer.json still prints
+    // its patches together, under its first appearance.
+    public function testAPackageAppearsOnceAtItsFirstDeclaration(): void
     {
         $plan = $this->planFrom(['patches' => [
-            $this->row(['title' => 'Zebra', 'verdict' => 'shipped']),
-            $this->row(['title' => 'Alpha', 'verdict' => 'shipped']),
-            $this->row(['title' => 'Yak', 'verdict' => 'needs-reroll']),
+            $this->row(['package' => 'drupal/aaa', 'title' => 'First']),
+            $this->row(['package' => 'drupal/zzz', 'title' => 'Second']),
+            $this->row(['package' => 'drupal/aaa', 'title' => 'Third']),
         ]]);
 
-        self::assertSame(['Yak', 'Alpha', 'Zebra'], self::titlesInOrder(Table::lines($plan)));
+        self::assertSame(['drupal/aaa', 'drupal/zzz'], self::packagesInOrder(Table::lines($plan)));
+        self::assertSame(['First', 'Third', 'Second'], self::titlesInOrder(Table::lines($plan)));
+    }
+
+    // The cited patch is applied before the row citing it, so declaration
+    // order always prints it above.
+    public function testACitedPatchIsPrintedAboveTheRowCitingIt(): void
+    {
+        $plan = $this->planFrom(['patches' => [
+            $this->row(['title' => 'Earlier', 'verdict' => 'conflicts']),
+            $this->row(['title' => 'Later', 'verdict' => 'applies', 'result' => ['judged_without' => 'Earlier']]),
+        ]]);
+
+        $titles = self::titlesInOrder(Table::lines($plan));
+
+        self::assertSame(['Earlier', 'Later'], $titles);
     }
 
     public function testABlankLineSeparatesEachPackage(): void
@@ -222,21 +239,21 @@ final class TableTest extends TestCase
 
     public function testTheTallyOmitsVerdictsThePackageHasNone(): void
     {
-        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'shipped'])]]);
+        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'merged'])]]);
 
-        self::assertStringContainsString('drupal/webform 6.2.9   1 shipped', \implode("\n", Table::lines($plan)));
+        self::assertStringContainsString('drupal/webform 6.2.9   1 merged', \implode("\n", Table::lines($plan)));
     }
 
     public function testTheTallyIsWorstVerdictFirst(): void
     {
         $plan = $this->planFrom(['patches' => [
-            $this->row(['title' => 'A', 'verdict' => 'shipped']),
+            $this->row(['title' => 'A', 'verdict' => 'merged']),
             $this->row(['title' => 'B', 'verdict' => 'unknown']),
-            $this->row(['title' => 'C', 'verdict' => 'needs-reroll']),
+            $this->row(['title' => 'C', 'verdict' => 'conflicts']),
         ]]);
 
         self::assertStringContainsString(
-            '1 needs-reroll, 1 unknown, 1 shipped',
+            '1 conflicts, 1 unknown, 1 merged',
             \implode("\n", Table::lines($plan)),
         );
     }
@@ -436,7 +453,7 @@ final class TableTest extends TestCase
 
     public function testAReportWithNothingToRunHasNoFooter(): void
     {
-        $plan = $this->planFrom(['counts' => ['still-needed' => 1], 'patches' => [$this->row()]]);
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row()]]);
         $lines = Table::report($plan, [], 100);
 
         self::assertSame([], Table::footer($plan));
@@ -478,7 +495,7 @@ final class TableTest extends TestCase
         self::assertCount(3, $rows);
         foreach ($rows as $line) {
             self::assertMatchesRegularExpression(
-                '/^    (<\w+>)?\S(<\/\w+>)? (needs-reroll|still-needed|shipped|unknown) /u',
+                '/^    (<\w+>)?\S(<\/\w+>)? (conflicts|applies|merged|unknown) /u',
                 $line,
                 'a row must open with its mark and still name its verdict',
             );
@@ -507,50 +524,50 @@ final class TableTest extends TestCase
 
     public function testTwoSpellingsOfOneBranchAreNotAMove(): void
     {
-        $plan = $this->planFrom(['counts' => ['still-needed' => 1], 'patches' => [$this->row([
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row([
             'package' => 'drupal/select2', 'project' => 'select2', 'installed' => 'dev-2.x', 'version' => '2.x-dev',
         ])]]);
 
-        self::assertContains('  drupal/select2 dev-2.x   1 still-needed', Table::lines($plan));
+        self::assertContains('  drupal/select2 dev-2.x   1 applies', Table::lines($plan));
     }
 
     public function testEitherSpellingOfOneBranchReadsAsOne(): void
     {
-        $plan = $this->planFrom(['counts' => ['still-needed' => 1], 'patches' => [$this->row([
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row([
             'package' => 'drupal/select2', 'project' => 'select2', 'installed' => '2.x-dev', 'version' => 'dev-2.x',
         ])]]);
 
-        self::assertContains('  drupal/select2 2.x-dev   1 still-needed', Table::lines($plan));
+        self::assertContains('  drupal/select2 2.x-dev   1 applies', Table::lines($plan));
     }
 
     public function testTwoDifferentBranchesAreStillAMove(): void
     {
-        $plan = $this->planFrom(['counts' => ['still-needed' => 1], 'patches' => [$this->row([
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row([
             'package' => 'drupal/select2', 'project' => 'select2', 'installed' => 'dev-1.x', 'version' => '2.x-dev',
         ])]]);
 
-        self::assertContains('  drupal/select2 dev-1.x → 2.x-dev   1 still-needed', Table::lines($plan));
+        self::assertContains('  drupal/select2 dev-1.x → 2.x-dev   1 applies', Table::lines($plan));
     }
 
     public function testAReleaseUpgradeIsStillAMove(): void
     {
-        $plan = $this->planFrom(['counts' => ['still-needed' => 1], 'patches' => [$this->row([
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row([
             'installed' => '6.2.9', 'version' => '6.3.2',
         ])]]);
 
-        self::assertContains('  drupal/webform 6.2.9 → 6.3.2   1 still-needed', Table::lines($plan));
+        self::assertContains('  drupal/webform 6.2.9 → 6.3.2   1 applies', Table::lines($plan));
     }
 
     public function testAWarningSitsAboveThePackageItNames(): void
     {
         $plan = $this->planFrom([
-            'counts' => ['still-needed' => 1],
+            'counts' => ['applies' => 1],
             'warnings' => ['drupal/webform 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.'],
             'patches' => [$this->row()],
         ]);
 
         $lines = Table::lines($plan);
-        $heading = \array_search('  drupal/webform 6.2.9   1 still-needed', $lines, true);
+        $heading = \array_search('  drupal/webform 6.2.9   1 applies', $lines, true);
 
         self::assertIsInt($heading);
         self::assertSame(
@@ -562,10 +579,10 @@ final class TableTest extends TestCase
     public function testAWarningSitsBelowThePrecedingPackagesLastRow(): void
     {
         $plan = $this->planFrom([
-            'counts' => ['needs-reroll' => 1, 'still-needed' => 1],
+            'counts' => ['conflicts' => 1, 'applies' => 1],
             'warnings' => ['drupal/domain 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.'],
             'patches' => [
-                $this->row(['title' => 'Alpha', 'verdict' => 'needs-reroll']),
+                $this->row(['title' => 'Alpha', 'verdict' => 'conflicts']),
                 $this->row(['package' => 'drupal/domain', 'project' => 'domain', 'version' => '2.0.1', 'title' => 'Beta']),
             ],
         ]);
@@ -579,24 +596,56 @@ final class TableTest extends TestCase
         self::assertStringContainsString('drupal/domain 2.0.1', $lines[$warning + 1]);
     }
 
-    public function testAWarningMatchingNoPrintedPackageStaysAboveTheReport(): void
+    // The report is about patches. A warning naming a package that
+    // carries none is the upgrade report coming back in by another door.
+    public function testAWarningNamingAPackageWithNoPatchesIsNotPrinted(): void
     {
         $plan = $this->planFrom([
-            'counts' => ['still-needed' => 1],
+            'counts' => ['applies' => 1],
+            'no_release' => ['drupal/domain'],
             'warnings' => ['drupal/domain 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.'],
+            'patches' => [$this->row()],
+        ]);
+
+        self::assertStringNotContainsString('drupal/domain', \implode("\n", Table::lines($plan)));
+    }
+
+    public function testABlockedPackageCarryingPatchesKeepsItsWarning(): void
+    {
+        $plan = $this->planFrom([
+            'counts' => ['applies' => 1],
+            'no_release' => ['drupal/webform'],
+            'warnings' => ['drupal/webform 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.'],
+            'patches' => [$this->row()],
+        ]);
+
+        $lines = Table::lines($plan);
+        $heading = \array_search('  drupal/webform 6.2.9   1 applies', $lines, true);
+
+        self::assertIsInt($heading);
+        self::assertStringContainsString('Widen it to ^6.3.', $lines[$heading - 1]);
+    }
+
+    // A warning about the run rather than about a package still leads:
+    // it says the counts below it cannot be trusted.
+    public function testAWarningNamingNoPackageStillLeadsTheReport(): void
+    {
+        $plan = $this->planFrom([
+            'counts' => ['applies' => 1],
+            'warnings' => ['9 core patch(es) were not judged: 11.4 does not name a core release.'],
             'patches' => [$this->row()],
         ]);
 
         $lines = Table::lines($plan);
 
-        self::assertSame('  <comment>! drupal/domain 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.</comment>', $lines[2]);
+        self::assertSame('  <comment>! 9 core patch(es) were not judged: 11.4 does not name a core release.</comment>', $lines[2]);
         self::assertSame('', $lines[3]);
     }
 
     public function testAWarningNamingAPackageIsNeverPrintedTwice(): void
     {
         $plan = $this->planFrom([
-            'counts' => ['still-needed' => 1],
+            'counts' => ['applies' => 1],
             'warnings' => ['drupal/webform 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.'],
             'patches' => [$this->row()],
         ]);
@@ -610,7 +659,7 @@ final class TableTest extends TestCase
     {
         $out = \implode("\n", Table::lines($this->plan()));
 
-        self::assertStringContainsString('  patches: 1 needs-reroll, 1 still-needed, 1 unknown', $out);
+        self::assertStringContainsString('  patches: 1 conflicts, 1 applies, 1 unknown', $out);
     }
 
     public function testTheFooterCarriesNoPackageTally(): void
@@ -626,7 +675,7 @@ final class TableTest extends TestCase
     public function testTheFooterStillNamesPatchTextThatWasNotSent(): void
     {
         $plan = $this->planFrom([
-            'counts' => ['still-needed' => 1],
+            'counts' => ['applies' => 1],
             'patches' => [$this->row()],
             'missing_files' => ['drupal/webform "Fix a"'],
         ]);
@@ -638,7 +687,7 @@ final class TableTest extends TestCase
     {
         $plan = $this->planFrom(['target_is_installed' => true, 'patches' => [$this->row()]]);
 
-        self::assertStringContainsString('the core this site runs', Table::lines($plan)[0]);
+        self::assertStringContainsString('against the releases this site installs', Table::lines($plan)[0]);
     }
 
     public function testMarksACleanRerollAsVerifiedAndAConflictAsUnusable(): void

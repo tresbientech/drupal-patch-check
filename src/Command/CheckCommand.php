@@ -118,7 +118,12 @@ final class CheckCommand extends BaseCommand
      *
      * @throws RuntimeException when a named package declares no patch
      */
-    private function narrow(Plan $plan, InputInterface $input): Plan
+    /**
+     * The packages a run was scoped to, empty for the whole site.
+     *
+     * @return list<string>
+     */
+    private static function scope(InputInterface $input): array
     {
         $option = $input->getOption('package');
         $packages = [];
@@ -127,6 +132,13 @@ final class CheckCommand extends BaseCommand
                 $packages[] = \trim($name);
             }
         }
+
+        return $packages;
+    }
+
+    private function narrow(Plan $plan, InputInterface $input): Plan
+    {
+        $packages = self::scope($input);
         if ([] === $packages) {
             return $plan;
         }
@@ -239,7 +251,7 @@ final class CheckCommand extends BaseCommand
             foreach ($site->patches()->unsent as $line) {
                 $output->writeln('<comment>drupatch: patch text not sent, '.$line.'</comment>');
             }
-            $coverage = Coverage::of($site);
+            $coverage = Coverage::of($site, self::scope($input));
             foreach ($coverage->lines() as $line) {
                 $output->writeln('<comment>'.$line.'</comment>');
             }

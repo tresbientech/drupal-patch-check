@@ -30,12 +30,12 @@ final class HookReport
 
     /**
      * What each verdict means to a person reading the hook, worst first.
-     * still-needed is absent: composer applied those during the update.
+     * applies is absent: composer applied those during the update.
      */
     private const MENTION_ORDER = [
-        'needs-reroll' => 'need a re-roll',
+        'conflicts' => 'need a re-roll',
         'unknown' => 'unclear',
-        'shipped' => 'can go',
+        'merged' => 'can go',
     ];
 
     /**
@@ -44,16 +44,19 @@ final class HookReport
     public static function lines(Plan $plan): array
     {
         $rows = $plan->worthMentioning();
+        // Same rule as the report: a warning about a package carrying no
+        // patch is not this hook's business.
+        $warnings = self::worthPrinting($plan);
         // Composer applies a package's patches during the update, and
         // this hook runs after it. A patch that still applies is
         // something composer has already proved, so saying it again is
         // noise; what composer cannot say is that a patch can be deleted.
-        if ([] === $rows && [] === $plan->warnings) {
+        if ([] === $rows && [] === $warnings) {
             return [];
         }
 
         $lines = ['<info>drupatch</info>: '.self::headline($rows)];
-        foreach ($plan->warnings as $warning) {
+        foreach ($warnings as $warning) {
             $lines[] = '  <comment>! '.$warning.'</comment>';
         }
 
@@ -64,7 +67,7 @@ final class HookReport
                 break;
             }
             ++$shown;
-            $lines[] = \sprintf('  %s %-13s %s %s  %s', Verdict::marked($row->verdict), $row->verdict, $row->package, $row->version, $row->label());
+            $lines[] = \sprintf('  %s %-9s %s %s  %s', Verdict::marked($row->verdict), $row->verdict, $row->package, $row->version, $row->label());
             // An unclear row is the one case where the verdict alone says
             // nothing: the reason is whether a package blocks the upgrade,
             // a patch file is unreadable, or the mirror is a day behind.
@@ -81,6 +84,32 @@ final class HookReport
         }
 
         return $lines;
+    }
+
+    /**
+     * The warnings this hook prints: those about a package it names a
+     * row for, and those about the run rather than about a package.
+     *
+     * @return list<string>
+     */
+    private static function worthPrinting(Plan $plan): array
+    {
+        $named = \array_merge($plan->packages(), $plan->noRelease);
+        $out = [];
+        foreach ($plan->warnings as $warning) {
+            $about = '';
+            foreach ($named as $package) {
+                if (\str_starts_with($warning, $package.' ')) {
+                    $about = $package;
+                    break;
+                }
+            }
+            if ('' === $about || \in_array($about, $plan->packages(), true)) {
+                $out[] = $warning;
+            }
+        }
+
+        return $out;
     }
 
     /**

@@ -11,8 +11,8 @@ final class NextStepsTest extends TestCase
 {
     public function testAPlanWithNothingToClearSuggestsNothing(): void
     {
-        self::assertSame([], NextSteps::of(['still-needed' => 4]));
-        self::assertSame([], NextSteps::lines(['still-needed' => 4]));
+        self::assertSame([], NextSteps::of(['applies' => 4]));
+        self::assertSame([], NextSteps::lines(['applies' => 4]));
     }
 
     public function testAnEmptyPlanSuggestsNothing(): void
@@ -27,7 +27,7 @@ final class NextStepsTest extends TestCase
 
     public function testARerollIsOfferedTheFlagThatWritesIt(): void
     {
-        $steps = NextSteps::of(['needs-reroll' => 4]);
+        $steps = NextSteps::of(['conflicts' => 4]);
 
         self::assertCount(1, $steps);
         self::assertSame('--reroll', $steps[0]['flag']);
@@ -36,12 +36,12 @@ final class NextStepsTest extends TestCase
 
     public function testOneRerollIsSpokenOfInTheSingular(): void
     {
-        self::assertSame('writes the re-roll', NextSteps::of(['needs-reroll' => 1])[0]['effect']);
+        self::assertSame('writes the re-roll', NextSteps::of(['conflicts' => 1])[0]['effect']);
     }
 
     public function testAShippedPatchIsOfferedTheFlagThatDropsIt(): void
     {
-        $steps = NextSteps::of(['shipped' => 3]);
+        $steps = NextSteps::of(['merged' => 3]);
 
         self::assertCount(1, $steps);
         self::assertSame('--fix', $steps[0]['flag']);
@@ -50,31 +50,31 @@ final class NextStepsTest extends TestCase
 
     public function testOneShippedPatchIsSpokenOfInTheSingular(): void
     {
-        self::assertStringContainsString('the shipped entry', NextSteps::of(['shipped' => 1])[0]['effect']);
+        self::assertStringContainsString('the shipped entry', NextSteps::of(['merged' => 1])[0]['effect']);
     }
 
     public function testBothFindingsAreOfferedWorstFirst(): void
     {
-        $steps = NextSteps::of(['shipped' => 3, 'needs-reroll' => 4]);
+        $steps = NextSteps::of(['merged' => 3, 'conflicts' => 4]);
 
         self::assertSame(['--reroll', '--fix'], \array_column($steps, 'flag'));
     }
 
     public function testAZeroCountIsNotAFinding(): void
     {
-        self::assertSame([], NextSteps::of(['needs-reroll' => 0, 'shipped' => 0]));
+        self::assertSame([], NextSteps::of(['conflicts' => 0, 'merged' => 0]));
     }
 
     public function testEverySuggestionNamesTheCommandAndWhatItDoes(): void
     {
-        foreach (NextSteps::lines(['needs-reroll' => 4, 'shipped' => 3]) as $line) {
+        foreach (NextSteps::lines(['conflicts' => 4, 'merged' => 3]) as $line) {
             self::assertStringContainsString(NextSteps::COMMAND, $line);
         }
     }
 
     public function testTheFirstLineIsLabelledAndTheRestAreNot(): void
     {
-        $lines = NextSteps::lines(['needs-reroll' => 4, 'shipped' => 3]);
+        $lines = NextSteps::lines(['conflicts' => 4, 'merged' => 3]);
 
         self::assertCount(2, $lines);
         self::assertStringContainsString('Next:', $lines[0]);
@@ -83,7 +83,7 @@ final class NextStepsTest extends TestCase
 
     public function testTheCommandsLineUp(): void
     {
-        $lines = NextSteps::lines(['needs-reroll' => 4, 'shipped' => 3]);
+        $lines = NextSteps::lines(['conflicts' => 4, 'merged' => 3]);
 
         self::assertSame(
             \strpos($lines[0], NextSteps::COMMAND),
@@ -94,7 +94,7 @@ final class NextStepsTest extends TestCase
 
     public function testTheEffectsLineUp(): void
     {
-        $lines = NextSteps::lines(['needs-reroll' => 4, 'shipped' => 3]);
+        $lines = NextSteps::lines(['conflicts' => 4, 'merged' => 3]);
 
         self::assertSame(
             \strpos($lines[0], 'writes'),
@@ -105,6 +105,6 @@ final class NextStepsTest extends TestCase
 
     public function testTheIndentIsHonoured(): void
     {
-        self::assertStringStartsWith('    Next:', NextSteps::lines(['needs-reroll' => 1], '    ')[0]);
+        self::assertStringStartsWith('    Next:', NextSteps::lines(['conflicts' => 1], '    ')[0]);
     }
 }

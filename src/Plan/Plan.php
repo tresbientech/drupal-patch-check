@@ -112,6 +112,21 @@ final class Plan
             $this->noRelease,
             static fn (string $name): bool => isset($wanted[self::normalisePackage($name)])
         ));
+        // A warning opens with the package it is about. One about a
+        // package outside the scope answers a question that was not
+        // asked.
+        $warnings = \array_values(\array_filter(
+            $this->warnings,
+            static function (string $warning) use ($wanted): bool {
+                foreach ($wanted as $name => $_) {
+                    if (\str_starts_with(self::normalisePackage($warning), $name.' ')) {
+                        return true;
+                    }
+                }
+
+                return !\str_contains(\explode(' ', $warning)[0], '/');
+            }
+        ));
         // --json owes the scope it was asked for, not the whole site.
         $raw = $this->raw;
         $raw['scope'] = $packages;
@@ -123,6 +138,7 @@ final class Plan
             ));
             $nested['counts'] = $counts;
             $nested['no_release'] = $noRelease;
+            $nested['warnings'] = $warnings;
             $raw['plan'] = $nested;
         }
 
@@ -137,7 +153,7 @@ final class Plan
             $noRelease,
             $patches,
             $this->missingFiles,
-            $this->warnings,
+            $warnings,
             $raw,
         );
     }
@@ -200,15 +216,22 @@ final class Plan
     }
 
     /**
-     * The same core said in full: a bare version reads as a target, so
-     * the one the site already runs says so.
+     * The scenario the run answered for, said in full.
+     *
+     * A patch is judged against its own package's release, never against
+     * core. The core version only decides which release that is, so the
+     * headline names the move rather than the thing patches were applied
+     * to. Each package heading names the release its own rows are about.
      */
-    public function judgedAgainst(): string
+    public function scenario(): string
     {
         if ('' !== $this->targetFrom) {
-            return $this->against().' (the newest '.$this->targetFrom.' allows)';
+            return 'for a move to core '.$this->against().' (the newest '.$this->targetFrom.' allows)';
+        }
+        if ($this->targetIsInstalled) {
+            return 'against the releases this site installs';
         }
 
-        return $this->against().($this->targetIsInstalled ? ' (the core this site runs)' : '');
+        return 'for a move to core '.$this->against();
     }
 }

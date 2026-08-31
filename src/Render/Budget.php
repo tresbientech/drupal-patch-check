@@ -25,7 +25,7 @@ final class Budget
     public const MAX_WIDTH = 120;
 
     /** Row indent, the mark and its space, the verdict column and its space. */
-    public const PREFIX = 20;
+    public const PREFIX = 16;
 
     /** The longest filename column, so the narrowest row still fits. */
     public const TRAILING_MAX = 32;

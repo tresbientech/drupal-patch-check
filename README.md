@@ -30,16 +30,16 @@ composer require --dev tresbientech/drupatch
 
 ## Composer update hook
 
-On `post-update-cmd` it show patches that were already shipped and are safe
+On `post-update-cmd` it show patches whose fix is already in the release and are safe
 to delete, or patches on modules that are not required anymore.
 
 ```
 drupatch: 1 unclear, 1 can go after this update
   ? unknown       drupal/domain   Domain content translations permissions
                   the lock does not install drupal/domain, so there is no release to judge this patch against
-  ✓ shipped       drupal/token 1.15.0  Cache tag on token replacement
+  ✓ merged        drupal/token 1.15.0  Cache tag on token replacement
   run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade
-  Next:  composer drupal-patch-check --fix   drops the shipped entry from composer.json
+  Next:  composer drupal-patch-check --fix   drops the merged entry from composer.json
 ```
 When every patch applies it prints nothing. The `Next:` line appears only
 when a flag would clear something.
@@ -71,25 +71,25 @@ patch title and the file it came from.
 ```
 Drupal Code Query: 5 patches against 11.4.5
 
-  drupal/webform 6.2.9 → 6.3.2   1 needs-reroll, 1 still-needed
-    ! needs-reroll  Allow numeric machine names in handlers      webform-numeric.patch
-    · still-needed  Fix the alter hook                           webform-alter.patch
+  drupal/webform 6.2.9 → 6.3.2   1 conflicts, 1 applies
+    ! conflicts  Allow numeric machine names in handlers      webform-numeric.patch
+    · applies  Fix the alter hook                           webform-alter.patch
 
   ! drupal/domain 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.
   drupal/domain 2.0.1   1 unknown
     ? unknown       Domain access on entity clone                domain-clone.patch
                     drupal/domain has no release for 11.4.5
 
-  drupal/paragraphs 1.17.0 → 1.19.0   1 still-needed
-    · still-needed  Drag handle keyboard access                  paragraphs-a11y.patch
+  drupal/paragraphs 1.17.0 → 1.19.0   1 applies
+    · applies  Drag handle keyboard access                  paragraphs-a11y.patch
 
-  drupal/token 1.15.0   1 shipped
-    ✓ shipped       Cache tag on token replacement               token-cache.patch
+  drupal/token 1.15.0   1 merged
+    ✓ merged        Cache tag on token replacement               token-cache.patch
 
-  patches: 1 needs-reroll, 2 still-needed, 1 shipped, 1 unknown
+  patches: 1 conflicts, 2 applies, 1 merged, 1 unknown
 
   Next:  composer drupal-patch-check --reroll   writes the re-roll
-         composer drupal-patch-check --fix      drops the shipped entry from composer.json
+         composer drupal-patch-check --fix      drops the merged entry from composer.json
 ```
 
 The report is laid out for the terminal it is printed to, between 80 and
@@ -164,9 +164,9 @@ The `--json` output carries a `summary` object for a notification step:
   "summary": {
     "target_core": "11.4.5",
     "target_from": "drupal/core-recommended",
-    "counts": { "needs-reroll": 1, "still-needed": 45 },
-    "needs_reroll": ["drupal/webform"],
-    "unclear": [], "shipped": [], "blocked": ["drupal/autotitle"],
+    "counts": { "conflicts": 1, "applies": 45 },
+    "conflicts": ["drupal/webform"],
+    "unclear": [], "merged": [], "blocked": ["drupal/autotitle"],
     "exit_code": 1
   }
 }
@@ -176,9 +176,9 @@ The `--json` output carries a `summary` object for a notification step:
 
 | Verdict | Meaning |
 | --- | --- |
-| `still-needed` | The patch applies to the release and its fix is not upstream. Keep it. |
-| `shipped` | The release already carries the fix. Drop the entry. |
-| `needs-reroll` | The patch does not apply and its fix is not upstream. |
+| `applies` | The patch applies to the release and its fix is not upstream. Keep it. |
+| `merged` | The release already carries the fix. Drop the entry. |
+| `conflicts` | The patch does not apply and its fix is not upstream. |
 | `unknown` | No verdict could be reached, and the row says why. Some reasons are yours: the lock does not install the package, it has no release for the target, the patch file could not be read, or the patch is malformed. Some are not: the patch URL could not be fetched, or the release tag has not reached the service's mirror yet. |
 
 A re-roll that merges cleanly is written as `.patch`. One that leaves

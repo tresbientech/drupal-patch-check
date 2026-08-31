@@ -18,10 +18,10 @@ final class ConfigRewriterTest extends TestCase
     private function plan(): Plan
     {
         return $this->planFrom(['patches' => [
-            $this->row(['package' => 'drupal/core', 'title' => 'Menu cache', 'source' => 'https://www.drupal.org/files/issues/c.patch', 'verdict' => 'shipped']),
-            $this->row(['title' => 'Fix a', 'source' => 'patches/a.patch', 'verdict' => 'needs-reroll']),
-            $this->row(['title' => 'Fix b', 'source' => 'patches/b.patch', 'verdict' => 'still-needed']),
-            $this->row(['package' => 'drupal/token', 'title' => 'Fix d', 'source' => 'patches/d.patch', 'verdict' => 'needs-reroll']),
+            $this->row(['package' => 'drupal/core', 'title' => 'Menu cache', 'source' => 'https://www.drupal.org/files/issues/c.patch', 'verdict' => 'merged']),
+            $this->row(['title' => 'Fix a', 'source' => 'patches/a.patch', 'verdict' => 'conflicts']),
+            $this->row(['title' => 'Fix b', 'source' => 'patches/b.patch', 'verdict' => 'applies']),
+            $this->row(['package' => 'drupal/token', 'title' => 'Fix d', 'source' => 'patches/d.patch', 'verdict' => 'conflicts']),
         ]]);
     }
 
@@ -95,7 +95,7 @@ final class ConfigRewriterTest extends TestCase
 
         self::assertSame([
             'drupal/core' => [['description' => 'Another fix', 'url' => 'https://www.drupal.org/files/issues/d.patch']],
-        ], $applied, 'the shipped entry went, the other stayed, and a list stayed a list');
+        ], $applied, 'the merged entry went, the other stayed, and a list stayed a list');
     }
 
     public function testRepointsAnEntryWrittenAsAListObject(): void
@@ -170,7 +170,7 @@ final class ConfigRewriterTest extends TestCase
 
     public function testAPlanWithNothingSettledChangesNothing(): void
     {
-        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'still-needed'])]]);
+        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'applies'])]]);
 
         self::assertSame([], ConfigRewriter::changes($plan, []));
     }
