@@ -14,13 +14,16 @@ use Composer\Script\Event;
 use Composer\Script\ScriptEvents;
 use Throwable;
 use Tresbien\Drupatch\Plan\Client;
+use Tresbien\Drupatch\Plan\Value;
 use Tresbien\Drupatch\Render\HookReport;
 
 /**
  * Prints a patch verdict tally after every composer update.
  *
  * The hook writes no file and returns whatever happens, so a diagnostic
- * cannot break an install.
+ * cannot break an install. A site that runs the check on a schedule does
+ * not need it on every update, and turns it off with
+ * `extra.drupatch.hook: false`.
  */
 final class Plugin implements PluginInterface, EventSubscriberInterface, Capable
 {
@@ -58,8 +61,26 @@ final class Plugin implements PluginInterface, EventSubscriberInterface, Capable
         return [ScriptEvents::POST_UPDATE_CMD => 'onPostUpdate'];
     }
 
+    /**
+     * Whether the site wants the report after an update. A project running
+     * the check on a schedule answers the question there, so the hook is
+     * noise on every developer's install. Only `false` turns it off, so a
+     * value nobody meant leaves the hook where it was.
+     *
+     * @param array<mixed> $extra the root package's extra
+     */
+    public static function hookEnabled(array $extra): bool
+    {
+        $own = Value::object(Value::keyed($extra), 'drupatch');
+
+        return false !== ($own['hook'] ?? true);
+    }
+
     public function onPostUpdate(Event $event): void
     {
+        if (!self::hookEnabled($this->composer->getPackage()->getExtra())) {
+            return;
+        }
         try {
             $site = Site::atWorkingDirectory($this->composer);
             foreach ($site->patches()->notes as $note) {

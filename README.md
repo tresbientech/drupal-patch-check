@@ -1,10 +1,10 @@
-# drupatch
+# Drupatch
 
 Composer plugin for Drupal sites that carry patches.
 
-After every `composer update` it prints one line per patch that needs
-attention. A patch is flagged when the release already carries its fix, or
-when it no longer applies.
+A command to add to your CI that checks if your patches are still needed and 
+apply. The check also run after every `composer update` and prints one line per 
+patch that needs attention: patch is not necessary anymore or no longer applies.
 
 ## Install
 
@@ -31,6 +31,16 @@ drupatch: 1 unclear, 2 can go after this update
 ```
 
 When every patch applies and nothing is blocked, it prints nothing.
+
+Turn it off when the check runs on a schedule and the report after each
+update is noise:
+
+```json
+{ "extra": { "drupatch": { "hook": false } } }
+```
+
+The command is unaffected, so `composer drupal-patch-check` still works.
+`composer update --no-plugins` skips it for one run without any config.
 
 ## The command
 
@@ -220,8 +230,6 @@ The endpoint is configurable:
     }
 }
 ```
-
-`composer update --no-plugins` skips the hook for one run.
 
 ## Requirements
 
