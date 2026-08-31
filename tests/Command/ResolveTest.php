@@ -49,7 +49,7 @@ final class ResolveTest extends TestCase
         $command->setApplication(new Application());
 
         $tester = new CommandTester($command);
-        $tester->execute($input);
+        $tester->execute($input, ['capture_stderr_separately' => true]);
 
         return $tester;
     }
@@ -161,6 +161,19 @@ final class ResolveTest extends TestCase
             [['file' => 'src/Form.php', 'region' => 0]],
             self::at($tester->getDisplay(), 'plan', 'patches', 0, 'result', 'reroll', 'resolutions_missing')
         );
+    }
+
+    public function testJsonKeepsStdoutPureWhileNotesGoToStderr(): void
+    {
+        $site = (new SiteFixture())
+            ->declaresPatch('Fix', 'patches/webform/fix.patch')
+            ->withExtra('patches-search', true);
+
+        $tester = $this->drive($site, ['--json' => true], self::plan('applies', null));
+
+        $display = $tester->getDisplay();
+        self::assertIsArray(\json_decode($display, true), $display);
+        self::assertStringContainsString('patches-search', $tester->getErrorOutput());
     }
 
     public function testTheExitCodeFailsWhileAPatchStillDoesNotApply(): void

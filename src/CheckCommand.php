@@ -10,6 +10,7 @@ use Composer\Util\ProcessExecutor;
 use RuntimeException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Terminal;
 use Throwable;
@@ -244,23 +245,26 @@ class CheckCommand extends BaseCommand
 
             return Plan::FAILED;
         }
+        // The json and github shapes are read by machines, so every line
+        // meant for a person goes to stderr and stdout stays parseable.
+        $notes = 'table' !== $format && $output instanceof ConsoleOutputInterface ? $output->getErrorOutput() : $output;
 
         try {
             $composer = $this->requireComposer();
             $site = Site::atWorkingDirectory($composer);
             foreach ($site->patches()->notes as $note) {
-                $output->writeln('<comment>drupatch: '.$note.'</comment>');
+                $notes->writeln('<comment>drupatch: '.$note.'</comment>');
             }
             foreach ($site->patches()->unsent as $line) {
-                $output->writeln('<comment>drupatch: patch text not sent, '.$line.'</comment>');
+                $notes->writeln('<comment>drupatch: patch text not sent, '.$line.'</comment>');
             }
             $coverage = Coverage::of($site, self::scope($input));
             foreach ($coverage->lines() as $line) {
-                $output->writeln('<comment>'.$line.'</comment>');
+                $notes->writeln('<comment>'.$line.'</comment>');
             }
             // A bare run judges what the lock installs, so there is no
             // candidate to resolve and no repository to ask.
-            $candidates = '' === $target ? [] : $this->candidates($composer, $site, $target, $output);
+            $candidates = '' === $target ? [] : $this->candidates($composer, $site, $target, $notes);
             // What the site has on disk says what it supports, whatever
             // the service's copy of the release data knows.
             $declared = Candidates::declaredCore($composer, $site->checkable());
@@ -268,7 +272,7 @@ class CheckCommand extends BaseCommand
                 ? Decisions::onDisk($site->root(), $site->patches()->patches, self::scope($input))
                 : [];
             if ($resolve && [] === $decided) {
-                $output->writeln('<comment>drupatch: '.self::NOTHING_DECIDED.'</comment>');
+                $notes->writeln('<comment>drupatch: '.self::NOTHING_DECIDED.'</comment>');
 
                 return Plan::CLEAN;
             }
@@ -292,7 +296,7 @@ class CheckCommand extends BaseCommand
                 : ['written' => [], 'refused' => []];
             $written = $result['written'];
         } catch (Throwable $e) {
-            $output->writeln('<error>drupatch: '.$e->getMessage().'</error>');
+            $notes->writeln('<error>drupatch: '.$e->getMessage().'</error>');
 
             return Plan::FAILED;
         }
@@ -322,10 +326,10 @@ class CheckCommand extends BaseCommand
         if ($fix) {
             try {
                 foreach ($this->fix($site, $plan, $written, true === $input->getOption('force')) as $line) {
-                    $output->writeln($line);
+                    $notes->writeln($line);
                 }
             } catch (Throwable $e) {
-                $output->writeln('<error>drupatch: '.$e->getMessage().'</error>');
+                $notes->writeln('<error>drupatch: '.$e->getMessage().'</error>');
 
                 return Plan::FAILED;
             }

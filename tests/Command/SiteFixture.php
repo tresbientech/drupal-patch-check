@@ -27,6 +27,9 @@ final class SiteFixture
     /** @var list<array{string, string}> */
     private array $patches = [];
 
+    /** @var array<string, mixed> */
+    private array $extra = [];
+
     public function __construct()
     {
         $this->root = \sys_get_temp_dir().'/drupatch-site-'.\bin2hex(\random_bytes(6));
@@ -38,6 +41,14 @@ final class SiteFixture
     {
         $this->patches[] = [$title, $source];
         $this->write($source, $body);
+
+        return $this;
+    }
+
+    /** Adds one key under composer.json's extra. */
+    public function withExtra(string $key, mixed $value): self
+    {
+        $this->extra[$key] = $value;
 
         return $this;
     }
@@ -73,7 +84,7 @@ final class SiteFixture
         $this->write('composer.json', (string) \json_encode([
             'name' => 'site/site',
             'require' => ['drupal/webform' => '^6.2'],
-            'extra' => [
+            'extra' => $this->extra + [
                 'patches' => ['drupal/webform' => $map],
                 'drupatch' => ['endpoint' => $endpoint],
             ],
