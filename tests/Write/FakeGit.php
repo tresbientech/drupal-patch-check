@@ -10,7 +10,7 @@ use Composer\Util\ProcessExecutor;
  * Answers one canned git result, so the guard is tested without a
  * repository.
  */
-final class FakeGit extends ProcessExecutor
+class FakeGit extends ProcessExecutor
 {
     /**
      * @param string $path the file the answer is about, empty for every file
@@ -24,9 +24,13 @@ final class FakeGit extends ProcessExecutor
     }
 
     /**
+     * The oldest supported composer declares $cwd untyped, so a native
+     * type here is fatal under `composer lowest`.
+     *
      * @param string|non-empty-list<string> $command
+     * @param ?string                       $cwd
      */
-    public function execute($command, &$output = null, ?string $cwd = null): int
+    public function execute($command, &$output = null, $cwd = null): int
     {
         $asked = \is_array($command) ? \end($command) : $command;
         $output = '' === $this->path || $asked === $this->path ? $this->porcelain : '';
