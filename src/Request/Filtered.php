@@ -23,6 +23,9 @@ final class Filtered
     /** The repository that serves drupal.org releases. */
     private const DRUPAL_NOTIFICATION = 'https://packages.drupal.org/8/downloads';
 
+    /** The composer type drupal.org gives a sub-module. */
+    private const METAPACKAGE = 'metapackage';
+
     /**
      * Core's packages, which are published to Packagist rather than to
      * packages.drupal.org.
@@ -77,7 +80,7 @@ final class Filtered
                     continue;
                 }
                 $packages[$name] = $version;
-                $slim[$section][] = ['name' => $name, 'version' => $version];
+                $slim[$section][] = self::entry($entry, $name, $version);
             }
         }
 
@@ -87,6 +90,47 @@ final class Filtered
             $packages,
             $heldBack,
         );
+    }
+
+    /**
+     * One lock entry as the service receives it.
+     *
+     * A name and a version answer most questions. A sub-module needs
+     * three more: drupal.org packages it as a metapackage built from its
+     * project's release, and the service pairs the two by the project it
+     * requires and the release they share. The pairing is the service's to
+     * make, so the fields travel and the rule stays in one place.
+     *
+     * @param array<string, mixed> $entry
+     *
+     * @return array<string, mixed>
+     */
+    private static function entry(array $entry, string $name, string $version): array
+    {
+        $out = ['name' => $name, 'version' => $version];
+        $type = \is_string($entry['type'] ?? null) ? $entry['type'] : '';
+        if ('' !== $type) {
+            $out['type'] = $type;
+        }
+        $extra = \is_array($entry['extra'] ?? null) ? $entry['extra'] : [];
+        $drupal = \is_array($extra['drupal'] ?? null) ? $extra['drupal'] : [];
+        $stamp = $drupal['datestamp'] ?? null;
+        if (\is_string($stamp) || \is_int($stamp)) {
+            $out['extra'] = ['drupal' => ['datestamp' => (string) $stamp]];
+        }
+        if (self::METAPACKAGE === $type) {
+            $requires = [];
+            foreach (\is_array($entry['require'] ?? null) ? $entry['require'] : [] as $dep => $constraint) {
+                if (\is_string($dep) && \str_starts_with($dep, 'drupal/') && \is_string($constraint)) {
+                    $requires[$dep] = $constraint;
+                }
+            }
+            if ([] !== $requires) {
+                $out['require'] = $requires;
+            }
+        }
+
+        return $out;
     }
 
     /**

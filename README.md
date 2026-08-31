@@ -136,8 +136,9 @@ manager with the same shape works. One with its own shape prints a note.
 ## What leaves the site
 
 The plugin builds a request from your composer files rather than sending
-them. The service reads five keys of `composer.json` and two fields per lock
-entry, so that is all it is given.
+them. The service reads five keys of `composer.json` and, per lock entry, a
+name and a version plus three fields that identify a sub-module. That is all
+it is given.
 
 ```json
 {
@@ -153,15 +154,37 @@ entry, so that is all it is given.
   "composer_lock": {
     "packages": [
       { "name": "drupal/core", "version": "10.6.9" },
-      { "name": "drupal/webform", "version": "6.2.9" }
+      { "name": "drupal/webform", "version": "6.2.9" },
+      {
+        "name": "drupal/domain", "version": "3.0.1", "type": "drupal-module",
+        "extra": { "drupal": { "datestamp": "1778231514" } }
+      },
+      {
+        "name": "drupal/domain_access", "version": "3.0.1", "type": "metapackage",
+        "require": { "drupal/core": "^10.2 || ^11", "drupal/domain": "*" },
+        "extra": { "drupal": { "datestamp": "1778231514" } }
+      }
     ],
     "packages-dev": [ { "name": "drupal/devel", "version": "5.3.2" } ]
   },
   "patch_files": { "patches/webform-alter.patch": "diff --git a/… " },
   "target_core": "11.4.5",
-  "candidates": { "drupal/webform": "6.3.1" }
+  "candidates": { "drupal/webform": "6.3.1" },
+  "installed_core": { "drupal/webform": "^10.3 || ^11" }
 }
 ```
+
+The three lock fields beyond name and version are there to identify a
+sub-module. drupal.org holds no project for one: it packages a sub-module as
+a `metapackage` built from its project's release, so there is nothing to
+look up under its own name. `type` says which packages are which, `require`
+and `datestamp` say which project provides it, and the service pairs them.
+Only a metapackage carries `require`, and only its `drupal/` requirements.
+
+`installed_core` is what each installed release requires of core, read from
+your own vendor directory. The service's copy of drupal.org's release data
+can be months behind a project; your site cannot, so this is what decides
+whether the release you run supports the core you are moving to.
 
 The two composer fields travel as JSON strings; they are shown expanded
 here. Run `composer drupal-patch-check --dry-run` to print the real one for
@@ -172,9 +195,9 @@ your site and read it before you install this anywhere.
 From `composer.json`: `repositories`, `config`, `scripts`, `autoload`,
 `name`, `description`, `license`, `authors`, `conflict`, `type`, and every
 `extra` key but `patches`. From `composer.lock`: every package that is not a
-drupal.org release, and for the ones that are, everything but the name and
-the version. That means no `dist` or `source` URL, no `content-hash`, no
-authors, no funding.
+drupal.org release, and for the ones that are, everything but the five
+fields above. That means no `dist` or `source` URL, no `content-hash`, no
+authors, no funding, and no requirement outside `drupal/`.
 
 On a 320-package site the two documents go from 831 KB to 15 KB.
 
