@@ -130,6 +130,39 @@ final class ReaderTest extends TestCase
         self::assertSame('Keep me', $resolution->patches[0]['title']);
     }
 
+    public function testLeavesAPatchOnANonDrupalPackageAlone(): void
+    {
+        $extra = ['patches' => ['acme/private' => ['In-house fix' => 'patches/local.patch']]];
+
+        $resolution = $this->reader()->read($extra);
+
+        self::assertSame([], $resolution->patches);
+        self::assertSame([], $resolution->files, 'the text of a patch that cannot be judged never leaves the site');
+        self::assertSame(1, $resolution->outside);
+        self::assertSame([], $resolution->notes, 'the hook stays quiet about a site that will always be this way');
+    }
+
+    public function testKeepsTheDrupalPatchesOfAMixedSite(): void
+    {
+        $extra = ['patches' => [
+            'acme/private' => ['In-house fix' => 'patches/local.patch'],
+            'drupal/webform' => ['Fix the alter hook' => 'patches/local.patch'],
+            'symfony/console' => ['Vendor tweak' => 'patches/local.patch'],
+        ]];
+
+        $resolution = $this->reader()->read($extra);
+
+        self::assertSame(['drupal/webform'], \array_column($resolution->patches, 'package'));
+        self::assertSame(2, $resolution->outside);
+    }
+
+    public function testAPackageMerelyStartingWithDrupalIsNotADrupalPackage(): void
+    {
+        $extra = ['patches' => ['drupal-composer/drupal-project' => ['Scaffold' => 'patches/local.patch']]];
+
+        self::assertSame([], $this->reader()->read($extra)->patches);
+    }
+
     public function testAStripLevelDoesNotStopAPatchBeingRead(): void
     {
         $extra = [

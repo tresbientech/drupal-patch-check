@@ -20,7 +20,9 @@ final class Resolution
         public readonly array $files,
         public readonly array $notes,
         /** Path of the external patches file, empty when the declarations are inline. */
-        public readonly string $file = '',
+        public readonly string $file,
+        /** Declared patches on packages outside drupal/, which are not sent. */
+        public readonly int $outside,
     ) {
     }
 

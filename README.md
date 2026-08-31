@@ -132,9 +132,24 @@ manager with the same shape works. One with its own shape prints a note.
 
 ## What leaves the site
 
-Every run sends `composer.json`, `composer.lock` and the text of the
-declared patches to `https://api.tresbien.tech/v1/composer/scan`. The call
-goes through composer's own HTTP client, so the site's proxy and
+Every run posts to `https://api.tresbien.tech/v1/composer/scan`:
+
+- `composer.json` and `composer.lock`, whole
+- for each patch declared on a `drupal/*` package, its package, title and
+  source
+- the text of those patches, for the ones whose source is a local file
+- with `--target`, the release composer picked for each patched package
+
+A patch declared on any other package is left out, and the command says how
+many. The check judges a patch against a drupal.org release, so a patch on
+`acme/private` has nothing to be judged against. Its text stays here.
+`composer.json` still goes whole, so a declaration it carries goes with it.
+What stays behind is the patch itself.
+
+A source that is a URL is sent as the URL, and the server fetches it. Local
+patch files are read up to 256 KB each, 100 files per run.
+
+The call goes through composer's own HTTP client, so the site's proxy and
 certificate settings apply. The answer is the plan.
 
 The endpoint is configurable:

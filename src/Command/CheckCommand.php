@@ -166,6 +166,9 @@ final class CheckCommand extends BaseCommand
             foreach ($site->patches()->notes as $note) {
                 $output->writeln('<comment>drupatch: '.$note.'</comment>');
             }
+            if ($site->patches()->outside > 0) {
+                $output->writeln('<comment>drupatch: '.$site->patches()->outside.' patch(es) on packages outside drupal/ are not checked: a patch is judged against a drupal.org release</comment>');
+            }
             // A bare run judges what the lock installs, so there is no
             // candidate to resolve and no repository to ask.
             $candidates = '' === $target ? [] : $this->candidates($composer, $site, $target);

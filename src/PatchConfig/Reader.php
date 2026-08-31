@@ -11,6 +11,10 @@ namespace Tresbien\Drupatch\PatchConfig;
  * ignore list, and entries written as objects rather than strings. Every
  * shape resolves to the same list of patches, so the server never has to
  * know which manager a site uses.
+ *
+ * Only patches on `drupal/*` packages are resolved. The check judges a
+ * patch against a drupal.org release, so a patch on any other package
+ * has nothing to be judged against, and its text stays on the site.
  */
 final class Reader
 {
@@ -22,6 +26,9 @@ final class Reader
 
     /** Largest external patches file read. */
     private const MAX_PATCHES_FILE_BYTES = 1024 * 1024;
+
+    /** The packages this tool can judge a patch for. */
+    private const PACKAGE_PREFIX = 'drupal/';
 
     /** Managers whose configuration the shapes below cover. */
     private const HANDLED = [
@@ -48,9 +55,14 @@ final class Reader
 
         $patches = [];
         $files = [];
+        $outside = 0;
         foreach ($declarations as $entry) {
             [$package, $title, $source] = $entry;
             if ('' === $source || isset($ignored[$package."\0".$title])) {
+                continue;
+            }
+            if (!\str_starts_with($package, self::PACKAGE_PREFIX)) {
+                ++$outside;
                 continue;
             }
             $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
@@ -70,7 +82,7 @@ final class Reader
             $notes[] = $manager.' is installed and its patch configuration is not read';
         }
 
-        return new Resolution($patches, $files, $notes, $file);
+        return new Resolution($patches, $files, $notes, $file, $outside);
     }
 
     /**
