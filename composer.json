@@ -26,8 +26,8 @@
         "composer-plugin-api": "^2.0"
     },
     "require-dev": {
-        "composer/composer": "^2.2",
         "ext-tokenizer": "*",
+        "composer/composer": "^2.2",
         "ergebnis/composer-normalize": "^2.52",
         "friendsofphp/php-cs-fixer": "^3.95",
         "infection/infection": "^0.35.3",
