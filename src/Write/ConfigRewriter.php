@@ -2,48 +2,46 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Write;
+namespace TresBienTech\Drupatch\Write;
 
 use Composer\Json\JsonManipulator;
 use RuntimeException;
-use Tresbien\Drupatch\PatchConfig\Entry;
-use Tresbien\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\PatchConfig;
+use TresBienTech\Drupatch\Plan\Plan;
 
 /**
  * Rewrites a site's patch declarations from a plan.
- *
- * Two changes and no others: an entry the release already carries is
- * dropped, and an entry that no longer applies points at its re-rolled
- * file. A conflicted re-roll is never named, because that file holds
- * regions nobody has decided.
  */
-final class ConfigRewriter
+class ConfigRewriter
 {
     /**
      * Decides what changes: one entry per declaration the plan settles.
      *
-     * @param list<WrittenFile> $written
+     * @param list<array{path: string, status: string, package: string, title: string, verified: bool}> $written
      *
-     * @return list<Change>
+     * @return list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}>
      */
     public static function changes(Plan $plan, array $written): array
     {
         $files = [];
         foreach ($written as $file) {
-            if ($file->isUsable()) {
-                $files[$file->key()] = $file->path;
+            if ('clean' === $file['status']) {
+                $files[$file['package']."\0".$file['title']] = $file['path'];
             }
         }
 
         $changes = [];
         foreach ($plan->patches as $row) {
             if ($row->isMerged()) {
-                $changes[] = new Change(Change::DROPPED, $row->package, $row->title, '');
+                $left = PatchConfig::isUrl($row->source) ? '' : $row->source;
+                $changes[] = ['action' => 'dropped', 'package' => $row->package, 'title' => $row->title, 'path' => $left];
                 continue;
             }
             $path = $files[$row->key()] ?? '';
-            if ($row->conflicts() && '' !== $path) {
-                $changes[] = new Change(Change::REPOINTED, $row->package, $row->title, $path);
+            // A re-roll written over the file the entry already names
+            // changes the file, never the entry.
+            if ($row->conflicts() && '' !== $path && $path !== $row->source) {
+                $changes[] = ['action' => 'repointed', 'package' => $row->package, 'title' => $row->title, 'path' => $path];
             }
         }
 
@@ -51,11 +49,32 @@ final class ConfigRewriter
     }
 
     /**
-     * Applies the changes to a declaration map, keeping the order the
-     * site wrote it in.
+     * The line the report prints for one change.
      *
-     * @param array<string, mixed> $patches
-     * @param list<Change>         $changes
+     * @param array{action: string, package: string, title: string, path: string} $change
+     */
+    public static function line(array $change): string
+    {
+        if ('dropped' !== $change['action']) {
+            return \sprintf('    ~ %s: %s → %s', $change['package'], $change['title'], $change['path']);
+        }
+        if ('' === $change['path']) {
+            return \sprintf('    - %s: %s (the release carries it)', $change['package'], $change['title']);
+        }
+
+        return \sprintf(
+            '    - %s: %s (the release carries it; %s is now unreferenced and was kept)',
+            $change['package'],
+            $change['title'],
+            $change['path'],
+        );
+    }
+
+    /**
+     * Applies the changes to a declaration map, keeping the order the site wrote it in.
+     *
+     * @param array<string, mixed>                                                      $patches
+     * @param list<array{action: string, package: string, title: string, path: string}> $changes
      *
      * @return array<string, mixed>
      */
@@ -63,7 +82,7 @@ final class ConfigRewriter
     {
         $byEntry = [];
         foreach ($changes as $change) {
-            $byEntry[$change->key()] = $change;
+            $byEntry[$change['package']."\0".$change['title']] = $change;
         }
 
         $out = [];
@@ -75,15 +94,15 @@ final class ConfigRewriter
             $isList = \array_is_list($entries);
             $kept = [];
             foreach ($entries as $key => $entry) {
-                $change = $byEntry[$package."\0".Entry::title($key, $entry)] ?? null;
+                $change = $byEntry[$package."\0".PatchConfig::entryTitle($key, $entry)] ?? null;
                 if (null === $change) {
                     $kept[$key] = $entry;
                     continue;
                 }
-                if ($change->isDrop()) {
+                if ('dropped' === $change['action']) {
                     continue;
                 }
-                $kept[$key] = Entry::withSource($entry, $change->path);
+                $kept[$key] = PatchConfig::entryWithSource($entry, $change['path']);
             }
             if ([] !== $kept) {
                 $out[$package] = $isList ? \array_values($kept) : $kept;
@@ -94,8 +113,7 @@ final class ConfigRewriter
     }
 
     /**
-     * Writes the new declarations into composer.json, leaving every other
-     * key, the key order and the file's indentation as they were.
+     * Writes the new declarations into composer.json, leaving every other key, the key order and the file's indentation as they were.
      *
      * @param array<string, mixed> $patches
      */
@@ -110,8 +128,7 @@ final class ConfigRewriter
     }
 
     /**
-     * Writes the new declarations into an external patches file, keeping
-     * whichever of the two shapes the file uses.
+     * Writes the new declarations into an external patches file, keeping whichever of the two shapes the file uses.
      *
      * @param array<string, mixed> $patches
      */
@@ -119,9 +136,6 @@ final class ConfigRewriter
     {
         $decoded = \json_decode($text, true);
         $body = \is_array($decoded) && isset($decoded['patches']) ? ['patches' => $patches] + $decoded : $patches;
-        if (\is_array($decoded) && isset($decoded['patches'])) {
-            $body['patches'] = $patches;
-        }
 
         return \json_encode($body, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)."\n";
     }

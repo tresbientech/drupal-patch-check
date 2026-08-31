@@ -2,10 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests;
+namespace TresBienTech\Drupatch\Tests;
 
-use Tresbien\Drupatch\Plan\Plan;
-use Tresbien\Drupatch\Write\WrittenFile;
+use TresBienTech\Drupatch\Plan\Plan;
 
 /**
  * Builds plans for tests the way the plugin builds them in production:
@@ -84,8 +83,11 @@ trait PlanFactory
         return $this->row($fields + ['verdict' => 'conflicts', 'result' => ['reroll' => $reroll]]);
     }
 
-    private function writtenFile(string $path, string $status = 'clean', string $package = 'drupal/webform', string $title = 'Fix a', bool $verified = true): WrittenFile
+    /**
+     * @return array{path: string, status: string, package: string, title: string, verified: bool}
+     */
+    private function writtenFile(string $path, string $status = 'clean', string $package = 'drupal/webform', string $title = 'Fix a', bool $verified = true): array
     {
-        return new WrittenFile($path, $status, $package, $title, $verified);
+        return ['path' => $path, 'status' => $status, 'package' => $package, 'title' => $title, 'verified' => $verified];
     }
 }

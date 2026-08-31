@@ -2,51 +2,30 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Plan;
+namespace TresBienTech\Drupatch\Plan;
+
+use RuntimeException;
 
 /**
  * One patch as the plan judged it.
  */
-final class PatchRow
+class PatchRow
 {
     /**
-     * Verdicts that need nothing from anybody. Every other verdict counts
-     * as work, including one this plugin has never heard of: a verdict
-     * added to the server later must not read as "fine".
+     * Verdicts that need nothing from anybody; an unknown one never reads as fine.
      */
     public const CLEAN_VERDICTS = [self::MERGED, self::APPLIES];
 
-    /**
-     * Verdicts a run reports without failing. `unknown` is as often a
-     * mirror that lags a release as a real problem, and neither is
-     * something the repository can fix, so a scheduled job is not woken
-     * by one unless it asked to be.
-     */
+    /** Verdicts a non-strict run reports without failing. */
     public const TOLERATED_VERDICTS = [self::MERGED, self::APPLIES, self::UNKNOWN];
 
     public const UNKNOWN = 'unknown';
 
-    /** The release already carries the change, so the patch can go. */
     public const MERGED = 'merged';
 
-    /** The patch applies to the release cleanly. */
     public const APPLIES = 'applies';
 
-    /** The patch does not apply and has to be re-rolled. */
     public const CONFLICTS = 'conflicts';
-
-    /**
-     * What each verdict was called before 0.6.1.
-     *
-     * A site can run a plugin newer than the service it asks, so a plan
-     * arriving in the old words is read into the new ones here, at the
-     * boundary, and nothing below this line has two names for one thing.
-     */
-    private const RENAMED = [
-        'shipped' => self::MERGED,
-        'still-needed' => self::APPLIES,
-        'needs-reroll' => self::CONFLICTS,
-    ];
 
     private function __construct(
         public readonly string $package,
@@ -66,7 +45,12 @@ final class PatchRow
         private readonly string $failedHunk,
         /** Where the release this row is about came from: composer, or the bundle. */
         public readonly string $decidedBy,
-        public readonly ?Reroll $reroll,
+        /**
+         * The server's re-roll as it arrived, null when it sent none.
+         *
+         * @var array<string, mixed>|null
+         */
+        public readonly ?array $reroll,
     ) {
     }
 
@@ -75,31 +59,28 @@ final class PatchRow
      */
     public static function fromArray(array $data): self
     {
-        $package = Value::str($data, 'package');
+        $package = (string) ($data['package'] ?? '');
         if ('' === $package) {
-            throw new InvalidPlan('a patch row names no package');
+            throw new RuntimeException('a patch row names no package');
         }
-        $result = Value::object($data, 'result');
-        $reroll = isset($result['reroll']) && \is_array($result['reroll'])
-            ? Reroll::fromArray(Value::keyed($result['reroll']))
-            : null;
-        $failed = Value::objects($result, 'hunks_failed');
+        $result = (array) ($data['result'] ?? []);
+        $failed = (array) ($result['hunks_failed'] ?? []);
 
         return new self(
             $package,
-            Value::str($data, 'project', \str_replace('drupal/', '', $package)),
-            Value::str($data, 'version'),
-            Value::str($data, 'installed'),
-            Value::str($data, 'title'),
-            Value::str($data, 'source'),
-            self::RENAMED[Value::str($data, 'verdict')] ?? Value::str($data, 'verdict'),
-            Value::str($data, 'note'),
-            Value::str($result, 'error'),
-            Value::str($result, 'strict_refused'),
-            Value::str($result, 'judged_without'),
+            (string) ($data['project'] ?? \str_replace('drupal/', '', $package)),
+            (string) ($data['version'] ?? ''),
+            (string) ($data['installed'] ?? ''),
+            (string) ($data['title'] ?? ''),
+            (string) ($data['source'] ?? ''),
+            (string) ($data['verdict'] ?? ''),
+            (string) ($data['note'] ?? ''),
+            (string) ($result['error'] ?? ''),
+            (string) ($result['strict_refused'] ?? ''),
+            (string) ($result['judged_without'] ?? ''),
             [] === $failed ? '' : self::hunk($failed[0]),
-            Value::str($data, 'decided_by'),
-            $reroll,
+            (string) ($data['decided_by'] ?? ''),
+            \is_array($result['reroll'] ?? null) ? $result['reroll'] : null,
         );
     }
 
@@ -112,15 +93,22 @@ final class PatchRow
     }
 
     /**
-     * One failed hunk as a person reads it: the file, and why git
-     * refused it there.
+     * Whether the server's re-roll merged cleanly into a usable patch.
+     */
+    public function rerollIsClean(): bool
+    {
+        return 'clean' === ($this->reroll['status'] ?? '') && '' !== ($this->reroll['patch'] ?? '');
+    }
+
+    /**
+     * One failed hunk as a person reads it: the file, and why.
      *
      * @param array<string, mixed> $hunk
      */
     private static function hunk(array $hunk): string
     {
-        $file = Value::str($hunk, 'file');
-        $reason = Value::str($hunk, 'reason');
+        $file = (string) ($hunk['file'] ?? '');
+        $reason = (string) ($hunk['reason'] ?? '');
         if ('' === $file || '' === $reason) {
             return $file.$reason;
         }
@@ -129,9 +117,7 @@ final class PatchRow
     }
 
     /**
-     * The first file a re-roll has to fix, empty when the verdict stands
-     * or the server named none. One line is the size of a hint; the rest
-     * of the failure is in the patch.
+     * The first file a re-roll has to fix, empty when the verdict stands.
      */
     public function firstFailure(): string
     {
@@ -139,10 +125,7 @@ final class PatchRow
     }
 
     /**
-     * Whether the row should fail a run. A patch that will not apply
-     * should; one the service could not judge should only when the run
-     * asked to be woken by those too. A verdict this plugin does not know
-     * always fails, so a new one is never read as fine.
+     * Whether the row fails the run; strict adds the unclear verdicts.
      */
     public function fails(bool $strict): bool
     {
@@ -154,9 +137,7 @@ final class PatchRow
     }
 
     /**
-     * Whether the row is worth a line of its own. A merged patch needs
-     * no action and is still worth saying: it can be deleted. Only a
-     * patch that applies and is still required stays in the tally alone.
+     * Whether the row is worth a line of its own; an applying patch stays in the tally alone.
      */
     public function needsMention(): bool
     {
@@ -174,16 +155,7 @@ final class PatchRow
     }
 
     /**
-     * What the row is called in output: its title, or the patch it names.
-     */
-    /**
-     * Whether the verdict is about a release other than the one the lock
-     * holds.
-     *
-     * Composer writes a branch two ways: `dev-2.x` as a reference and
-     * `2.x-dev` as the alias for a branch named like a version. They are
-     * one branch, so a heading pairing them would claim a move that is
-     * not happening.
+     * Whether the verdict is about a release other than the installed one; the two spellings of a dev branch are one release.
      */
     public function movesRelease(): bool
     {
@@ -194,10 +166,6 @@ final class PatchRow
         return self::branch($this->installed) !== self::branch($this->version);
     }
 
-    /**
-     * A version with either spelling of a development branch reduced to
-     * the branch name, and any other version left alone.
-     */
     private static function branch(string $version): string
     {
         if (\str_starts_with($version, 'dev-')) {
@@ -224,8 +192,7 @@ final class PatchRow
     }
 
     /**
-     * The identity of one declaration: a package and the title under
-     * which the site declared it.
+     * One declaration's identity: the package and the declared title.
      */
     public function key(): string
     {

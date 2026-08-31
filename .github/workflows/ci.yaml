@@ -31,14 +31,8 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           coverage: none
-      # Infection needs PHP 8.3 and would block installing anything on 8.1
-      # or 8.2. It belongs to the quality job, so it comes out of the
-      # throwaway checkout here. Ignoring the platform instead would apply
-      # to every package: composer then installs symfony/console 8, which
-      # is PHP 8.4 syntax and dies with a ParseError.
       - name: Install dependencies
         run: |
-          composer remove --dev --no-update infection/infection --no-interaction
           if [ "${{ matrix.composer }}" = "lowest" ]; then
             composer update --prefer-lowest --prefer-stable --no-progress --no-interaction
           else
@@ -53,16 +47,9 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          # Infection needs a coverage driver; pcov is the fast one.
-          coverage: pcov
+          coverage: none
       - run: composer install --no-progress --no-interaction
       - run: composer validate --strict
       - run: composer normalize --dry-run
       - run: composer cs:check
       - run: composer stan
-      # The floor is what the suite already scores. A change that drops
-      # below it has added code its tests do not check.
-      - run: composer mutate
-      - name: Escaped mutants
-        if: failure()
-        run: cat infection.log

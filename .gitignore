@@ -2,5 +2,3 @@
 /composer.lock
 /.phpunit.cache/
 /.php-cs-fixer.cache
-/infection.log
-/infection-summary.json

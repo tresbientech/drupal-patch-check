@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests\Plan;
+namespace TresBienTech\Drupatch\Tests\Plan;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\PatchConfig\Resolution;
-use Tresbien\Drupatch\Plan\Client;
+use TresBienTech\Drupatch\Client;
+use TresBienTech\Drupatch\PatchConfig;
 
 /**
  * The body is what `--dry-run` prints, so a case here is a case about
@@ -51,7 +51,7 @@ final class ClientBodyTest extends TestCase
 
     public function testEmptyMapsStayObjectsSoTheServiceCanReadThem(): void
     {
-        $body = Client::body('{}', '{}', new Resolution([], [], [], '', [], []));
+        $body = Client::body('{}', '{}', new PatchConfig([], [], [], '', [], []));
 
         $encoded = (string) \json_encode($body);
 
@@ -69,15 +69,53 @@ final class ClientBodyTest extends TestCase
         self::assertSame(['drupal/webform' => '^10.3 || ^11'], (array) $body['installed_core']);
     }
 
-    private function resolution(): Resolution
+    private function resolution(): PatchConfig
     {
-        return new Resolution(
+        return new PatchConfig(
             [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/a.patch']],
             ['patches/a.patch' => "diff --git a/x b/x\n"],
             [],
             '',
             [],
             [],
+        );
+    }
+
+    public function testAPatchWithDecidedRegionsCarriesThem(): void
+    {
+        $body = Client::body('{}', '{}', $this->resolution(), '', true, [], [], [
+            0 => [['file' => 'src/Form.php', 'region' => 1, 'text' => '  $decided = TRUE;']],
+        ]);
+
+        self::assertSame([[
+            'package' => 'drupal/webform',
+            'title' => 'Alter hook',
+            'source' => 'patches/a.patch',
+            'resolutions' => [['file' => 'src/Form.php', 'region' => 1, 'text' => '  $decided = TRUE;']],
+        ]], $body['patch_config']);
+    }
+
+    public function testAnEmptiedRegionIsCarriedAsADelete(): void
+    {
+        $body = Client::body('{}', '{}', $this->resolution(), '', true, [], [], [
+            0 => [['file' => 'src/Form.php', 'region' => 0, 'delete' => true]],
+        ]);
+
+        self::assertSame([[
+            'package' => 'drupal/webform',
+            'title' => 'Alter hook',
+            'source' => 'patches/a.patch',
+            'resolutions' => [['file' => 'src/Form.php', 'region' => 0, 'delete' => true]],
+        ]], $body['patch_config']);
+    }
+
+    public function testAPatchWithNoDecidedRegionCarriesNoResolutionsKey(): void
+    {
+        $body = Client::body('{}', '{}', $this->resolution(), '', true, [], [], []);
+
+        self::assertSame(
+            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/a.patch']],
+            $body['patch_config']
         );
     }
 }

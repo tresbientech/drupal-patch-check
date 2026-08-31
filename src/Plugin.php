@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch;
+namespace TresBienTech\Drupatch;
 
 use Composer\Composer;
 use Composer\EventDispatcher\EventSubscriberInterface;
@@ -13,20 +13,12 @@ use Composer\Plugin\PluginInterface;
 use Composer\Script\Event;
 use Composer\Script\ScriptEvents;
 use Throwable;
-use Tresbien\Drupatch\Plan\Client;
-use Tresbien\Drupatch\Plan\Value;
-use Tresbien\Drupatch\Render\HookReport;
-use Tresbien\Drupatch\Resolve\Declared;
+use TresBienTech\Drupatch\Render\HookReport;
 
 /**
  * Prints a patch verdict tally after every composer update.
- *
- * The hook writes no file and returns whatever happens, so a diagnostic
- * cannot break an install. A site that runs the check on a schedule does
- * not need it on every update, and turns it off with
- * `extra.drupatch.hook: false`.
  */
-final class Plugin implements PluginInterface, EventSubscriberInterface, Capable
+class Plugin implements PluginInterface, EventSubscriberInterface, Capable
 {
     private Composer $composer;
 
@@ -63,18 +55,13 @@ final class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     }
 
     /**
-     * Whether the site wants the report after an update. A project running
-     * the check on a schedule answers the question there, so the hook is
-     * noise on every developer's install. Only `false` turns it off, so a
-     * value nobody meant leaves the hook where it was.
+     * Whether the site wants the report after an update; only a literal false turns it off.
      *
      * @param array<mixed> $extra the root package's extra
      */
     public static function hookEnabled(array $extra): bool
     {
-        $own = Value::object(Value::keyed($extra), 'drupatch');
-
-        return false !== ($own['hook'] ?? true);
+        return false !== ($extra['drupatch']['hook'] ?? true);
     }
 
     public function onPostUpdate(Event $event): void
@@ -91,7 +78,7 @@ final class Plugin implements PluginInterface, EventSubscriberInterface, Capable
                 return;
             }
             $client = Client::fromComposer($this->composer, $this->io);
-            $plan = $client->plan($site->composerJson(), $site->composerLock(), $site->patches(), '', false, [], Declared::forSite($this->composer, $site->checkable()));
+            $plan = $client->plan($site->composerJson(), $site->composerLock(), $site->patches(), '', false, [], Candidates::declaredCore($this->composer, $site->checkable()));
             foreach (HookReport::lines($plan) as $line) {
                 $this->io->write($line);
             }

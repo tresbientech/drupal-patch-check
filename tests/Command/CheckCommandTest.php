@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests\Command;
+namespace TresBienTech\Drupatch\Tests\Command;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\Command\CheckCommand;
-use Tresbien\Drupatch\Render\HookReport;
+use TresBienTech\Drupatch\CheckCommand;
+use TresBienTech\Drupatch\Render\HookReport;
 
 final class CheckCommandTest extends TestCase
 {
@@ -27,7 +27,7 @@ final class CheckCommandTest extends TestCase
     {
         $definition = (new CheckCommand())->getDefinition();
 
-        foreach (['target', 'reroll', 'fix', 'force', 'json', 'package', 'strict', 'dry-run'] as $option) {
+        foreach (['target', 'write', 'fix', 'force', 'json', 'package', 'strict', 'dry-run', 'resolve'] as $option) {
             self::assertTrue($definition->hasOption($option), $option.' is not an option');
         }
     }
@@ -49,5 +49,10 @@ final class CheckCommandTest extends TestCase
 
         self::assertTrue($option->isArray());
         self::assertTrue($option->isValueRequired());
+    }
+
+    public function testResolveIsAFlag(): void
+    {
+        self::assertFalse((new CheckCommand())->getDefinition()->getOption('resolve')->acceptValue());
     }
 }

@@ -89,8 +89,8 @@ Drupal Code Query: 5 patches against 11.4.5
 
   patches: 1 conflicts, 2 applies, 1 merged, 1 unknown
 
-  Next:  composer drupal-patch-check --reroll   writes the re-roll
-         composer drupal-patch-check --fix      drops the merged entry from composer.json
+  Next:  composer drupal-patch-check --write   writes the re-roll
+         composer drupal-patch-check --fix     drops the merged entry from composer.json
 ```
 
 The report is laid out for the terminal it is printed to, between 80 and
@@ -102,11 +102,11 @@ is always one row.
 | `--target=11.4.5` | Judge the patches against the releases that core version would bring in, before you move to it. |
 | `--target=latest` | The same, against the newest core release your own constraint allows. Nothing to type, so a scheduled job stays correct. |
 | `--strict` | Also fail on a patch that could not be judged, and on a run that judged none. |
-| `--reroll` | Write a re-rolled patch file for each patch that no longer applies. |
-| `--fix` | Rewrite the patch declarations: drop what shipped, point the rest at their re-rolls. Implies `--reroll`. |
-| `--force` | Let `--fix` write a file that already has uncommitted changes. |
-| `--package=drupal/webform` | Only this package. Repeatable, and `webform` works too. Narrows the report, `--reroll`, `--fix` and the exit code. |
-| `--format=json` | Print the plan as one JSON object. `--json` is the older spelling and still works. |
+| `--write` | Replace each patch file whose patch no longer applies with its re-roll. A merge that did not come out clean is written beside it as `<name>.conflict.patch`, which no patch manager reads. |
+| `--fix` | Rewrite the patch declarations: drop what shipped, adopt the ones declared as a URL. Implies `--write`. |
+| `--force` | Replace a patch file git reports as changed, untracked, or that it cannot speak for. Also lets `--fix` rewrite a declaration file with uncommitted changes. |
+| `--package=drupal/webform` | Only this package. Repeatable, and `webform` works too. Narrows the report, `--write`, `--fix` and the exit code. |
+| `--format=json` | Print the plan as one JSON object. `--json` does the same. |
 | `--format=github` | Print each verdict as a workflow command, so GitHub Actions shows it as an annotation on the line declaring the patch. |
 | `--dry-run` | Print the request that would be sent and stop. Nothing is asked of the service, nothing is written. |
 
@@ -327,10 +327,9 @@ beyond `ext-json`, because it runs inside the site's own composer process.
 ```
 composer install
 composer qa        # formatting, static analysis, tests
-composer qa:full   # adds mutation testing, needs pcov or xdebug
 ```
 
-PHPStan runs at level `max` with strict rules and no baseline.
+PHPStan runs at level 6 with no baseline.
 
 ## License
 

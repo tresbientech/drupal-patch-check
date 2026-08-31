@@ -2,18 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Render;
+namespace TresBienTech\Drupatch\Render;
 
-use Tresbien\Drupatch\Site;
+use TresBienTech\Drupatch\Site;
 
 /**
- * What a run actually checked.
- *
- * A run that judged nothing looks like a run where everything was fine.
- * The difference matters most in CI, where nobody reads a green job, so
- * every run says how many patches it covered and how many it skipped.
+ * What a run actually checked, and which packages it skipped.
  */
-final class Coverage
+class Coverage
 {
     /**
      * @param list<array{package: string, title: string, reason: string}> $skipped
@@ -27,16 +23,13 @@ final class Coverage
     /**
      * What a run covered, narrowed to the packages it was asked about.
      *
-     * A run scoped with --package is answering for those packages, so a
-     * patch skipped on another one is not part of the answer.
-     *
      * @param list<string> $packages composer names or short names, empty for the whole site
      */
     public static function of(Site $site, array $packages = []): self
     {
-        $resolution = $site->patches();
+        $config = $site->patches();
         if ([] === $packages) {
-            return new self(\count($resolution->patches), $resolution->skipped);
+            return new self(\count($config->patches), $config->skipped);
         }
 
         $wanted = [];
@@ -44,13 +37,13 @@ final class Coverage
             $wanted[self::shortName($name)] = true;
         }
         $patches = 0;
-        foreach ($resolution->patches as $patch) {
+        foreach ($config->patches as $patch) {
             if (isset($wanted[self::shortName($patch['package'])])) {
                 ++$patches;
             }
         }
         $skipped = [];
-        foreach ($resolution->skipped as $entry) {
+        foreach ($config->skipped as $entry) {
             if (isset($wanted[self::shortName($entry['package'])])) {
                 $skipped[] = $entry;
             }
@@ -60,8 +53,7 @@ final class Coverage
     }
 
     /**
-     * A package named the way --package accepts it: either spelling of
-     * drupal/webform reduces to the same key.
+     * A package named the way --package accepts it: either spelling of drupal/webform reduces to the same key.
      */
     private static function shortName(string $package): string
     {
@@ -71,9 +63,7 @@ final class Coverage
     }
 
     /**
-     * Whether patches were declared and none of them could be checked. A
-     * run like that proves nothing, and it is the one case a green exit
-     * would misrepresent.
+     * Whether patches were declared and none of them could be checked.
      */
     public function isVacuous(): bool
     {
@@ -81,12 +71,7 @@ final class Coverage
     }
 
     /**
-     * The lines a person reads before the table: what was covered, then
-     * one line per package the run left alone.
-     *
-     * A patch title never appears here. A package the run never touched
-     * is one decision, and naming its six patches is detail nobody acts
-     * on.
+     * The lines a person reads before the table: what was covered, then one line per package the run left alone.
      *
      * @return list<string>
      */
@@ -122,12 +107,7 @@ final class Coverage
     }
 
     /**
-     * The skipped patches as one entry per package and reason, in the
-     * order they were declared.
-     *
-     * The reason belongs to the patch rather than to the package: a
-     * package can be skipped whole for having no drupal.org release, and
-     * a checkable one can have a single patch skipped for its host.
+     * The skipped patches as one entry per package and reason, in the order they were declared.
      *
      * @param list<array{package: string, title: string, reason: string}> $skipped
      *

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Command;
+namespace TresBienTech\Drupatch;
 
 use Composer\Command\BaseCommand;
 use Composer\Composer;
@@ -13,35 +13,28 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Terminal;
 use Throwable;
-use Tresbien\Drupatch\Outcome;
-use Tresbien\Drupatch\PatchConfig\Lines;
-use Tresbien\Drupatch\Plan\Client;
-use Tresbien\Drupatch\Plan\Plan;
-use Tresbien\Drupatch\Plan\Value;
-use Tresbien\Drupatch\Render\Annotations;
-use Tresbien\Drupatch\Render\Budget;
-use Tresbien\Drupatch\Render\Coverage;
-use Tresbien\Drupatch\Render\Format;
-use Tresbien\Drupatch\Render\Summary;
-use Tresbien\Drupatch\Render\Table;
-use Tresbien\Drupatch\Resolve\Candidates;
-use Tresbien\Drupatch\Resolve\Declared;
-use Tresbien\Drupatch\Site;
-use Tresbien\Drupatch\Write\ConfigRewriter;
-use Tresbien\Drupatch\Write\PatchFiles;
-use Tresbien\Drupatch\Write\WorkingTree;
-use Tresbien\Drupatch\Write\WrittenFile;
+use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Render\Coverage;
+use TresBienTech\Drupatch\Render\Report;
+use TresBienTech\Drupatch\Write\ConfigRewriter;
+use TresBienTech\Drupatch\Write\Decisions;
+use TresBienTech\Drupatch\Write\PatchFiles;
+use TresBienTech\Drupatch\Write\WorkingTree;
+use UnexpectedValueException;
 
 /**
- * Checks this site's patches, against the releases it installs or against
- * the ones a target core would bring in.
- *
- * The command reads the site and writes nothing.
+ * Checks this site's patches, against the releases it installs or against the ones a target core would bring in.
  */
-final class CheckCommand extends BaseCommand
+class CheckCommand extends BaseCommand
 {
     /** The word a run uses to ask for the newest core its constraint allows. */
     private const TARGET_LATEST = 'latest';
+
+    /** Output shapes, in the order the help text lists them. */
+    private const FORMATS = ['table', 'json', 'github'];
+
+    /** What `--resolve` says when no conflict file has been worked through. */
+    public const NOTHING_DECIDED = 'no conflict file has a decided region; nothing to resolve and nothing written';
 
     protected function configure(): void
     {
@@ -52,20 +45,36 @@ final class CheckCommand extends BaseCommand
             ->setAliases(['drupatch-check'])
             ->setDescription("Check this site's composer patches against the releases it installs")
             ->addOption('target', null, InputOption::VALUE_REQUIRED, 'Core version to plan against, e.g. 11.4.5, or `latest` for the newest core your own constraint allows. Without it the installed releases are checked.')
-            ->addOption('reroll', null, InputOption::VALUE_NONE, 'Write a re-rolled patch file for every patch that no longer applies')
-            ->addOption('fix', null, InputOption::VALUE_NONE, 'Rewrite the patch declarations: drop what shipped upstream, point the rest at their re-rolls. Implies --reroll.')
+            ->addOption('write', null, InputOption::VALUE_NONE, 'Replace every patch file whose patch no longer applies with its re-roll, and write a .conflict.patch beside the ones that did not merge')
+            ->addOption('fix', null, InputOption::VALUE_NONE, 'Rewrite the patch declarations: drop what shipped upstream, adopt the ones declared as URLs. Implies --write.')
+            ->addOption('resolve', null, InputOption::VALUE_NONE, 'Re-read the .conflict.patch files, send the regions you decided, and write back what the service verifies. Implies --write.')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Let --fix rewrite a file that already has uncommitted changes')
-            ->addOption('package', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only this package, repeatable: drupal/webform or webform. Narrows the report, --reroll and --fix, and the exit code with them.')
+            ->addOption('package', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only this package, repeatable: drupal/webform or webform. Narrows the report, --write and --fix, and the exit code with them.')
             ->addOption('strict', null, InputOption::VALUE_NONE, 'Fail on a patch that could not be judged and on a package with no release, as well as on one that will not apply')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Print the plan as one JSON object. The same as --format=json.')
-            ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output shape: '.\implode(', ', Format::accepted()).'. Defaults to table.')
+            ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output shape: '.\implode(', ', self::FORMATS).'. Defaults to table.')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print the request that would be sent and stop. Nothing is asked of the service and nothing is written.');
+    }
+
+    /**
+     * The shape a run prints in; --format wins over the --json flag.
+     */
+    public static function format(?string $format, bool $json): string
+    {
+        if (null === $format) {
+            return $json ? 'json' : 'table';
+        }
+        if (!\in_array($format, self::FORMATS, true)) {
+            throw new UnexpectedValueException(\sprintf('unknown --format=%s; accepted: %s', $format, \implode(', ', self::FORMATS)));
+        }
+
+        return $format;
     }
 
     /**
      * Rewrites the site's declarations and says what changed.
      *
-     * @param list<WrittenFile> $written
+     * @param list<array{path: string, status: string, package: string, title: string, verified: bool}> $written
      *
      * @return list<string>
      */
@@ -91,13 +100,12 @@ final class CheckCommand extends BaseCommand
         if (!\is_array($decoded)) {
             throw new RuntimeException($path.' is not readable JSON');
         }
-        $decoded = Value::keyed($decoded);
 
         if ('' === $file) {
-            $declared = Value::object(Value::object($decoded, 'extra'), 'patches');
+            $declared = (array) ($decoded['extra']['patches'] ?? []);
             $updated = ConfigRewriter::intoComposerJson($text, ConfigRewriter::apply($declared, $changes));
         } else {
-            $declared = isset($decoded['patches']) ? Value::object($decoded, 'patches') : $decoded;
+            $declared = \is_array($decoded['patches'] ?? null) ? $decoded['patches'] : $decoded;
             $updated = ConfigRewriter::intoPatchesFile($text, ConfigRewriter::apply($declared, $changes));
         }
         if (false === \file_put_contents($full, $updated)) {
@@ -106,18 +114,12 @@ final class CheckCommand extends BaseCommand
 
         $lines = ['', '  '.$path.':'];
         foreach ($changes as $change) {
-            $lines[] = $change->line();
+            $lines[] = ConfigRewriter::line($change);
         }
 
         return $lines;
     }
 
-    /**
-     * The plan the run is about: the whole site, or the packages --package
-     * named.
-     *
-     * @throws RuntimeException when a named package declares no patch
-     */
     /**
      * The packages a run was scoped to, empty for the whole site.
      *
@@ -125,9 +127,8 @@ final class CheckCommand extends BaseCommand
      */
     private static function scope(InputInterface $input): array
     {
-        $option = $input->getOption('package');
         $packages = [];
-        foreach (\is_array($option) ? $option : [] as $name) {
+        foreach ((array) $input->getOption('package') as $name) {
             if (\is_string($name) && '' !== \trim($name)) {
                 $packages[] = \trim($name);
             }
@@ -136,6 +137,11 @@ final class CheckCommand extends BaseCommand
         return $packages;
     }
 
+    /**
+     * The plan narrowed to the packages --package named.
+     *
+     * @throws RuntimeException when a named package declares no patch
+     */
     private function narrow(Plan $plan, InputInterface $input): Plan
     {
         $packages = self::scope($input);
@@ -152,9 +158,7 @@ final class CheckCommand extends BaseCommand
     }
 
     /**
-     * What composer would install for each patched package, or nothing
-     * when it cannot say. A site with no repository in reach still gets
-     * the server's answer, and hears why it got no candidates.
+     * What composer would install for each patched package, or nothing when it cannot say.
      *
      * @return array<string, string>
      */
@@ -210,9 +214,7 @@ final class CheckCommand extends BaseCommand
     }
 
     /**
-     * The document declaring the site's patches, as a path relative to
-     * the site root and as text. An unreadable file reads as empty, and
-     * every annotation then anchors to its first line.
+     * The document declaring the site's patches, as a path relative to the site root and as text.
      *
      * @return array{string, string}
      */
@@ -230,16 +232,17 @@ final class CheckCommand extends BaseCommand
         $target = $input->getOption('target');
         $target = \is_string($target) ? \trim($target) : '';
         $fix = true === $input->getOption('fix');
-        $reroll = $fix || true === $input->getOption('reroll');
-        // Resolved before anything is read or asked for, so a run told
-        // two different things stops without touching the site.
+        $resolve = true === $input->getOption('resolve');
+        $reroll = true === $input->getOption('write') || $fix || $resolve;
+        // Resolved before anything is read or asked for, so a run asking
+        // for an unknown shape stops without touching the site.
         $chosen = $input->getOption('format');
         try {
-            $format = Format::of(\is_string($chosen) ? $chosen : null, true === $input->getOption('json'));
+            $format = self::format(\is_string($chosen) ? $chosen : null, true === $input->getOption('json'));
         } catch (Throwable $e) {
             $output->writeln('<error>drupatch: '.$e->getMessage().'</error>');
 
-            return Outcome::FAILED;
+            return Plan::FAILED;
         }
 
         try {
@@ -260,43 +263,58 @@ final class CheckCommand extends BaseCommand
             $candidates = '' === $target ? [] : $this->candidates($composer, $site, $target, $output);
             // What the site has on disk says what it supports, whatever
             // the service's copy of the release data knows.
-            $declared = Declared::forSite($composer, $site->checkable());
+            $declared = Candidates::declaredCore($composer, $site->checkable());
+            $decided = $resolve
+                ? Decisions::onDisk($site->root(), $site->patches()->patches, self::scope($input))
+                : [];
+            if ($resolve && [] === $decided) {
+                $output->writeln('<comment>drupatch: '.self::NOTHING_DECIDED.'</comment>');
+
+                return Plan::CLEAN;
+            }
             if (true === $input->getOption('dry-run')) {
                 $output->writeln((string) \json_encode(
-                    Client::body($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates, $declared),
+                    Client::body($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates, $declared, $decided),
                     \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES,
                 ));
 
-                return Outcome::CLEAN;
+                return Plan::CLEAN;
             }
             $plan = Client::fromComposer($composer, $this->getIO())
-                ->plan($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates, $declared);
+                ->plan($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates, $declared, $decided);
             // The whole site is sent because the server needs the whole
             // lock; the narrowing happens here, so everything after it
             // is about the packages that were asked for.
             $plan = $this->narrow($plan, $input);
-            $written = $reroll ? PatchFiles::forPlan($site->root(), $plan)->write($plan) : [];
+            $tree = true === $input->getOption('force') ? null : new WorkingTree(new ProcessExecutor($this->getIO()));
+            $result = $reroll
+                ? (new PatchFiles($site->root(), $tree, $fix))->write($plan)
+                : ['written' => [], 'refused' => []];
+            $written = $result['written'];
         } catch (Throwable $e) {
             $output->writeln('<error>drupatch: '.$e->getMessage().'</error>');
 
-            return Outcome::FAILED;
+            return Plan::FAILED;
         }
 
         $strict = true === $input->getOption('strict');
-        if (Format::JSON === $format) {
+        if ('json' === $format) {
             $output->writeln((string) \json_encode($plan->raw + [
-                'summary' => Summary::of($plan, $strict, $coverage->isVacuous()),
+                'summary' => Report::summary($plan, $strict, $coverage->isVacuous()),
             ] + ['written' => \array_map(
-                static fn (WrittenFile $file): array => ['path' => $file->path, 'status' => $file->status],
+                static fn (array $file): array => ['path' => $file['path'], 'status' => $file['status']],
                 $written
+            )] + ['refused' => \array_map(
+                static fn (array $refusal): array => ['path' => $refusal['path'], 'reason' => $refusal['reason']],
+                $result['refused']
             )], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES));
-        } elseif (Format::GITHUB === $format) {
+        } elseif ('github' === $format) {
             [$path, $text] = self::declaration($site);
-            foreach (Annotations::lines($plan, $path, Lines::in($text)) as $line) {
+            foreach (Report::annotations($plan, $path, $text) as $line) {
                 $output->writeln($line);
             }
         } else {
-            foreach (Table::report($plan, $written, Budget::clamp((new Terminal())->getWidth())) as $line) {
+            foreach (Report::report($plan, $reroll ? $result : null, Report::clamp((new Terminal())->getWidth())) as $line) {
                 $output->writeln($line);
             }
         }
@@ -309,10 +327,10 @@ final class CheckCommand extends BaseCommand
             } catch (Throwable $e) {
                 $output->writeln('<error>drupatch: '.$e->getMessage().'</error>');
 
-                return Outcome::FAILED;
+                return Plan::FAILED;
             }
         }
 
-        return Outcome::of($plan, $strict, $coverage->isVacuous());
+        return $plan->exitCode($strict, $coverage->isVacuous());
     }
 }

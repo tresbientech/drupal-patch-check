@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests\Render;
+namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\Render\Coverage;
+use TresBienTech\Drupatch\Render\Coverage;
 
 final class CoverageTest extends TestCase
 {

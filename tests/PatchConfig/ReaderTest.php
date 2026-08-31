@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests\PatchConfig;
+namespace TresBienTech\Drupatch\Tests\PatchConfig;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\PatchConfig\Reader;
+use TresBienTech\Drupatch\PatchConfig;
 
 final class ReaderTest extends TestCase
 {
@@ -53,16 +53,21 @@ final class ReaderTest extends TestCase
     /**
      * @param array<string, string> $checkable
      */
-    private function reader(int $textBudget = self::AMPLE, array $checkable = self::CHECKABLE): Reader
+    /**
+     * @param array<string, mixed>  $extra
+     * @param array<string, string> $checkable
+     * @param list<string>          $installed
+     */
+    private function read(array $extra, int $textBudget = self::AMPLE, array $checkable = self::CHECKABLE, array $installed = []): PatchConfig
     {
-        return new Reader($this->root, $textBudget, $checkable);
+        return PatchConfig::read($this->root, $textBudget, $checkable, $extra, $installed);
     }
 
     public function testReadsTheInlineMapEveryDrupalSiteUses(): void
     {
         $extra = ['patches' => ['drupal/webform' => ['Fix the alter hook' => 'patches/local.patch']]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertSame([['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patches/local.patch']], $resolution->patches);
         self::assertSame(['patches/local.patch' => "diff --git a/x b/x\n"], $resolution->files);
@@ -78,7 +83,7 @@ final class ReaderTest extends TestCase
         ]));
         $extra = ['patches-file' => 'patches.json', 'patches' => ['drupal/core' => ['Inline' => 'https://www.drupal.org/files/issues/a.patch']]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertCount(1, $resolution->patches, 'a patches file replaces the inline map, as the manager does');
         self::assertSame('From a file', $resolution->patches[0]['title']);
@@ -91,14 +96,14 @@ final class ReaderTest extends TestCase
             'drupal/webform' => ['Bare map' => 'https://www.drupal.org/files/issues/a.patch'],
         ]));
 
-        $resolution = $this->reader()->read(['patches-file' => 'patches.json']);
+        $resolution = $this->read(['patches-file' => 'patches.json']);
 
         self::assertSame('Bare map', $resolution->patches[0]['title']);
     }
 
     public function testSaysSoWhenThePatchesFileCannotBeRead(): void
     {
-        $resolution = $this->reader()->read(['patches-file' => 'missing.json']);
+        $resolution = $this->read(['patches-file' => 'missing.json']);
 
         self::assertSame([], $resolution->patches);
         self::assertStringContainsString('missing.json', \implode(' ', $resolution->notes));
@@ -111,7 +116,7 @@ final class ReaderTest extends TestCase
             'Keyed entry' => ['url' => 'patches/local.patch', 'depth' => 2],
         ]]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertSame('A list entry', $resolution->patches[0]['title']);
         self::assertSame('https://www.drupal.org/files/issues/a.patch', $resolution->patches[0]['source']);
@@ -125,7 +130,7 @@ final class ReaderTest extends TestCase
             ['label' => 'Vaimo entry', 'source' => 'patches/local.patch', 'level' => 1],
         ]]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertSame([['package' => 'drupal/webform', 'title' => 'Vaimo entry', 'source' => 'patches/local.patch']], $resolution->patches);
     }
@@ -140,7 +145,7 @@ final class ReaderTest extends TestCase
             'patches-ignore' => ['some/dependency' => ['drupal/webform' => ['Drop me' => 'https://www.drupal.org/files/issues/b.patch']]],
         ];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertCount(1, $resolution->patches);
         self::assertSame('Keep me', $resolution->patches[0]['title']);
@@ -155,7 +160,7 @@ final class ReaderTest extends TestCase
         \fwrite($handle, 'x');
         \fclose($handle);
 
-        $resolution = $this->reader()->read(['patches' => ['drupal/webform' => ['Huge' => 'patches/big.patch']]]);
+        $resolution = $this->read(['patches' => ['drupal/webform' => ['Huge' => 'patches/big.patch']]]);
 
         self::assertSame([], $resolution->files);
         self::assertCount(1, $resolution->patches, 'the patch keeps its row, so the report says it was not judged');
@@ -167,12 +172,12 @@ final class ReaderTest extends TestCase
         \file_put_contents($this->root.'/patches/second.patch', "diff --git a/y b/y\n");
         $first = (string) \file_get_contents($this->root.'/patches/local.patch');
 
-        $resolution = $this->reader(\strlen(\json_encode($first, \JSON_THROW_ON_ERROR)))->read([
+        $resolution = $this->read([
             'patches' => ['drupal/webform' => [
                 'First' => 'patches/local.patch',
                 'Second' => 'patches/second.patch',
             ]],
-        ]);
+        ], \strlen(\json_encode($first, \JSON_THROW_ON_ERROR)));
 
         self::assertSame(['patches/local.patch'], \array_keys($resolution->files));
         self::assertCount(2, $resolution->patches);
@@ -183,7 +188,7 @@ final class ReaderTest extends TestCase
     {
         $extra = ['patches' => ['acme/private' => ['In-house fix' => 'patches/local.patch']]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertSame([], $resolution->patches);
         self::assertSame([], $resolution->files, 'the text of a patch that cannot be judged never leaves the site');
@@ -200,7 +205,7 @@ final class ReaderTest extends TestCase
         // about whether drupal.org has the release.
         $extra = ['patches' => ['drupal/coder' => ['Internal sniff' => 'patches/local.patch']]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertSame([], $resolution->patches);
         self::assertSame(
@@ -216,7 +221,7 @@ final class ReaderTest extends TestCase
             'From drupal.org' => 'https://www.drupal.org/files/issues/a.patch',
         ]]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertSame(['From drupal.org'], \array_column($resolution->patches, 'title'));
         self::assertSame(
@@ -231,7 +236,7 @@ final class ReaderTest extends TestCase
             'MR' => 'https://git.drupalcode.org/project/webform/-/merge_requests/120.patch',
         ]]];
 
-        self::assertCount(1, $this->reader()->read($extra)->patches);
+        self::assertCount(1, $this->read($extra)->patches);
     }
 
     public function testKeepsTheCheckablePatchesOfAMixedSite(): void
@@ -242,7 +247,7 @@ final class ReaderTest extends TestCase
             'symfony/console' => ['Vendor tweak' => 'patches/local.patch'],
         ]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertSame(['drupal/webform'], \array_column($resolution->patches, 'package'));
         self::assertCount(2, $resolution->skipped);
@@ -255,12 +260,12 @@ final class ReaderTest extends TestCase
             'patchLevel' => ['drupal/webform' => '-p2'],
         ];
 
-        self::assertCount(1, $this->reader()->read($extra)->patches);
+        self::assertCount(1, $this->read($extra)->patches);
     }
 
     public function testSaysSoWhenPatchesAreFoundOnlyByDirectoryScan(): void
     {
-        $resolution = $this->reader()->read(['patches-search' => 'patches/']);
+        $resolution = $this->read(['patches-search' => 'patches/']);
 
         self::assertStringContainsString('patches-search', \implode(' ', $resolution->notes));
     }
@@ -269,7 +274,7 @@ final class ReaderTest extends TestCase
     {
         $installed = ['cweagans/composer-patches', 'acme/composer-patches-fork', 'drupal/core'];
 
-        $notes = \implode(' ', $this->reader()->read([], $installed)->notes);
+        $notes = \implode(' ', $this->read([], installed: $installed)->notes);
 
         self::assertStringContainsString('acme/composer-patches-fork', $notes);
         self::assertStringNotContainsString('cweagans/composer-patches is installed', $notes);
@@ -279,7 +284,7 @@ final class ReaderTest extends TestCase
     {
         $extra = ['patches' => ['drupal/webform' => ['Fix' => 'https://www.drupal.org/files/issues/a.patch']]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertSame([], $resolution->files);
         self::assertFalse($resolution->isEmpty());
@@ -289,7 +294,7 @@ final class ReaderTest extends TestCase
     {
         $extra = ['patches' => ['drupal/webform' => ['Fix' => 'patches/gone.patch']]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertCount(1, $resolution->patches, 'the plan reports a missing file; the reader does not hide the patch');
         self::assertSame([], $resolution->files);
@@ -299,13 +304,13 @@ final class ReaderTest extends TestCase
     {
         $extra = ['patches' => ['drupal/webform' => ['Fix' => '../../etc/hosts']]];
 
-        self::assertSame([], $this->reader()->read($extra)->files);
+        self::assertSame([], $this->read($extra)->files);
     }
 
     public function testASiteWithoutPatchesDeclaresNone(): void
     {
-        self::assertTrue($this->reader()->read([])->isEmpty());
-        self::assertTrue($this->reader()->read(['patches' => 'patches.json'])->isEmpty());
+        self::assertTrue($this->read([])->isEmpty());
+        self::assertTrue($this->read(['patches' => 'patches.json'])->isEmpty());
     }
 
     public function testTheSameFileDeclaredTwiceIsSentOnce(): void
@@ -315,7 +320,7 @@ final class ReaderTest extends TestCase
             'drupal/core' => ['Same file' => 'patches/local.patch'],
         ]];
 
-        $resolution = $this->reader()->read($extra);
+        $resolution = $this->read($extra);
 
         self::assertCount(2, $resolution->patches);
         self::assertCount(1, $resolution->files);
@@ -337,14 +342,14 @@ final class ReaderTest extends TestCase
         \sort($sorted);
         self::assertNotSame(\array_keys($declared), $sorted, 'this case must distinguish declared order from sorted');
 
-        $resolution = $this->reader()->read(['patches' => ['drupal/domain' => $declared]]);
+        $resolution = $this->read(['patches' => ['drupal/domain' => $declared]]);
 
         self::assertSame(\array_keys($declared), \array_column($resolution->patches, 'title'));
     }
 
     public function testKeepsTheOrderOfAListShapedDeclaration(): void
     {
-        $resolution = $this->reader()->read(['patches' => ['drupal/domain' => [
+        $resolution = $this->read(['patches' => ['drupal/domain' => [
             'patchs/b.patch',
             'patchs/a.patch',
             'patchs/c.patch',

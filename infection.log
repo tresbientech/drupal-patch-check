@@ -1,0 +1,1974 @@
+Note: Pass `--log-verbosity=all` to log information about killed and errored mutants.
+Note: Pass `--debug` to log test-framework output.
+
+Escaped mutants:
+================
+
+1) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Entry.php:49    [M] UnwrapTrim [ID] fc62d8c316c31123c2a300b68db2cfee
+
+@@ @@
+     public static function source(mixed $entry): string
+     {
+         if (\is_string($entry)) {
+-            return \trim($entry);
++            return $entry;
+         }
+         if (!\is_array($entry)) {
+             return '';
+
+
+2) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Entry.php:56    [M] UnwrapTrim [ID] 89862748c19a8fc932c50264b332c8d0
+
+@@ @@
+         }
+         foreach (self::SOURCE_KEYS as $sourceKey) {
+             if (\is_string($entry[$sourceKey] ?? null)) {
+-                return \trim($entry[$sourceKey]);
++                return $entry[$sourceKey];
+             }
+         }
+
+
+3) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Entry.php:72    [M] Foreach_ [ID] 257fdefdce35a6eca971fc68f9d8d349
+
+@@ @@
+         if (!\is_array($entry)) {
+             return $source;
+         }
+-        foreach (self::SOURCE_KEYS as $sourceKey) {
++        foreach ([] as $sourceKey) {
+             if (isset($entry[$sourceKey])) {
+                 $entry[$sourceKey] = $source;
+
+
+4) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Entry.php:76    [M] ReturnRemoval [ID] cdfe5689c8263abdabd4a11154871cb9
+
+@@ @@
+             if (isset($entry[$sourceKey])) {
+                 $entry[$sourceKey] = $source;
+
+-                return $entry;
++
+             }
+         }
+         $entry['url'] = $source;
+
+
+5) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Entry.php:86    [M] UnwrapTrim [ID] 0c0341d5e52f2fce27f0df56680a3794
+
+@@ @@
+
+     public static function isUrl(string $source): bool
+     {
+-        $s = \strtolower(\trim($source));
++        $s = \strtolower($source);
+
+         return \str_starts_with($s, 'http://') || \str_starts_with($s, 'https://');
+     }
+
+
+6) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Entry.php:86    [M] UnwrapStrToLower [ID] 6288da0cac0e1ac4942c31544e92cfdf
+
+@@ @@
+
+     public static function isUrl(string $source): bool
+     {
+-        $s = \strtolower(\trim($source));
++        $s = \trim($source);
+
+         return \str_starts_with($s, 'http://') || \str_starts_with($s, 'https://');
+     }
+
+
+7) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Entry.php:88    [M] LogicalOr [ID] 7c16a80fc46d638aa9e569fa4bc7f6fe
+
+@@ @@
+     {
+         $s = \strtolower(\trim($source));
+
+-        return \str_starts_with($s, 'http://') || \str_starts_with($s, 'https://');
++        return \str_starts_with($s, 'http://') && \str_starts_with($s, 'https://');
+     }
+ }
+
+
+8) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:54    [M] Continue_ [ID] 1fd6153edf06fdb163eb8376417b43ec
+
+@@ @@
+         foreach ($declarations as $entry) {
+             [$package, $title, $source] = $entry;
+             if ('' === $source || isset($ignored[$package."\0".$title])) {
+-                continue;
++                break;
+             }
+             $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
+             if (Entry::isUrl($source) || isset($files[$source]) || \count($files) >= self::MAX_PATCH_FILES) {
+
+
+9) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:57    [M] GreaterThanOrEqualTo [ID] 8c85eee1e34e150971b1b3ba40642f42
+
+@@ @@
+                 continue;
+             }
+             $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
+-            if (Entry::isUrl($source) || isset($files[$source]) || \count($files) >= self::MAX_PATCH_FILES) {
++            if (Entry::isUrl($source) || isset($files[$source]) || \count($files) > self::MAX_PATCH_FILES) {
+                 continue;
+             }
+             $text = $this->readFile($source);
+
+
+10) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:57    [M] LogicalOr [ID] 380d7b3cd98f33f26c7e2a910e303c72
+
+@@ @@
+                 continue;
+             }
+             $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
+-            if (Entry::isUrl($source) || isset($files[$source]) || \count($files) >= self::MAX_PATCH_FILES) {
++            if (Entry::isUrl($source) && isset($files[$source]) || \count($files) >= self::MAX_PATCH_FILES) {
+                 continue;
+             }
+             $text = $this->readFile($source);
+
+
+11) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:57    [M] LogicalOr [ID] 22e54af22d974a593a6ddf86829d9d3d
+
+@@ @@
+                 continue;
+             }
+             $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
+-            if (Entry::isUrl($source) || isset($files[$source]) || \count($files) >= self::MAX_PATCH_FILES) {
++            if (Entry::isUrl($source) || isset($files[$source]) && \count($files) >= self::MAX_PATCH_FILES) {
+                 continue;
+             }
+             $text = $this->readFile($source);
+
+
+12) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:70    [M] Concat [ID] f59fc11f011ac3f1fde74b35bad30bc0
+
+@@ @@
+             $notes[] = 'extra.patches-search is not read: patches found only by directory scan are left out';
+         }
+         foreach (self::unhandledManagers($installedPackages) as $manager) {
+-            $notes[] = $manager.' is installed and its patch configuration is not read';
++            $notes[] = ' is installed and its patch configuration is not read' . $manager;
+         }
+
+         return new Resolution($patches, $files, $notes, $file);
+
+
+13) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:70    [M] ConcatOperandRemoval [ID] a6e84272aa29c8847276e264883ae7cf
+
+@@ @@
+             $notes[] = 'extra.patches-search is not read: patches found only by directory scan are left out';
+         }
+         foreach (self::unhandledManagers($installedPackages) as $manager) {
+-            $notes[] = $manager.' is installed and its patch configuration is not read';
++            $notes[] = $manager;
+         }
+
+         return new Resolution($patches, $files, $notes, $file);
+
+
+14) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:93    [M] ArrayOneItem [ID] ee8866442d0c97cbe8221b6a43fdc76b
+
+@@ @@
+             if (null !== $fromFile) {
+                 $file = $declared;
+
+-                return $fromFile;
++                return count($fromFile) > 1 ? array_slice($fromFile, 0, 1, true) : $fromFile;
+             }
+         }
+
+
+15) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:108    [M] GreaterThan [ID] 444cfd88c64410cd15adb071cb454802
+
+@@ @@
+     private function readPatchesFile(string $path, array &$notes): ?array
+     {
+         $full = $this->resolve($path);
+-        if (null === $full || \filesize($full) > self::MAX_PATCHES_FILE_BYTES) {
++        if (null === $full || \filesize($full) >= self::MAX_PATCHES_FILE_BYTES) {
+             $notes[] = 'extra.patches-file names '.$path.', which could not be read';
+
+             return null;
+
+
+16) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:109    [M] Concat [ID] 6ef98fbd4cfdefc21adf5d8f25b1ab1d
+
+@@ @@
+     {
+         $full = $this->resolve($path);
+         if (null === $full || \filesize($full) > self::MAX_PATCHES_FILE_BYTES) {
+-            $notes[] = 'extra.patches-file names '.$path.', which could not be read';
++            $notes[] = $path . 'extra.patches-file names '.', which could not be read';
+
+             return null;
+         }
+
+
+17) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:109    [M] ConcatOperandRemoval [ID] a086703b56d765b6a50cae4b9caa2a40
+
+@@ @@
+     {
+         $full = $this->resolve($path);
+         if (null === $full || \filesize($full) > self::MAX_PATCHES_FILE_BYTES) {
+-            $notes[] = 'extra.patches-file names '.$path.', which could not be read';
++            $notes[] = $path.', which could not be read';
+
+             return null;
+         }
+
+
+18) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:109    [M] Concat [ID] 789ace91026122192994fecdbfce7f9f
+
+@@ @@
+     {
+         $full = $this->resolve($path);
+         if (null === $full || \filesize($full) > self::MAX_PATCHES_FILE_BYTES) {
+-            $notes[] = 'extra.patches-file names '.$path.', which could not be read';
++            $notes[] = 'extra.patches-file names ' . ', which could not be read' . $path;
+
+             return null;
+         }
+
+
+19) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:109    [M] ConcatOperandRemoval [ID] a68a11ad819ee28eacec7ce562c83263
+
+@@ @@
+     {
+         $full = $this->resolve($path);
+         if (null === $full || \filesize($full) > self::MAX_PATCHES_FILE_BYTES) {
+-            $notes[] = 'extra.patches-file names '.$path.', which could not be read';
++            $notes[] = 'extra.patches-file names '.$path;
+
+             return null;
+         }
+
+
+20) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:137    [M] LogicalOr [ID] 0f0bb3852199335b586f389a3cc5921e
+
+@@ @@
+         }
+         $out = [];
+         foreach ($patches as $package => $entries) {
+-            if (!\is_string($package) || !\is_array($entries)) {
++            if (!\is_string($package) && !\is_array($entries)) {
+                 continue;
+             }
+             foreach ($entries as $key => $entry) {
+
+
+21) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:141    [M] LogicalAndAllSubExprNegation [ID] 510ec60a8c8cfabdee5e78b7d6cc8982
+
+@@ @@
+                 continue;
+             }
+             foreach ($entries as $key => $entry) {
+-                if (!\is_string($entry) && !\is_array($entry)) {
++                if (\is_string($entry) && \is_array($entry)) {
+                     continue;
+                 }
+                 $out[] = [$package, Entry::title($key, $entry), Entry::source($entry)];
+
+
+22) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:168    [M] TrueValue [ID] 3c958d5fa3655551c21dbf1816c9a4ac
+
+@@ @@
+         $out = [];
+         foreach ($ignore as $byDependency) {
+             foreach (self::flatten($byDependency) as [$package, $title, $_]) {
+-                $out[$package."\0".$title] = true;
++                $out[$package."\0".$title] = false;
+             }
+         }
+
+
+23) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:172    [M] ArrayOneItem [ID] 08a3f00faf2fa87921d35018f41a5563
+
+@@ @@
+             }
+         }
+
+-        return $out;
++        return count($out) > 1 ? array_slice($out, 0, 1, true) : $out;
+     }
+
+     /**
+
+
+24) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:192    [M] UnwrapArrayUnique [ID] 7e4b363dd7b62545b1a397c78c81a5cc
+
+@@ @@
+             }
+         }
+
+-        return \array_values(\array_unique($out));
++        return \array_values($out);
+     }
+
+     /**
+
+
+25) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:192    [M] UnwrapArrayValues [ID] 1ac439ee943bfa292e7cf6c758c748aa
+
+@@ @@
+             }
+         }
+
+-        return \array_values(\array_unique($out));
++        return \array_unique($out);
+     }
+
+     /**
+
+
+26) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:202    [M] GreaterThan [ID] b2ca30b3cc5bc5c0062c8be5bad80afb
+
+@@ @@
+     private function readFile(string $source): ?string
+     {
+         $full = $this->resolve($source);
+-        if (null === $full || \filesize($full) > self::MAX_PATCH_BYTES) {
++        if (null === $full || \filesize($full) >= self::MAX_PATCH_BYTES) {
+             return null;
+         }
+         $text = @\file_get_contents($full);
+
+
+27) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:212    [M] UnwrapLtrim [ID] 4d7389350e435c5b1b2e034d03a70c97
+
+@@ @@
+
+     private function resolve(string $source): ?string
+     {
+-        $path = \realpath($this->root.\DIRECTORY_SEPARATOR.\ltrim($source, '/\\'));
++        $path = \realpath($this->root.\DIRECTORY_SEPARATOR.$source);
+         if (false === $path || !\is_file($path)) {
+             return null;
+         }
+
+
+28) /home/theodore/DEV/PUBLIC/drupatch/src/PatchConfig/Reader.php:217    [M] ConcatOperandRemoval [ID] 12eb7395e0a273bbb5a743030782ec80
+
+@@ @@
+             return null;
+         }
+
+-        return \str_starts_with($path, $this->root.\DIRECTORY_SEPARATOR) ? $path : null;
++        return \str_starts_with($path, $this->root) ? $path : null;
+     }
+ }
+
+
+29) /home/theodore/DEV/PUBLIC/drupatch/src/Plan/Plan.php:88    [M] UnwrapArrayValues [ID] 145abe0c4e7b6083921d0a6460716ea1
+
+@@ @@
+      */
+     public function needingAction(): array
+     {
+-        return \array_values(\array_filter($this->patches, static fn (PatchRow $row): bool => $row->needsAction()));
++        return \array_filter($this->patches, static fn (PatchRow $row): bool => $row->needsAction());
+     }
+
+     /**
+
+
+30) /home/theodore/DEV/PUBLIC/drupatch/src/Plan/Plan.php:98    [M] UnwrapArrayValues [ID] 1d56e2ef5ab3f8d50959f65f35584254
+
+@@ @@
+      */
+     public function worthMentioning(): array
+     {
+-        return \array_values(\array_filter($this->patches, static fn (PatchRow $row): bool => $row->needsMention()));
++        return \array_filter($this->patches, static fn (PatchRow $row): bool => $row->needsMention());
+     }
+
+     /**
+
+
+31) /home/theodore/DEV/PUBLIC/drupatch/src/Plan/Value.php:29    [M] DecrementInteger [ID] cc9e9d543dd3ae7a9ffc2130ed2ddc9b
+
+@@ @@
+     /**
+      * @param array<string, mixed> $data
+      */
+-    public static function int(array $data, string $key, int $default = 0): int
++    public static function int(array $data, string $key, int $default = -1): int
+     {
+         $value = $data[$key] ?? null;
+
+
+32) /home/theodore/DEV/PUBLIC/drupatch/src/Plan/Value.php:41    [M] Identical [ID] 1d020515ad5a24622d4da6ffbfb524a8
+
+@@ @@
+      */
+     public static function bool(array $data, string $key): bool
+     {
+-        return ($data[$key] ?? null) === true;
++        return $data[$key] ?? null !== true;
+     }
+
+     /**
+
+
+33) /home/theodore/DEV/PUBLIC/drupatch/src/Plan/Value.php:101    [M] ArrayOneItem [ID] 5fccb2c6b9b6bf89486cb7fcb30ac2af
+
+@@ @@
+             }
+         }
+
+-        return $out;
++        return count($out) > 1 ? array_slice($out, 0, 1, true) : $out;
+     }
+
+     /**
+
+
+34) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:39    [M] IncrementInteger [ID] ddb47fc634c788dad56df6d45d382b99
+
+@@ @@
+         $lines = [\sprintf(
+             '<info>drupatch</info>: %d patch%s against %s — %s',
+             $total,
+-            1 === $total ? '' : 'es',
++            2 === $total ? '' : 'es',
+             $plan->against(),
+             self::tally($plan)
+         )];
+
+
+35) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:45    [M] Concat [ID] 271419ce991f670d8ea154b40b17ac1d
+
+@@ @@
+         )];
+
+         foreach ($plan->warnings as $warning) {
+-            $lines[] = '  <comment>! '.$warning.'</comment>';
++            $lines[] = $warning . '  <comment>! '.'</comment>';
+         }
+
+         $shown = 0;
+
+
+36) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:45    [M] ConcatOperandRemoval [ID] 75664aae936f0aed0ee56e82e0732d63
+
+@@ @@
+         )];
+
+         foreach ($plan->warnings as $warning) {
+-            $lines[] = '  <comment>! '.$warning.'</comment>';
++            $lines[] = $warning.'</comment>';
+         }
+
+         $shown = 0;
+
+
+37) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:45    [M] Concat [ID] 0f3de3059b2be184ef6f5adea6ba756a
+
+@@ @@
+         )];
+
+         foreach ($plan->warnings as $warning) {
+-            $lines[] = '  <comment>! '.$warning.'</comment>';
++            $lines[] = '  <comment>! ' . '</comment>' . $warning;
+         }
+
+         $shown = 0;
+
+
+38) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:45    [M] ConcatOperandRemoval [ID] 82c8e1776b8d33c5c650bf98f30882b8
+
+@@ @@
+         )];
+
+         foreach ($plan->warnings as $warning) {
+-            $lines[] = '  <comment>! '.$warning.'</comment>';
++            $lines[] = '  <comment>! '.$warning;
+         }
+
+         $shown = 0;
+
+
+39) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:48    [M] DecrementInteger [ID] 4fee4f0856331f1efb2adea06fe73f01
+
+@@ @@
+             $lines[] = '  <comment>! '.$warning.'</comment>';
+         }
+
+-        $shown = 0;
++        $shown = -1;
+         foreach ($plan->worthMentioning() as $row) {
+             if (self::MAX_ROWS === $shown) {
+                 $lines[] = '  …';
+
+
+40) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:57    [M] GreaterThan [ID] 746e459f64c13b5a9fe43fa351b53c3a
+
+@@ @@
+             ++$shown;
+             $lines[] = \sprintf('  %-13s %s %s  %s', $row->verdict, $row->package, $row->version, $row->label());
+         }
+-        if ($shown > 0) {
++        if ($shown >= 0) {
+             $lines[] = '  run `'.self::COMMAND.'` for the detail, `--target 11.4.5` to plan an upgrade';
+         }
+
+
+41) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:58    [M] Concat [ID] 556ce2b384009e446d10ff026d76312d
+
+@@ @@
+             $lines[] = \sprintf('  %-13s %s %s  %s', $row->verdict, $row->package, $row->version, $row->label());
+         }
+         if ($shown > 0) {
+-            $lines[] = '  run `'.self::COMMAND.'` for the detail, `--target 11.4.5` to plan an upgrade';
++            $lines[] = self::COMMAND . '  run `'.'` for the detail, `--target 11.4.5` to plan an upgrade';
+         }
+
+         if ($plan->isBlocked()) {
+
+
+42) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:58    [M] ConcatOperandRemoval [ID] fbe244757382b78264b6d82c4d102740
+
+@@ @@
+             $lines[] = \sprintf('  %-13s %s %s  %s', $row->verdict, $row->package, $row->version, $row->label());
+         }
+         if ($shown > 0) {
+-            $lines[] = '  run `'.self::COMMAND.'` for the detail, `--target 11.4.5` to plan an upgrade';
++            $lines[] = self::COMMAND.'` for the detail, `--target 11.4.5` to plan an upgrade';
+         }
+
+         if ($plan->isBlocked()) {
+
+
+43) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:58    [M] Concat [ID] 82391027e7967c847797a5b9a14810a3
+
+@@ @@
+             $lines[] = \sprintf('  %-13s %s %s  %s', $row->verdict, $row->package, $row->version, $row->label());
+         }
+         if ($shown > 0) {
+-            $lines[] = '  run `'.self::COMMAND.'` for the detail, `--target 11.4.5` to plan an upgrade';
++            $lines[] = '  run `' . '` for the detail, `--target 11.4.5` to plan an upgrade' . self::COMMAND;
+         }
+
+         if ($plan->isBlocked()) {
+
+
+44) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:58    [M] ConcatOperandRemoval [ID] f796ed22404548478e50cefe6ad638f9
+
+@@ @@
+             $lines[] = \sprintf('  %-13s %s %s  %s', $row->verdict, $row->package, $row->version, $row->label());
+         }
+         if ($shown > 0) {
+-            $lines[] = '  run `'.self::COMMAND.'` for the detail, `--target 11.4.5` to plan an upgrade';
++            $lines[] = '  run `'.self::COMMAND;
+         }
+
+         if ($plan->isBlocked()) {
+
+
+45) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:66    [M] Ternary [ID] a24191ef2de8d52001a7cd72ed8600c2
+
+@@ @@
+             $lines[] = \sprintf(
+                 '  %d package%s with no release for %s: %s',
+                 \count($blocking),
+-                1 === \count($blocking) ? '' : 's',
++                1 === \count($blocking) ? 's' : '',
+                 $plan->against(),
+                 \implode(', ', \array_slice($blocking, 0, 10))
+             );
+
+
+46) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:66    [M] IncrementInteger [ID] 6779af819da45a2d972d99a55b7f028b
+
+@@ @@
+             $lines[] = \sprintf(
+                 '  %d package%s with no release for %s: %s',
+                 \count($blocking),
+-                1 === \count($blocking) ? '' : 's',
++                2 === \count($blocking) ? '' : 's',
+                 $plan->against(),
+                 \implode(', ', \array_slice($blocking, 0, 10))
+             );
+
+
+47) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:68    [M] DecrementInteger [ID] 6c3fe6855434016fdf67b4cc7ba746f8
+
+@@ @@
+                 \count($blocking),
+                 1 === \count($blocking) ? '' : 's',
+                 $plan->against(),
+-                \implode(', ', \array_slice($blocking, 0, 10))
++                \implode(', ', \array_slice($blocking, 0, 9))
+             );
+         }
+
+
+48) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:68    [M] IncrementInteger [ID] 5f91da003d4f60c3590294c6c786678f
+
+@@ @@
+                 \count($blocking),
+                 1 === \count($blocking) ? '' : 's',
+                 $plan->against(),
+-                \implode(', ', \array_slice($blocking, 0, 10))
++                \implode(', ', \array_slice($blocking, 0, 11))
+             );
+         }
+
+
+49) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:68    [M] DecrementInteger [ID] 61876294670b9295e1de2c965685a79a
+
+@@ @@
+                 \count($blocking),
+                 1 === \count($blocking) ? '' : 's',
+                 $plan->against(),
+-                \implode(', ', \array_slice($blocking, 0, 10))
++                \implode(', ', \array_slice($blocking, -1, 10))
+             );
+         }
+
+
+50) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:68    [M] UnwrapArraySlice [ID] b113cadf99066ef43cc527b9f26a2d10
+
+@@ @@
+                 \count($blocking),
+                 1 === \count($blocking) ? '' : 's',
+                 $plan->against(),
+-                \implode(', ', \array_slice($blocking, 0, 10))
++                \implode(', ', $blocking)
+             );
+         }
+
+
+51) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:84    [M] Foreach_ [ID] 9f1944c8ff0d1b2933e162739ecf972b
+
+@@ @@
+     {
+         $parts = [];
+         $counts = $plan->counts;
+-        foreach (self::TALLY_ORDER as $verdict) {
++        foreach ([] as $verdict) {
+             if (($counts[$verdict] ?? 0) > 0) {
+                 $parts[] = $counts[$verdict].' '.$verdict;
+                 unset($counts[$verdict]);
+
+
+52) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:85    [M] DecrementInteger [ID] 0cbb4fa17ce400d53dd0a52ee8fae4de
+
+@@ @@
+         $parts = [];
+         $counts = $plan->counts;
+         foreach (self::TALLY_ORDER as $verdict) {
+-            if (($counts[$verdict] ?? 0) > 0) {
++            if (($counts[$verdict] ?? -1) > 0) {
+                 $parts[] = $counts[$verdict].' '.$verdict;
+                 unset($counts[$verdict]);
+             }
+
+
+53) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:85    [M] Coalesce [ID] 9c16146f89d6ce912babc87416c82c40
+
+@@ @@
+         $parts = [];
+         $counts = $plan->counts;
+         foreach (self::TALLY_ORDER as $verdict) {
+-            if (($counts[$verdict] ?? 0) > 0) {
++            if ((0 ?? $counts[$verdict]) > 0) {
+                 $parts[] = $counts[$verdict].' '.$verdict;
+                 unset($counts[$verdict]);
+             }
+
+
+54) /home/theodore/DEV/PUBLIC/drupatch/src/Render/HookReport.php:91    [M] GreaterThan [ID] 3a975b65c643977c6e1121ef56a7fceb
+
+@@ @@
+             }
+         }
+         foreach ($counts as $verdict => $count) {
+-            if ($count > 0) {
++            if ($count >= 0) {
+                 $parts[] = $count.' '.$verdict;
+             }
+         }
+
+
+55) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:26    [M] IncrementInteger [ID] 9a0ad28b04b09224708338c1e4b75ef0
+
+@@ @@
+         $lines = [\sprintf(
+             '<info>Drupal Code Query</info>: %d patch%s against %s%s',
+             $total,
+-            1 === $total ? '' : 'es',
++            2 === $total ? '' : 'es',
+             $plan->against(),
+             $plan->targetIsInstalled ? ' (the core this site runs)' : ''
+         ), ''];
+
+
+56) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:26    [M] Ternary [ID] 6a3f6b03ff75532efec47a3cf4851a8c
+
+@@ @@
+         $lines = [\sprintf(
+             '<info>Drupal Code Query</info>: %d patch%s against %s%s',
+             $total,
+-            1 === $total ? '' : 'es',
++            1 === $total ? 'es' : '',
+             $plan->against(),
+             $plan->targetIsInstalled ? ' (the core this site runs)' : ''
+         ), ''];
+
+
+57) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:32    [M] Concat [ID] 0f5fbfa159607fd262c32d536bfea127
+
+@@ @@
+         ), ''];
+
+         foreach ($plan->warnings as $warning) {
+-            $lines[] = '  <comment>! '.$warning.'</comment>';
++            $lines[] = $warning . '  <comment>! '.'</comment>';
+         }
+         if ([] !== $plan->warnings) {
+             $lines[] = '';
+
+
+58) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:32    [M] ConcatOperandRemoval [ID] e2d4384105e0be0a93ee3341a6c76532
+
+@@ @@
+         ), ''];
+
+         foreach ($plan->warnings as $warning) {
+-            $lines[] = '  <comment>! '.$warning.'</comment>';
++            $lines[] = $warning.'</comment>';
+         }
+         if ([] !== $plan->warnings) {
+             $lines[] = '';
+
+
+59) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:32    [M] Concat [ID] 0d899e90eb60e02587cb92b626041450
+
+@@ @@
+         ), ''];
+
+         foreach ($plan->warnings as $warning) {
+-            $lines[] = '  <comment>! '.$warning.'</comment>';
++            $lines[] = '  <comment>! ' . '</comment>' . $warning;
+         }
+         if ([] !== $plan->warnings) {
+             $lines[] = '';
+
+
+60) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:32    [M] ConcatOperandRemoval [ID] b2fc6dc0ca489cc70c66d2cc5f4ccae9
+
+@@ @@
+         ), ''];
+
+         foreach ($plan->warnings as $warning) {
+-            $lines[] = '  <comment>! '.$warning.'</comment>';
++            $lines[] = '  <comment>! '.$warning;
+         }
+         if ([] !== $plan->warnings) {
+             $lines[] = '';
+
+
+61) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:34    [M] NotIdentical [ID] f732499c50c4c7f3ddddb9e86d000ca3
+
+@@ @@
+         foreach ($plan->warnings as $warning) {
+             $lines[] = '  <comment>! '.$warning.'</comment>';
+         }
+-        if ([] !== $plan->warnings) {
++        if ([] === $plan->warnings) {
+             $lines[] = '';
+         }
+
+
+62) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:43    [M] Concat [ID] 3ebcb85fd8f310cd6e251de5786c05c7
+
+@@ @@
+             foreach ($rows as $row) {
+                 $lines[] = \sprintf('    %-13s %s', $row->verdict, $row->label());
+                 if ('' !== $row->reason()) {
+-                    $lines[] = '                  '.$row->reason();
++                    $lines[] = $row->reason() . '                  ';
+                 }
+             }
+         }
+
+
+63) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:43    [M] ConcatOperandRemoval [ID] 0e07f04b02ebbab51d5c4ba68c7c8c5b
+
+@@ @@
+             foreach ($rows as $row) {
+                 $lines[] = \sprintf('    %-13s %s', $row->verdict, $row->label());
+                 if ('' !== $row->reason()) {
+-                    $lines[] = '                  '.$row->reason();
++                    $lines[] = $row->reason();
+                 }
+             }
+         }
+
+
+64) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:52    [M] IfNegation [ID] ad9a876300f231f56dd8c5e66c7a8493
+
+@@ @@
+         $lines[] = '  packages: '.self::tally($plan->packageCounts);
+         $lines[] = '  patches:  '.self::tally($plan->counts);
+
+-        if ($plan->isBlocked()) {
++        if (!$plan->isBlocked()) {
+             $lines[] = \sprintf('  no release for %s: %s', $plan->against(), \implode(', ', $plan->noRelease));
+         }
+         if ([] !== $plan->missingFiles) {
+
+
+65) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:56    [M] Concat [ID] 7cf39a333606dadc583084fb7074eaec
+
+@@ @@
+             $lines[] = \sprintf('  no release for %s: %s', $plan->against(), \implode(', ', $plan->noRelease));
+         }
+         if ([] !== $plan->missingFiles) {
+-            $lines[] = '  patch text not sent for: '.\implode(', ', $plan->missingFiles);
++            $lines[] = \implode(', ', $plan->missingFiles) . '  patch text not sent for: ';
+         }
+
+         return $lines;
+
+
+66) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:56    [M] ConcatOperandRemoval [ID] 9df215e1fe0185a676fec201e5c414e3
+
+@@ @@
+             $lines[] = \sprintf('  no release for %s: %s', $plan->against(), \implode(', ', $plan->noRelease));
+         }
+         if ([] !== $plan->missingFiles) {
+-            $lines[] = '  patch text not sent for: '.\implode(', ', $plan->missingFiles);
++            $lines[] = \implode(', ', $plan->missingFiles);
+         }
+
+         return $lines;
+
+
+67) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:74    [M] ArrayItemRemoval [ID] 58b886b5ec433029e04efb69f527e29f
+
+@@ @@
+         if ([] === $written) {
+             return [];
+         }
+-        $lines = [''];
++        $lines = [];
+         $conflicts = 0;
+         foreach ($written as $file) {
+             if (!$file->isUsable()) {
+
+
+68) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:77    [M] LogicalNot [ID] fd37b224880731a788a030c1d1a45a2b
+
+@@ @@
+         $lines = [''];
+         $conflicts = 0;
+         foreach ($written as $file) {
+-            if (!$file->isUsable()) {
++            if ($file->isUsable()) {
+                 ++$conflicts;
+             }
+             $lines[] = \sprintf(
+
+
+69) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:84    [M] LogicalAnd [ID] bb862ccc3ba01dae33f5bb00a3024f2d
+
+@@ @@
+                 '  wrote %s  (%s%s)',
+                 $file->path,
+                 $file->status,
+-                $file->isUsable() && $file->verified ? ', verified against the release by the server' : ''
++                $file->isUsable() || $file->verified ? ', verified against the release by the server' : ''
+             );
+         }
+         if ($conflicts > 0) {
+
+
+70) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:84    [M] LogicalAndAllSubExprNegation [ID] 1c627d864ee69fa4e2ff3b0dbdaaca94
+
+@@ @@
+                 '  wrote %s  (%s%s)',
+                 $file->path,
+                 $file->status,
+-                $file->isUsable() && $file->verified ? ', verified against the release by the server' : ''
++                !$file->isUsable() && !$file->verified ? ', verified against the release by the server' : ''
+             );
+         }
+         if ($conflicts > 0) {
+
+
+71) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:84    [M] LogicalAndNegation [ID] 2e19a7161f146cf96684adc0be086ae4
+
+@@ @@
+                 '  wrote %s  (%s%s)',
+                 $file->path,
+                 $file->status,
+-                $file->isUsable() && $file->verified ? ', verified against the release by the server' : ''
++                !($file->isUsable() && $file->verified) ? ', verified against the release by the server' : ''
+             );
+         }
+         if ($conflicts > 0) {
+
+
+72) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:84    [M] Ternary [ID] a6e8954670aa69062a43d75d6a52f68e
+
+@@ @@
+                 '  wrote %s  (%s%s)',
+                 $file->path,
+                 $file->status,
+-                $file->isUsable() && $file->verified ? ', verified against the release by the server' : ''
++                $file->isUsable() && $file->verified ? '' : ', verified against the release by the server'
+             );
+         }
+         if ($conflicts > 0) {
+
+
+73) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:87    [M] GreaterThan [ID] 6aa90b8e342da6ff58595a732ddb8275
+
+@@ @@
+                 $file->isUsable() && $file->verified ? ', verified against the release by the server' : ''
+             );
+         }
+-        if ($conflicts > 0) {
++        if ($conflicts >= 0) {
+             $lines[] = \sprintf(
+                 '  %d re-roll%s left regions to decide; those files are not usable as patches',
+                 $conflicts,
+
+
+74) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:91    [M] IncrementInteger [ID] 304ef37946c1dc9e363155836c173f98
+
+@@ @@
+             $lines[] = \sprintf(
+                 '  %d re-roll%s left regions to decide; those files are not usable as patches',
+                 $conflicts,
+-                1 === $conflicts ? '' : 's'
++                2 === $conflicts ? '' : 's'
+             );
+         }
+
+
+75) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:91    [M] Ternary [ID] 5188fa0303bdc204ff5ff94f6d2fb48c
+
+@@ @@
+             $lines[] = \sprintf(
+                 '  %d re-roll%s left regions to decide; those files are not usable as patches',
+                 $conflicts,
+-                1 === $conflicts ? '' : 's'
++                1 === $conflicts ? 's' : ''
+             );
+         }
+
+
+76) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:120    [M] LogicalOr [ID] 1d6366f30ef46e31aa140462c1f28266
+
+@@ @@
+         if ('' === $row->version) {
+             return \sprintf('%s %s → no release for the target', $row->package, $row->installed);
+         }
+-        if ('' === $row->installed || $row->installed === $row->version) {
++        if ('' === $row->installed && $row->installed === $row->version) {
+             return $row->package.' '.$row->version;
+         }
+
+
+77) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:121    [M] Concat [ID] 27907bd071c860daa75361af53db74d0
+
+@@ @@
+             return \sprintf('%s %s → no release for the target', $row->package, $row->installed);
+         }
+         if ('' === $row->installed || $row->installed === $row->version) {
+-            return $row->package.' '.$row->version;
++            return ' ' . $row->package.$row->version;
+         }
+
+         return \sprintf('%s %s → %s', $row->package, $row->installed, $row->version);
+
+
+78) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:121    [M] ConcatOperandRemoval [ID] 785c7345aae1970b7092b10e1c43b6c8
+
+@@ @@
+             return \sprintf('%s %s → no release for the target', $row->package, $row->installed);
+         }
+         if ('' === $row->installed || $row->installed === $row->version) {
+-            return $row->package.' '.$row->version;
++            return ' '.$row->version;
+         }
+
+         return \sprintf('%s %s → %s', $row->package, $row->installed, $row->version);
+
+
+79) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:121    [M] ConcatOperandRemoval [ID] 0df69b30ce2ca69c5306a5b257aab12f
+
+@@ @@
+             return \sprintf('%s %s → no release for the target', $row->package, $row->installed);
+         }
+         if ('' === $row->installed || $row->installed === $row->version) {
+-            return $row->package.' '.$row->version;
++            return $row->package.$row->version;
+         }
+
+         return \sprintf('%s %s → %s', $row->package, $row->installed, $row->version);
+
+
+80) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:121    [M] Concat [ID] 251a9e6f0846ede550c5b1666e83eef2
+
+@@ @@
+             return \sprintf('%s %s → no release for the target', $row->package, $row->installed);
+         }
+         if ('' === $row->installed || $row->installed === $row->version) {
+-            return $row->package.' '.$row->version;
++            return $row->package . $row->version . ' ';
+         }
+
+         return \sprintf('%s %s → %s', $row->package, $row->installed, $row->version);
+
+
+81) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:121    [M] ConcatOperandRemoval [ID] 54dae1a75eda77f3a26115251ef85598
+
+@@ @@
+             return \sprintf('%s %s → no release for the target', $row->package, $row->installed);
+         }
+         if ('' === $row->installed || $row->installed === $row->version) {
+-            return $row->package.' '.$row->version;
++            return $row->package.' ';
+         }
+
+         return \sprintf('%s %s → %s', $row->package, $row->installed, $row->version);
+
+
+82) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:121    [M] ReturnRemoval [ID] bc1757d36c25d8da1137beb20a55e935
+
+@@ @@
+             return \sprintf('%s %s → no release for the target', $row->package, $row->installed);
+         }
+         if ('' === $row->installed || $row->installed === $row->version) {
+-            return $row->package.' '.$row->version;
++
+         }
+
+         return \sprintf('%s %s → %s', $row->package, $row->installed, $row->version);
+
+
+83) /home/theodore/DEV/PUBLIC/drupatch/src/Render/Table.php:134    [M] GreaterThan [ID] ffdece83b0cc41443bca48a460dceb6a
+
+@@ @@
+     {
+         $parts = [];
+         foreach ($counts as $name => $count) {
+-            if ($count > 0) {
++            if ($count >= 0) {
+                 $parts[] = $count.' '.$name;
+             }
+         }
+
+
+84) /home/theodore/DEV/PUBLIC/drupatch/src/Write/ConfigRewriter.php:81    [M] Continue_ [ID] 37d94ec69eadaac74553c1904a2e57e1
+
+@@ @@
+                 $change = $byEntry[$package."\0".Entry::title($key, $entry)] ?? null;
+                 if (null === $change) {
+                     $kept[$key] = $entry;
+-                    continue;
++                    break;
+                 }
+                 if ($change->isDrop()) {
+                     continue;
+
+
+85) /home/theodore/DEV/PUBLIC/drupatch/src/Write/ConfigRewriter.php:93    [M] ArrayOneItem [ID] 4f0be95dd19df98eec2ab7b13727b020
+
+@@ @@
+             }
+         }
+
+-        return $out;
++        return count($out) > 1 ? array_slice($out, 0, 1, true) : $out;
+     }
+
+     /**
+
+
+86) /home/theodore/DEV/PUBLIC/drupatch/src/Write/ConfigRewriter.php:121    [M] ArrayItemRemoval [ID] 449c99be40c01b7dc5f2423f3085c7fc
+
+@@ @@
+     public static function intoPatchesFile(string $text, array $patches): string
+     {
+         $decoded = \json_decode($text, true);
+-        $body = \is_array($decoded) && isset($decoded['patches']) ? ['patches' => $patches] + $decoded : $patches;
++        $body = \is_array($decoded) && isset($decoded['patches']) ? [] + $decoded : $patches;
+         if (\is_array($decoded) && isset($decoded['patches'])) {
+             $body['patches'] = $patches;
+         }
+
+
+87) /home/theodore/DEV/PUBLIC/drupatch/src/Write/ConfigRewriter.php:122    [M] LogicalAndAllSubExprNegation [ID] 5d40924526b753a52dfb95d17bfdd9e1
+
+@@ @@
+     {
+         $decoded = \json_decode($text, true);
+         $body = \is_array($decoded) && isset($decoded['patches']) ? ['patches' => $patches] + $decoded : $patches;
+-        if (\is_array($decoded) && isset($decoded['patches'])) {
++        if (!\is_array($decoded) && !isset($decoded['patches'])) {
+             $body['patches'] = $patches;
+         }
+
+
+88) /home/theodore/DEV/PUBLIC/drupatch/src/Write/ConfigRewriter.php:122    [M] LogicalAndSingleSubExprNegation [ID] d18f381739754d4bc867eef6a436080d
+
+@@ @@
+     {
+         $decoded = \json_decode($text, true);
+         $body = \is_array($decoded) && isset($decoded['patches']) ? ['patches' => $patches] + $decoded : $patches;
+-        if (\is_array($decoded) && isset($decoded['patches'])) {
++        if (!\is_array($decoded) && isset($decoded['patches'])) {
+             $body['patches'] = $patches;
+         }
+
+
+89) /home/theodore/DEV/PUBLIC/drupatch/src/Write/ConfigRewriter.php:126    [M] BitwiseOr [ID] 2d5319e7a9ac19ab6a9af646f31535a1
+
+@@ @@
+             $body['patches'] = $patches;
+         }
+
+-        return \json_encode($body, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)."\n";
++        return \json_encode($body, \JSON_PRETTY_PRINT & \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)."\n";
+     }
+ }
+
+
+90) /home/theodore/DEV/PUBLIC/drupatch/src/Write/ConfigRewriter.php:126    [M] BitwiseOr [ID] 1bdc85a3c2e77b7c0e3985d0fccd550e
+
+@@ @@
+             $body['patches'] = $patches;
+         }
+
+-        return \json_encode($body, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)."\n";
++        return \json_encode($body, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES & \JSON_UNESCAPED_UNICODE)."\n";
+     }
+ }
+
+
+91) /home/theodore/DEV/PUBLIC/drupatch/src/Write/ConfigRewriter.php:126    [M] Concat [ID] b742c7813b6875eae330f36d2d41b766
+
+@@ @@
+             $body['patches'] = $patches;
+         }
+
+-        return \json_encode($body, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)."\n";
++        return "\n" . \json_encode($body, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+     }
+ }
+
+
+92) /home/theodore/DEV/PUBLIC/drupatch/src/Write/ConfigRewriter.php:126    [M] ConcatOperandRemoval [ID] 1117ab6770cb67fc2539627f54394eb7
+
+@@ @@
+             $body['patches'] = $patches;
+         }
+
+-        return \json_encode($body, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)."\n";
++        return \json_encode($body, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+     }
+ }
+
+
+93) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:40    [M] PregMatchRemoveCaret [ID] 75f1c558bd5bbb2d9a1c8adc440e0139
+
+@@ @@
+     public static function forPlan(string $root, Plan $plan): self
+     {
+         foreach ($plan->patches as $row) {
+-            if ('' === $row->source || 1 === \preg_match('#^https?://#i', $row->source)) {
++            if ('' === $row->source || 1 === \preg_match('#https?://#i', $row->source)) {
+                 continue;
+             }
+             $dir = \dirname($row->source);
+
+
+94) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:40    [M] PregMatchRemoveFlags [ID] 84e2a17307248817ed985d4ef11f7acf
+
+@@ @@
+     public static function forPlan(string $root, Plan $plan): self
+     {
+         foreach ($plan->patches as $row) {
+-            if ('' === $row->source || 1 === \preg_match('#^https?://#i', $row->source)) {
++            if ('' === $row->source || 1 === \preg_match('#^https?://#', $row->source)) {
+                 continue;
+             }
+             $dir = \dirname($row->source);
+
+
+95) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:41    [M] Continue_ [ID] 395ca706cebe08e5579507ced21c3a16
+
+@@ @@
+     {
+         foreach ($plan->patches as $row) {
+             if ('' === $row->source || 1 === \preg_match('#^https?://#i', $row->source)) {
+-                continue;
++                break;
+             }
+             $dir = \dirname($row->source);
+
+
+96) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:62    [M] Continue_ [ID] c7454caad6fba0b6dcac81e91d4f1a46
+
+@@ @@
+         $written = [];
+         foreach ($plan->patches as $row) {
+             if (null === $row->reroll) {
+-                continue;
++                break;
+             }
+             $body = self::body($row->reroll);
+             if (null === $body) {
+
+
+97) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:66    [M] Continue_ [ID] 334ec88175d1c918d6551b8c6f60e710
+
+@@ @@
+             }
+             $body = self::body($row->reroll);
+             if (null === $body) {
+-                continue;
++                break;
+             }
+             $path = $this->path($row, $row->reroll);
+             $this->put($path, $body);
+
+
+98) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:73    [M] ArrayOneItem [ID] 776a883ccc2d20dda69ee6bf0c4ca384
+
+@@ @@
+             $written[] = WrittenFile::of($row, $row->reroll, $path);
+         }
+
+-        return $written;
++        return count($written) > 1 ? array_slice($written, 0, 1, true) : $written;
+     }
+
+     /**
+
+
+99) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:86    [M] ReturnRemoval [ID] 323ab50525a4e435514b999570ecbc64
+
+@@ @@
+             return $reroll->patch;
+         }
+         if (!$reroll->hasConflicts()) {
+-            return null;
++
+         }
+         $parts = '' === $reroll->patch ? [] : [$reroll->patch];
+         foreach ($reroll->conflicts as $conflict) {
+
+
+100) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:88    [M] ArrayItemRemoval [ID] 931e8db49c8c8c916362ab35eafb9c83
+
+@@ @@
+         if (!$reroll->hasConflicts()) {
+             return null;
+         }
+-        $parts = '' === $reroll->patch ? [] : [$reroll->patch];
++        $parts = '' === $reroll->patch ? [] : [];
+         foreach ($reroll->conflicts as $conflict) {
+             $parts[] = self::conflictText($conflict);
+         }
+
+
+101) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:88    [M] Ternary [ID] 5e7088e6a9e39bb4111e1d8c69910f76
+
+@@ @@
+         if (!$reroll->hasConflicts()) {
+             return null;
+         }
+-        $parts = '' === $reroll->patch ? [] : [$reroll->patch];
++        $parts = '' === $reroll->patch ? [$reroll->patch] : [];
+         foreach ($reroll->conflicts as $conflict) {
+             $parts[] = self::conflictText($conflict);
+         }
+
+
+102) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:102    [M] Concat [ID] b32cf2b2608541ccab52fddecb3432ce
+
+@@ @@
+      */
+     private static function conflictText(Conflict $conflict): string
+     {
+-        $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '.$conflict->file];
++        $lines = [$conflict->regions . '# drupatch: '.' unresolved region(s) in '.$conflict->file];
+         foreach ($conflict->hunks as $hunk) {
+             $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
+             $lines[] = \rtrim($hunk->release, "\n");
+
+
+103) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:102    [M] ConcatOperandRemoval [ID] da9c0b334871329982a59667e807ffa9
+
+@@ @@
+      */
+     private static function conflictText(Conflict $conflict): string
+     {
+-        $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '.$conflict->file];
++        $lines = [$conflict->regions.' unresolved region(s) in '.$conflict->file];
+         foreach ($conflict->hunks as $hunk) {
+             $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
+             $lines[] = \rtrim($hunk->release, "\n");
+
+
+104) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:102    [M] ConcatOperandRemoval [ID] 832fef159ebc3b51a061c32f98d11e35
+
+@@ @@
+      */
+     private static function conflictText(Conflict $conflict): string
+     {
+-        $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '.$conflict->file];
++        $lines = ['# drupatch: '.' unresolved region(s) in '.$conflict->file];
+         foreach ($conflict->hunks as $hunk) {
+             $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
+             $lines[] = \rtrim($hunk->release, "\n");
+
+
+105) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:102    [M] ConcatOperandRemoval [ID] 5b93ce861a57e9d639cf46debff10baf
+
+@@ @@
+      */
+     private static function conflictText(Conflict $conflict): string
+     {
+-        $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '.$conflict->file];
++        $lines = ['# drupatch: '.$conflict->regions.$conflict->file];
+         foreach ($conflict->hunks as $hunk) {
+             $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
+             $lines[] = \rtrim($hunk->release, "\n");
+
+
+106) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:102    [M] Concat [ID] 2dad27584f8d885f1e7b985880ca2133
+
+@@ @@
+      */
+     private static function conflictText(Conflict $conflict): string
+     {
+-        $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '.$conflict->file];
++        $lines = ['# drupatch: '.$conflict->regions . $conflict->file . ' unresolved region(s) in '];
+         foreach ($conflict->hunks as $hunk) {
+             $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
+             $lines[] = \rtrim($hunk->release, "\n");
+
+
+107) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:102    [M] Concat [ID] 83b77519045b0d447d8e64a20d28667f
+
+@@ @@
+      */
+     private static function conflictText(Conflict $conflict): string
+     {
+-        $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '.$conflict->file];
++        $lines = ['# drupatch: ' . ' unresolved region(s) in ' . $conflict->regions.$conflict->file];
+         foreach ($conflict->hunks as $hunk) {
+             $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
+             $lines[] = \rtrim($hunk->release, "\n");
+
+
+108) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:102    [M] ConcatOperandRemoval [ID] 20c5a3acd4697d10edde039e45b1b19d
+
+@@ @@
+      */
+     private static function conflictText(Conflict $conflict): string
+     {
+-        $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '.$conflict->file];
++        $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '];
+         foreach ($conflict->hunks as $hunk) {
+             $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
+             $lines[] = \rtrim($hunk->release, "\n");
+
+
+109) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:102    [M] ArrayItemRemoval [ID] 2a4539422395eb9e1e4215fef1407cc1
+
+@@ @@
+      */
+     private static function conflictText(Conflict $conflict): string
+     {
+-        $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '.$conflict->file];
++        $lines = [];
+         foreach ($conflict->hunks as $hunk) {
+             $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
+             $lines[] = \rtrim($hunk->release, "\n");
+
+
+110) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:105    [M] UnwrapRtrim [ID] 20954cfd0efdcd78d280561a2aef4871
+
+@@ @@
+         $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '.$conflict->file];
+         foreach ($conflict->hunks as $hunk) {
+             $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
+-            $lines[] = \rtrim($hunk->release, "\n");
++            $lines[] = $hunk->release;
+             $lines[] = '=======';
+             $lines[] = \rtrim($hunk->patch, "\n");
+             $lines[] = '>>>>>>> patch';
+
+
+111) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:107    [M] UnwrapRtrim [ID] 0a474776c54cdcbcacd47e6ec0005c40
+
+@@ @@
+             $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
+             $lines[] = \rtrim($hunk->release, "\n");
+             $lines[] = '=======';
+-            $lines[] = \rtrim($hunk->patch, "\n");
++            $lines[] = $hunk->patch;
+             $lines[] = '>>>>>>> patch';
+         }
+
+
+112) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:111    [M] Concat [ID] 9affcebefb1c70fa23c25d4c66d41833
+
+@@ @@
+             $lines[] = '>>>>>>> patch';
+         }
+
+-        return \implode("\n", $lines)."\n";
++        return "\n" . \implode("\n", $lines);
+     }
+
+     private function path(PatchRow $row, Reroll $reroll): string
+
+
+113) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:111    [M] ConcatOperandRemoval [ID] f57f634fefedec1f595974611ddf145e
+
+@@ @@
+             $lines[] = '>>>>>>> patch';
+         }
+
+-        return \implode("\n", $lines)."\n";
++        return \implode("\n", $lines);
+     }
+
+     private function path(PatchRow $row, Reroll $reroll): string
+
+
+114) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:116    [M] Ternary [ID] f3b747433c0b90dc53c9bac8cd665d58
+
+@@ @@
+
+     private function path(PatchRow $row, Reroll $reroll): string
+     {
+-        $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
++        $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->package : $row->project));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+
+115) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:116    [M] UnwrapStrReplace [ID] 0f7ef26fe5d08ec7ad510f691aafad17
+
+@@ @@
+
+     private function path(PatchRow $row, Reroll $reroll): string
+     {
+-        $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
++        $project = self::slug('' !== $row->project ? $row->project : $row->package);
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+
+116) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:118    [M] Concat [ID] 8ef0cb0f58ea69cae7bee7c73fb65bb3
+
+@@ @@
+     {
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
++        $stamp = \substr(\sha1('|' . $row->source.$row->title), 0, 8);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+
+
+117) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:118    [M] ConcatOperandRemoval [ID] 0aba1963360a902027e8c6376ff3bdef
+
+@@ @@
+     {
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
++        $stamp = \substr(\sha1('|'.$row->title), 0, 8);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+
+
+118) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:118    [M] ConcatOperandRemoval [ID] 3360f58de49e2d960a1ebcde89264d53
+
+@@ @@
+     {
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
++        $stamp = \substr(\sha1($row->source.$row->title), 0, 8);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+
+
+119) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:118    [M] Concat [ID] b6d00d7229a3c6439a056c4fb6183c87
+
+@@ @@
+     {
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
++        $stamp = \substr(\sha1($row->source . $row->title . '|'), 0, 8);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+
+
+120) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:118    [M] ConcatOperandRemoval [ID] 28962ad8ff39c1bade622e123e3c238b
+
+@@ @@
+     {
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
++        $stamp = \substr(\sha1($row->source.'|'), 0, 8);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+
+
+121) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:118    [M] IncrementInteger [ID] b5decb3b7358944d1ef8b5f3e7c425ac
+
+@@ @@
+     {
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
++        $stamp = \substr(\sha1($row->source.'|'.$row->title), 1, 8);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+
+
+122) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:118    [M] DecrementInteger [ID] 29f10b9930e4cb293be04c91c07ada76
+
+@@ @@
+     {
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
++        $stamp = \substr(\sha1($row->source.'|'.$row->title), -1, 8);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+
+
+123) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:118    [M] IncrementInteger [ID] 4d36647ad59f19b9ed71757b6e1631cd
+
+@@ @@
+     {
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
++        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 9);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+
+
+124) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:118    [M] DecrementInteger [ID] 4acc072ce9b4bc331cd24befe58673c6
+
+@@ @@
+     {
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
++        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 7);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+
+
+125) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:118    [M] UnwrapSubstr [ID] 5d0826c7543035a6e3e590e59babf7fa
+
+@@ @@
+     {
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
++        $stamp = \sha1($row->source.'|'.$row->title);
+         $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+
+
+126) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] ConcatOperandRemoval [ID] 4a27ad7b96773369f0e1afb6f822d1c5
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = \trim('-'.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+127) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] Concat [ID] 13cb34663ddfaeb70b53701e8de0a20d
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = \trim('-' . $project.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+128) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] ConcatOperandRemoval [ID] a18f6b74eee2fd159681ccaad23c5471
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = \trim($project.$title, '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+129) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] Concat [ID] ca41b0ee0e0b50e4c150679d0d670552
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = \trim($project . $title . '-', '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+130) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] UnwrapTrim [ID] 1b5568fe25f07063044824bf9ed26098
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = $project.'-'.$title.'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+131) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] ConcatOperandRemoval [ID] f5a33c02af91cf7ae19180c495769b02
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = \trim($project.'-', '-').'-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+132) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] Concat [ID] f9e4ae16cf3313f30e4b9229ea692d5d
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = '-' . \trim($project.'-'.$title, '-').$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+133) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] ConcatOperandRemoval [ID] 9e06dc2b3daa70c8cb91a6b5c6f507da
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = '-'.$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+134) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] ConcatOperandRemoval [ID] 4a5ae9952b0b01c2f29b63b291e29253
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = \trim($project.'-'.$title, '-').$stamp;
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+135) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] ConcatOperandRemoval [ID] a5a4d29de6721de1f92ca6ab4968765b
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = \trim($project.'-'.$title, '-').'-';
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+136) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:119    [M] Concat [ID] 583b9e16178b57108c52ade9a8ed7167
+
+@@ @@
+         $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
+         $title = self::slug($row->title);
+         $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
+-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
++        $name = \trim($project.'-'.$title, '-') . $stamp . '-';
+
+         return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
+     }
+
+
+137) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:126    [M] UnwrapTrim [ID] ce0339e25136a7f7d77f69dc2d585946
+
+@@ @@
+
+     private static function slug(string $text): string
+     {
+-        $slug = \strtolower(\trim($text));
++        $slug = \strtolower($text);
+         $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
+         $slug = \trim($slug, '-');
+
+
+138) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:126    [M] UnwrapStrToLower [ID] 755b9a910e5a1455f69254d4f94259d6
+
+@@ @@
+
+     private static function slug(string $text): string
+     {
+-        $slug = \strtolower(\trim($text));
++        $slug = \trim($text);
+         $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
+         $slug = \trim($slug, '-');
+
+
+139) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:127    [M] CastString [ID] 91fea9a24ff90739d7390f0831084e6e
+
+@@ @@
+     private static function slug(string $text): string
+     {
+         $slug = \strtolower(\trim($text));
+-        $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
++        $slug = \preg_replace('/[^a-z0-9]+/', '-', $slug);
+         $slug = \trim($slug, '-');
+
+         return \strlen($slug) > 50 ? \substr($slug, 0, 50) : $slug;
+
+
+140) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:128    [M] UnwrapTrim [ID] 3026ae8196886efdd1fd6abe7723def7
+
+@@ @@
+     {
+         $slug = \strtolower(\trim($text));
+         $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
+-        $slug = \trim($slug, '-');
++        $slug = $slug;
+
+         return \strlen($slug) > 50 ? \substr($slug, 0, 50) : $slug;
+     }
+
+
+141) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:130    [M] GreaterThan [ID] 6bb645768dd9bb268e4f760b81b8b63a
+
+@@ @@
+         $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
+         $slug = \trim($slug, '-');
+
+-        return \strlen($slug) > 50 ? \substr($slug, 0, 50) : $slug;
++        return \strlen($slug) >= 50 ? \substr($slug, 0, 50) : $slug;
+     }
+
+     /**
+
+
+142) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:130    [M] DecrementInteger [ID] fd72906728aa40b04b5421d8a666206a
+
+@@ @@
+         $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
+         $slug = \trim($slug, '-');
+
+-        return \strlen($slug) > 50 ? \substr($slug, 0, 50) : $slug;
++        return \strlen($slug) > 50 ? \substr($slug, -1, 50) : $slug;
+     }
+
+     /**
+
+
+143) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:130    [M] IncrementInteger [ID] 3cfbaf27138e84b5cafbbee60811f9a7
+
+@@ @@
+         $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
+         $slug = \trim($slug, '-');
+
+-        return \strlen($slug) > 50 ? \substr($slug, 0, 50) : $slug;
++        return \strlen($slug) > 50 ? \substr($slug, 1, 50) : $slug;
+     }
+
+     /**
+
+
+144) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:130    [M] DecrementInteger [ID] 46fe68361b62d785096b7c5045689f16
+
+@@ @@
+         $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
+         $slug = \trim($slug, '-');
+
+-        return \strlen($slug) > 50 ? \substr($slug, 0, 50) : $slug;
++        return \strlen($slug) > 50 ? \substr($slug, 0, 49) : $slug;
+     }
+
+     /**
+
+
+145) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:130    [M] IncrementInteger [ID] d4c58228ac14a595afbcf8a40d7d1476
+
+@@ @@
+         $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
+         $slug = \trim($slug, '-');
+
+-        return \strlen($slug) > 50 ? \substr($slug, 0, 50) : $slug;
++        return \strlen($slug) > 50 ? \substr($slug, 0, 51) : $slug;
+     }
+
+     /**
+
+
+146) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:130    [M] UnwrapSubstr [ID] 38a08f2aea1dc7cd445c9175e89624f7
+
+@@ @@
+         $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
+         $slug = \trim($slug, '-');
+
+-        return \strlen($slug) > 50 ? \substr($slug, 0, 50) : $slug;
++        return \strlen($slug) > 50 ? $slug : $slug;
+     }
+
+     /**
+
+
+147) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:130    [M] Ternary [ID] cf360132925b5acb672cdbfefaa80edc
+
+@@ @@
+         $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
+         $slug = \trim($slug, '-');
+
+-        return \strlen($slug) > 50 ? \substr($slug, 0, 50) : $slug;
++        return \strlen($slug) > 50 ? $slug : \substr($slug, 0, 50);
+     }
+
+     /**
+
+
+148) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:141    [M] DecrementInteger [ID] 428965e7f08601de059790cb421c2b9b
+
+@@ @@
+     {
+         $full = $this->root.\DIRECTORY_SEPARATOR.$path;
+         $dir = \dirname($full);
+-        if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) && !\is_dir($dir)) {
++        if (!\is_dir($dir) && !\mkdir($dir, 510, true) && !\is_dir($dir)) {
+             throw new RuntimeException('cannot create '.$dir);
+         }
+         if (\is_file($full) && \file_get_contents($full) === $body) {
+
+
+149) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:141    [M] LogicalNot [ID] 534bf1cc9e0d91ff4f22acae39331cdf
+
+@@ @@
+     {
+         $full = $this->root.\DIRECTORY_SEPARATOR.$path;
+         $dir = \dirname($full);
+-        if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) && !\is_dir($dir)) {
++        if (!\is_dir($dir) && \mkdir($dir, 0o777, true) && !\is_dir($dir)) {
+             throw new RuntimeException('cannot create '.$dir);
+         }
+         if (\is_file($full) && \file_get_contents($full) === $body) {
+
+
+150) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:141    [M] LogicalNot [ID] 00ddc8d09374cfdf745e39002549a729
+
+@@ @@
+     {
+         $full = $this->root.\DIRECTORY_SEPARATOR.$path;
+         $dir = \dirname($full);
+-        if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) && !\is_dir($dir)) {
++        if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) && \is_dir($dir)) {
+             throw new RuntimeException('cannot create '.$dir);
+         }
+         if (\is_file($full) && \file_get_contents($full) === $body) {
+
+
+151) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:141    [M] LogicalAnd [ID] b8c655c33965ebaba359eb3ba95b0bf5
+
+@@ @@
+     {
+         $full = $this->root.\DIRECTORY_SEPARATOR.$path;
+         $dir = \dirname($full);
+-        if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) && !\is_dir($dir)) {
++        if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) || !\is_dir($dir)) {
+             throw new RuntimeException('cannot create '.$dir);
+         }
+         if (\is_file($full) && \file_get_contents($full) === $body) {
+
+
+152) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:144    [M] Identical [ID] d0cc4f7736ef7731f7b24de6ff0a5e20
+
+@@ @@
+         if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) && !\is_dir($dir)) {
+             throw new RuntimeException('cannot create '.$dir);
+         }
+-        if (\is_file($full) && \file_get_contents($full) === $body) {
++        if (\is_file($full) && \file_get_contents($full) !== $body) {
+             return;
+         }
+         if (false === \file_put_contents($full, $body)) {
+
+
+153) /home/theodore/DEV/PUBLIC/drupatch/src/Write/PatchFiles.php:145    [M] ReturnRemoval [ID] b5a77dd8e94881cb94798b3b49f51b69
+
+@@ @@
+             throw new RuntimeException('cannot create '.$dir);
+         }
+         if (\is_file($full) && \file_get_contents($full) === $body) {
+-            return;
++
+         }
+         if (false === \file_put_contents($full, $body)) {
+             throw new RuntimeException('cannot write '.$path);
+
+
+Timed Out mutants:
+==================
+
+Skipped mutants:
+================

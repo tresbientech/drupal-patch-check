@@ -2,22 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Render;
+namespace TresBienTech\Drupatch\Render;
 
-use Tresbien\Drupatch\Plan\PatchRow;
-use Tresbien\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Plan\PatchRow;
+use TresBienTech\Drupatch\Plan\Plan;
 
 /**
- * The lines the post-update hook prints: the verdict tally, the patches
- * that need attention, and any caveat on the counts.
- *
- * Patches that still apply and are still needed collapse into the tally.
- * A package with no release for the target is left out: composer refused
- * to move it during the update this hook reports on, so it has been said
- * already. What the site itself can change reaches the reader as a
- * warning instead.
+ * The lines the post-update hook prints: the verdict tally, the patches that need attention, and any caveat on the counts.
  */
-final class HookReport
+class HookReport
 {
     /** The command the hook points at for anything it does not print. */
     public const COMMAND = 'composer drupal-patch-check';
@@ -30,7 +23,6 @@ final class HookReport
 
     /**
      * What each verdict means to a person reading the hook, worst first.
-     * applies is absent: composer applied those during the update.
      */
     private const MENTION_ORDER = [
         'conflicts' => 'need a re-roll',
@@ -49,12 +41,8 @@ final class HookReport
         $warnings = self::worthPrinting($plan);
         // Composer applies a package's patches during the update, and
         // this hook runs after it. A patch that still applies is
-        // something composer has already proved, so saying it again is
-        // noise; what composer cannot say is that a patch can be deleted.
-        //
-        // A warning is a caveat on those rows, never a reason to speak.
-        // A constraint that could be widened has not changed because of
-        // this update, and the command says so when it is asked.
+        // something composer has already proved; what composer cannot
+        // say is that a patch can be deleted.
         if ([] === $rows) {
             return [];
         }
@@ -71,19 +59,16 @@ final class HookReport
                 break;
             }
             ++$shown;
-            $lines[] = \sprintf('  %s %-9s %s %s  %s', Verdict::marked($row->verdict), $row->verdict, $row->package, $row->version, $row->label());
-            // An unclear row is the one case where the verdict alone says
-            // nothing: the reason is whether a package blocks the upgrade,
-            // a patch file is unreadable, or the mirror is a day behind.
+            $lines[] = \sprintf('  %s %-9s %s %s  %s', Report::marked($row->verdict), $row->verdict, $row->package, $row->version, $row->label());
+            // An unclear row is the one case where the verdict alone
+            // says nothing.
             if ('' !== $row->reason()) {
                 $lines[] = self::DETAIL_INDENT.$row->reason();
             }
         }
 
         $lines[] = '  run `'.self::COMMAND.'` for the detail, or `--target <version>` before a core upgrade';
-        // Only when there is something to run. A hook that always
-        // suggested a command would be read as boilerplate and skipped.
-        foreach (NextSteps::lines($plan->counts) as $line) {
+        foreach (Report::nextStepLines($plan->counts) as $line) {
             $lines[] = $line;
         }
 
@@ -91,8 +76,7 @@ final class HookReport
     }
 
     /**
-     * The warnings this hook prints: those about a package it names a
-     * row for, and those about the run rather than about a package.
+     * The warnings this hook prints: those about a package it names a row for, and those about the run rather than about a package.
      *
      * @return list<string>
      */
@@ -117,11 +101,7 @@ final class HookReport
     }
 
     /**
-     * The first line: what is left to decide, not what composer already
-     * applied.
-     *
-     * Only called with at least one row, so there is always something to
-     * count.
+     * The first line: what is left to decide, not what composer already applied.
      *
      * @param list<PatchRow> $rows
      */

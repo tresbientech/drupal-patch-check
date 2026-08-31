@@ -2,30 +2,62 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Write;
+namespace TresBienTech\Drupatch\Write;
 
 use Composer\Util\ProcessExecutor;
 
 /**
- * Whether a file the plugin is about to rewrite already carries changes
- * nobody has committed.
+ * What git says about a file the plugin is about to rewrite.
  */
-final class WorkingTree
+class WorkingTree
 {
+    public const NOT_A_CHECKOUT = 'the site is not a git checkout, so the text it replaces could not be recovered';
+
+    public const UNCOMMITTED = 'it carries changes nobody has committed';
+
+    public const UNTRACKED = 'it has never been committed';
+
     public function __construct(private readonly ProcessExecutor $process)
     {
     }
 
     /**
-     * True when git reports the file as modified. A site that is not a
-     * git checkout, or a machine without git, reports false: the plugin
-     * cannot tell, and refusing then would block every such site.
+     * True when git reports the file as changed or untracked.
      */
     public function isModified(string $root, string $path): bool
     {
+        $status = $this->status($root, $path);
+
+        return null !== $status && '' !== $status;
+    }
+
+    /**
+     * Why this file may not be replaced, empty when it may.
+     */
+    public function refusal(string $root, string $path): string
+    {
+        $status = $this->status($root, $path);
+        if (null === $status) {
+            return self::NOT_A_CHECKOUT;
+        }
+        if ('' === $status) {
+            return '';
+        }
+
+        return \str_starts_with(\ltrim($status), '??') ? self::UNTRACKED : self::UNCOMMITTED;
+    }
+
+    /**
+     * The porcelain line for one path, or null when git did not answer.
+     */
+    private function status(string $root, string $path): ?string
+    {
         $output = '';
         $status = $this->process->execute(['git', 'status', '--porcelain', '--', $path], $output, $root);
+        if (0 !== $status || !\is_string($output)) {
+            return null;
+        }
 
-        return 0 === $status && \is_string($output) && '' !== \trim($output);
+        return \trim($output);
     }
 }

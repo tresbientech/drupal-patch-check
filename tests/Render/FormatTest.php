@@ -2,45 +2,42 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests\Render;
+namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\Render\Format;
+use TresBienTech\Drupatch\CheckCommand;
 use UnexpectedValueException;
 
 final class FormatTest extends TestCase
 {
     public function testARunWithNeitherOptionPrintsTheTable(): void
     {
-        self::assertSame(Format::TABLE, Format::of(null, false));
+        self::assertSame('table', CheckCommand::format(null, false));
     }
 
     public function testTheJsonFlagStillChoosesJson(): void
     {
-        self::assertSame(Format::JSON, Format::of(null, true));
+        self::assertSame('json', CheckCommand::format(null, true));
     }
 
     public function testTheFormatOptionChoosesJson(): void
     {
-        self::assertSame(Format::JSON, Format::of('json', false));
+        self::assertSame('json', CheckCommand::format('json', false));
     }
 
     public function testTheFormatOptionChoosesTheTable(): void
     {
-        self::assertSame(Format::TABLE, Format::of('table', false));
+        self::assertSame('table', CheckCommand::format('table', false));
     }
 
     public function testTheFlagAndAMatchingFormatAgree(): void
     {
-        self::assertSame(Format::JSON, Format::of('json', true));
+        self::assertSame('json', CheckCommand::format('json', true));
     }
 
-    public function testTheFlagAndADifferentFormatIsAnError(): void
+    public function testTheFormatOptionWinsOverTheFlag(): void
     {
-        $this->expectException(UnexpectedValueException::class);
-        $this->expectExceptionMessage('--json and --format=table ask for different output; pass one');
-
-        Format::of('table', true);
+        self::assertSame('table', CheckCommand::format('table', true));
     }
 
     public function testAnUnknownFormatNamesWhatIsAccepted(): void
@@ -48,20 +45,17 @@ final class FormatTest extends TestCase
         $this->expectException(UnexpectedValueException::class);
         $this->expectExceptionMessage('unknown --format=xml; accepted: table, json, github');
 
-        Format::of('xml', false);
+        CheckCommand::format('xml', false);
     }
 
     public function testTheFormatOptionChoosesTheAnnotations(): void
     {
-        self::assertSame(Format::GITHUB, Format::of('github', false));
+        self::assertSame('github', CheckCommand::format('github', false));
     }
 
-    public function testTheFlagAndTheAnnotationsIsAnError(): void
+    public function testTheFormatOptionWinsOverTheFlagForAnnotations(): void
     {
-        $this->expectException(UnexpectedValueException::class);
-        $this->expectExceptionMessage('--json and --format=github ask for different output; pass one');
-
-        Format::of('github', true);
+        self::assertSame('github', CheckCommand::format('github', true));
     }
 
     public function testAnEmptyFormatIsAnError(): void
@@ -69,6 +63,6 @@ final class FormatTest extends TestCase
         $this->expectException(UnexpectedValueException::class);
         $this->expectExceptionMessage('unknown --format=; accepted: table, json, github');
 
-        Format::of('', false);
+        CheckCommand::format('', false);
     }
 }

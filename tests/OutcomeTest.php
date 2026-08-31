@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests;
+namespace TresBienTech\Drupatch\Tests;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\Outcome;
+use TresBienTech\Drupatch\Plan\Plan;
 
 final class OutcomeTest extends TestCase
 {
@@ -18,14 +18,14 @@ final class OutcomeTest extends TestCase
             $this->row(['verdict' => 'merged']),
         ]]);
 
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan));
+        self::assertSame(Plan::CLEAN, $plan->exitCode());
     }
 
     public function testAPatchThatNoLongerAppliesNeedsAction(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'conflicts'])]]);
 
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan));
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode());
     }
 
     // A patch the service could not judge is as often a mirror that lags
@@ -34,8 +34,8 @@ final class OutcomeTest extends TestCase
     {
         $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'unknown'])]]);
 
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan));
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true), 'strict asked to be woken by it');
+        self::assertSame(Plan::CLEAN, $plan->exitCode());
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode(true), 'strict asked to be woken by it');
     }
 
     // A run that declared patches and checked none proves nothing. Under
@@ -45,31 +45,31 @@ final class OutcomeTest extends TestCase
     {
         $plan = $this->planFrom(['patches' => []]);
 
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan, false, true));
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true, true));
+        self::assertSame(Plan::CLEAN, $plan->exitCode(false, true));
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode(true, true));
     }
 
     public function testASiteWithNoPatchesAtAllIsCleanUnderStrict(): void
     {
         $plan = $this->planFrom(['patches' => []]);
 
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan, true, false));
+        self::assertSame(Plan::CLEAN, $plan->exitCode(true, false));
     }
 
     public function testAPatchThatWillNotApplyFailsEitherWay(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'conflicts'])]]);
 
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan));
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true));
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode());
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode(true));
     }
 
     public function testAVerdictTheServerAddedLaterFailsEitherWay(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'quarantined'])]]);
 
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan), 'only the known verdicts may exit 0');
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true));
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode(), 'only the known verdicts may exit 0');
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode(true));
     }
 
     // The exit code is about patches. A blocked package carrying none says
@@ -79,8 +79,8 @@ final class OutcomeTest extends TestCase
     {
         $plan = $this->planFrom(['no_release' => ['drupal/domain']]);
 
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan));
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan, true));
+        self::assertSame(Plan::CLEAN, $plan->exitCode());
+        self::assertSame(Plan::CLEAN, $plan->exitCode(true));
     }
 
     public function testABlockedPackageWhosePatchesWereJudgedIsCleanUnderStrict(): void
@@ -93,8 +93,8 @@ final class OutcomeTest extends TestCase
             ],
         ]);
 
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan));
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan, true));
+        self::assertSame(Plan::CLEAN, $plan->exitCode());
+        self::assertSame(Plan::CLEAN, $plan->exitCode(true));
     }
 
     // Blocking cost a real answer here, and the unclear row is what says so.
@@ -105,8 +105,8 @@ final class OutcomeTest extends TestCase
             'patches' => [$this->row(['package' => 'drupal/domain', 'verdict' => 'unknown'])],
         ]);
 
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan));
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true));
+        self::assertSame(Plan::CLEAN, $plan->exitCode());
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode(true));
     }
 
     public function testEverythingTolerableTogetherIsStillClean(): void
@@ -120,8 +120,8 @@ final class OutcomeTest extends TestCase
             ],
         ]);
 
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan));
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true));
+        self::assertSame(Plan::CLEAN, $plan->exitCode());
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode(true));
     }
 
     // The scope decides what the exit code is about.
@@ -132,13 +132,13 @@ final class OutcomeTest extends TestCase
             $this->row(['package' => 'drupal/webform', 'verdict' => 'conflicts']),
         ]]);
 
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan));
-        self::assertSame(Outcome::CLEAN, Outcome::of($plan->onlyPackages(['token'])));
-        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan->onlyPackages(['webform'])));
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode());
+        self::assertSame(Plan::CLEAN, $plan->onlyPackages(['token'])->exitCode());
+        self::assertSame(Plan::ACTION_NEEDED, $plan->onlyPackages(['webform'])->exitCode());
     }
 
     public function testASiteWithNothingToSayIsClean(): void
     {
-        self::assertSame(Outcome::CLEAN, Outcome::of($this->planFrom()));
+        self::assertSame(Plan::CLEAN, $this->planFrom([])->exitCode());
     }
 }

@@ -2,91 +2,201 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Write;
+namespace TresBienTech\Drupatch\Write;
 
 use RuntimeException;
-use Tresbien\Drupatch\Plan\Conflict;
-use Tresbien\Drupatch\Plan\PatchRow;
-use Tresbien\Drupatch\Plan\Plan;
-use Tresbien\Drupatch\Plan\Reroll;
+use TresBienTech\Drupatch\PatchConfig;
+use TresBienTech\Drupatch\Plan\PatchRow;
+use TresBienTech\Drupatch\Plan\Plan;
 
 /**
  * Writes the re-rolled diffs a plan carries.
- *
- * A clean merge becomes a patch file the site can use. A conflicted merge
- * becomes a file named so no patch manager reads it: it holds regions
- * nobody has decided yet.
  */
-final class PatchFiles
+class PatchFiles
 {
-    public const CLEAN_SUFFIX = '.patch';
-
     public const CONFLICT_SUFFIX = '.conflict.patch';
 
-    /** Where re-rolls go when every patch the site declares is a URL. */
-    private const DEFAULT_DIRECTORY = 'patches';
-
-    public function __construct(private readonly string $root, private readonly string $directory)
-    {
-    }
-
     /**
-     * Picks where re-rolls go: beside the local patches the site already
-     * keeps, or `patches/` when it keeps none.
+     * Sentinels around each region, carrying the file and the region index the service assigned.
      */
-    public static function forPlan(string $root, Plan $plan): self
-    {
-        foreach ($plan->patches as $row) {
-            if ('' === $row->source || 1 === \preg_match('#^https?://#i', $row->source)) {
-                continue;
-            }
-            $dir = \dirname($row->source);
+    public const REGION_OPEN = '# drupatch region ';
 
-            return new self($root, '.' === $dir ? self::DEFAULT_DIRECTORY : $dir);
-        }
+    public const REGION_CLOSE = '# drupatch end ';
 
-        return new self($root, self::DEFAULT_DIRECTORY);
+    /** Extensions a conflict file replaces rather than keeps. */
+    private const PATCH_EXTENSIONS = ['.patch', '.diff'];
+
+    public const OUTSIDE_ROOT = 'its source resolves outside the site root';
+
+    public const NO_REROLL = 'the service built no re-roll for it';
+
+    public const URL_DECLARED = 'it is declared as a URL, so there is no file to replace';
+
+    public const NO_FILE_NAME = 'its URL ends in no file name';
+
+    /** Where an adopted URL patch goes, under the project it is on. */
+    private const ADOPTED_DIRECTORY = 'patches';
+
+    public function __construct(
+        private readonly string $root,
+        /** Asked before a file is replaced; null replaces everything. `--force`. */
+        private readonly ?WorkingTree $tree,
+        /** Whether a patch declared as a URL is written locally. `--fix`. */
+        private readonly bool $adopt = false,
+    ) {
     }
 
     /**
      * Writes one file per re-rolled patch and reports what happened.
-     * Writing the same plan twice writes the same bytes and adds no file.
      *
-     * @return list<WrittenFile>
+     * @return array{written: list<array{path: string, status: string, package: string, title: string, verified: bool}>,
+     *               refused: list<array{package: string, title: string, path: string, reason: string, lifts: string}>}
      */
     public function write(Plan $plan): array
     {
         $written = [];
+        $refused = [];
         foreach ($plan->patches as $row) {
             if (null === $row->reroll) {
                 continue;
             }
-            $body = self::body($row->reroll);
+            $body = self::body($row);
             if (null === $body) {
+                $error = (string) ($row->reroll['error'] ?? '');
+                $refused[] = self::refusal($row, $row->source, '' === $error ? self::NO_REROLL : $error);
                 continue;
             }
-            $path = $this->path($row, $row->reroll);
-            $this->put($path, $body);
-            $written[] = WrittenFile::of($row, $row->reroll, $path);
+            if (PatchConfig::isUrl($row->source) && !$this->adopt) {
+                $refused[] = self::refusal($row, $row->source, self::URL_DECLARED, '--fix');
+                continue;
+            }
+            $declared = PatchConfig::isUrl($row->source)
+                ? self::adoptedPath($row->package, $row->project, $row->source)
+                : $row->source;
+            if ('' === $declared) {
+                $refused[] = self::refusal($row, $row->source, self::NO_FILE_NAME);
+                continue;
+            }
+            $source = self::inside($declared);
+            if (null === $source) {
+                $refused[] = self::refusal($row, $row->source, self::OUTSIDE_ROOT);
+                continue;
+            }
+            $path = $row->rerollIsClean() ? $source : self::conflictPath($source);
+            if (!$this->holds($path, $body)) {
+                $reason = $this->refusalFor($path);
+                if ('' !== $reason) {
+                    $refused[] = self::refusal($row, $path, $reason, '--force');
+                    continue;
+                }
+                $this->put($path, $body);
+                if ($row->rerollIsClean()) {
+                    $this->removeStale(self::conflictPath($source));
+                }
+            }
+            $written[] = [
+                'path' => $path,
+                'status' => (string) ($row->reroll['status'] ?? ''),
+                'package' => $row->package,
+                'title' => $row->title,
+                'verified' => true === ($row->reroll['verified'] ?? null),
+            ];
         }
 
-        return $written;
+        return ['written' => $written, 'refused' => $refused];
     }
 
     /**
-     * The file's text: the diff for a clean merge, and for a conflicted
-     * one the diff that did merge followed by every region left open.
+     * @return array{package: string, title: string, path: string, reason: string, lifts: string}
      */
-    private static function body(Reroll $reroll): ?string
+    private static function refusal(PatchRow $row, string $path, string $reason, string $lifts = ''): array
     {
-        if ($reroll->isClean()) {
-            return $reroll->patch;
+        return ['package' => $row->package, 'title' => $row->title, 'path' => $path, 'reason' => $reason, 'lifts' => $lifts];
+    }
+
+    /**
+     * Why this path may not be written, empty when it may.
+     */
+    private function refusalFor(string $path): string
+    {
+        if (null === $this->tree || !\is_file($this->root.\DIRECTORY_SEPARATOR.$path)) {
+            return '';
         }
-        if (!$reroll->hasConflicts()) {
+
+        return $this->tree->refusal($this->root, $path);
+    }
+
+    /**
+     * Where a patch declared as a URL is adopted to: the project's own patch directory, under the name the URL ends in.
+     */
+    public static function adoptedPath(string $package, string $project, string $source): string
+    {
+        $project = '' !== $project ? $project : \str_replace('drupal/', '', $package);
+        $path = \parse_url($source, \PHP_URL_PATH);
+        $name = \basename(\is_string($path) ? $path : '');
+        if ('' === $name || '' === $project) {
+            return '';
+        }
+
+        return self::ADOPTED_DIRECTORY.'/'.$project.'/'.$name;
+    }
+
+    /**
+     * Where a conflicted re-roll of this source goes: beside it, under a name a patch config never points at.
+     */
+    public static function conflictPath(string $source): string
+    {
+        foreach (self::PATCH_EXTENSIONS as $extension) {
+            if (\str_ends_with(\strtolower($source), $extension)) {
+                return \substr($source, 0, -\strlen($extension)).self::CONFLICT_SUFFIX;
+            }
+        }
+
+        return $source.self::CONFLICT_SUFFIX;
+    }
+
+    /**
+     * The declared source as a path under the site root, or null when it leaves the root.
+     */
+    public static function inside(string $source): ?string
+    {
+        $path = \str_replace('\\', '/', \trim($source));
+        if ('' === $path || \str_starts_with($path, '/') || 1 === \preg_match('#^[a-z]:#i', $path)) {
             return null;
         }
-        $parts = '' === $reroll->patch ? [] : [$reroll->patch];
-        foreach ($reroll->conflicts as $conflict) {
+        $kept = [];
+        foreach (\explode('/', $path) as $segment) {
+            if ('' === $segment || '.' === $segment) {
+                continue;
+            }
+            if ('..' === $segment) {
+                if ([] === $kept) {
+                    return null;
+                }
+                \array_pop($kept);
+
+                continue;
+            }
+            $kept[] = $segment;
+        }
+
+        return [] === $kept ? null : \implode('/', $kept);
+    }
+
+    /**
+     * The file's text: the diff for a clean merge, and for a conflicted one the diff that did merge followed by every region left open.
+     */
+    private static function body(PatchRow $row): ?string
+    {
+        if ($row->rerollIsClean()) {
+            return (string) ($row->reroll['patch'] ?? '');
+        }
+        if ('conflicts' !== ($row->reroll['status'] ?? '')) {
+            return null;
+        }
+        $patch = (string) ($row->reroll['patch'] ?? '');
+        $parts = '' === $patch ? [] : [$patch];
+        foreach ((array) ($row->reroll['conflicts'] ?? []) as $conflict) {
             $parts[] = self::conflictText($conflict);
         }
 
@@ -94,45 +204,55 @@ final class PatchFiles
     }
 
     /**
-     * One conflicted file as merge markers, so the regions can be worked
-     * through in an editor.
+     * One conflicted file as merge markers, so the regions can be worked through in an editor.
+     *
+     * @param array<string, mixed> $conflict
      */
-    private static function conflictText(Conflict $conflict): string
+    private static function conflictText(array $conflict): string
     {
-        $lines = ['# drupatch: '.$conflict->regions.' unresolved region(s) in '.$conflict->file];
-        foreach ($conflict->hunks as $hunk) {
-            $lines[] = '<<<<<<< release '.$conflict->file.':'.$hunk->at();
-            $lines[] = \rtrim($hunk->release, "\n");
+        $file = (string) ($conflict['file'] ?? '');
+        $lines = [
+            '# drupatch: '.(int) ($conflict['regions'] ?? 0).' unresolved region(s) in '.$file,
+            '# drupatch: keep the region and end lines; replace what sits between them.',
+        ];
+        foreach ((array) ($conflict['hunks'] ?? []) as $index => $hunk) {
+            $releaseLine = (int) ($hunk['release_line'] ?? 0);
+            $at = $releaseLine > 0 ? $releaseLine : (int) ($hunk['line'] ?? 0);
+            $lines[] = self::REGION_OPEN.$index.' '.$file;
+            $lines[] = '<<<<<<< release '.$file.':'.$at;
+            $lines[] = \rtrim((string) ($hunk['release'] ?? ''), "\n");
             $lines[] = '=======';
-            $lines[] = \rtrim($hunk->patch, "\n");
+            $lines[] = \rtrim((string) ($hunk['patch'] ?? ''), "\n");
             $lines[] = '>>>>>>> patch';
+            $lines[] = self::REGION_CLOSE.$index.' '.$file;
         }
 
         return \implode("\n", $lines)."\n";
     }
 
-    private function path(PatchRow $row, Reroll $reroll): string
+    /**
+     * Whether the file already holds these bytes.
+     */
+    private function holds(string $path, string $body): bool
     {
-        $project = self::slug(\str_replace('drupal/', '', '' !== $row->project ? $row->project : $row->package));
-        $title = self::slug($row->title);
-        $stamp = \substr(\sha1($row->source.'|'.$row->title), 0, 8);
-        $name = \trim($project.'-'.$title, '-').'-'.$stamp;
+        $full = $this->root.\DIRECTORY_SEPARATOR.$path;
 
-        return $this->directory.'/'.$name.($reroll->isClean() ? self::CLEAN_SUFFIX : self::CONFLICT_SUFFIX);
-    }
-
-    private static function slug(string $text): string
-    {
-        $slug = \strtolower(\trim($text));
-        $slug = (string) \preg_replace('/[^a-z0-9]+/', '-', $slug);
-        $slug = \trim($slug, '-');
-
-        return \strlen($slug) > 50 ? \substr($slug, 0, 50) : $slug;
+        return \is_file($full) && \file_get_contents($full) === $body;
     }
 
     /**
-     * Writes only when the bytes differ, so a second run of the same plan
-     * leaves the tree alone.
+     * Drops the conflict file an earlier run wrote for a patch that now merges cleanly, so one patch never has two answers on disk.
+     */
+    private function removeStale(string $path): void
+    {
+        $full = $this->root.\DIRECTORY_SEPARATOR.$path;
+        if (\is_file($full)) {
+            @\unlink($full);
+        }
+    }
+
+    /**
+     * Writes the file, creating its directory when the site has none.
      */
     private function put(string $path, string $body): void
     {
@@ -140,9 +260,6 @@ final class PatchFiles
         $dir = \dirname($full);
         if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) && !\is_dir($dir)) {
             throw new RuntimeException('cannot create '.$dir);
-        }
-        if (\is_file($full) && \file_get_contents($full) === $body) {
-            return;
         }
         if (false === \file_put_contents($full, $body)) {
             throw new RuntimeException('cannot write '.$path);

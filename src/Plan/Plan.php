@@ -2,17 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Plan;
+namespace TresBienTech\Drupatch\Plan;
+
+use RuntimeException;
 
 /**
- * One upgrade plan as the api answered it.
- *
- * This is the one place the server's JSON becomes data. A field the
- * plugin does not know is ignored, so the api can add fields without
- * breaking installed sites; a body that is not a plan is refused here
- * rather than rendering as an empty report.
+ * One upgrade plan as the api answered it. The one place the server's
+ * JSON becomes data: unknown fields are ignored, a non-plan is refused.
  */
-final class Plan
+class Plan
 {
     /**
      * @param array<string, int>   $counts
@@ -43,51 +41,47 @@ final class Plan
     /**
      * @param array<mixed> $decoded
      *
-     * @throws InvalidPlan
+     * @throws RuntimeException
      */
     public static function fromArray(array $decoded): self
     {
-        $data = Value::keyed($decoded);
+        $data = $decoded;
         if (!\array_key_exists('plan', $data)) {
-            throw new InvalidPlan('the answer carries no plan, so the patches were not judged');
+            throw new RuntimeException('the answer carries no plan, so the patches were not judged');
         }
         if (!\is_array($data['plan'])) {
-            throw new InvalidPlan('the answer\'s plan is not an object');
+            throw new RuntimeException('the answer\'s plan is not an object');
         }
-        $plan = Value::keyed($data['plan']);
+        $plan = $data['plan'];
         if (isset($plan['patches']) && !\is_array($plan['patches'])) {
-            throw new InvalidPlan('the answer\'s patches are not a list');
+            throw new RuntimeException('the answer\'s patches are not a list');
         }
 
         $patches = [];
-        foreach (Value::objects($plan, 'patches') as $row) {
+        foreach ($plan['patches'] ?? [] as $row) {
             $patches[] = PatchRow::fromArray($row);
         }
 
-        // The scan is the top level and the patch half is nested, so the
-        // two tallies keep the name each answers to: `counts` on the
-        // outside is package statuses, `counts` inside the plan is
-        // verdicts.
+        // `counts` outside is package statuses, `counts` inside the plan
+        // is verdicts.
         return new self(
-            Value::str($data, 'target_core'),
-            Value::str($data, 'core_installed'),
-            Value::bool($data, 'target_is_installed'),
-            Value::str($data, 'bundle_date'),
-            Value::str($data, 'target_from'),
-            Value::counts($plan, 'counts'),
-            Value::counts($data, 'counts'),
-            Value::strings($plan, 'no_release'),
+            (string) ($data['target_core'] ?? ''),
+            (string) ($data['core_installed'] ?? ''),
+            true === ($data['target_is_installed'] ?? null),
+            (string) ($data['bundle_date'] ?? ''),
+            (string) ($data['target_from'] ?? ''),
+            (array) ($plan['counts'] ?? []),
+            (array) ($data['counts'] ?? []),
+            (array) ($plan['no_release'] ?? []),
             $patches,
-            Value::strings($plan, 'missing_files'),
-            Value::strings($plan, 'warnings'),
+            (array) ($plan['missing_files'] ?? []),
+            (array) ($plan['warnings'] ?? []),
             $data,
         );
     }
 
     /**
-     * The same plan narrowed to some packages, for a run scoped with
-     * --package. The counts are recomputed from the rows that are left,
-     * so a scoped report never quotes the site's totals.
+     * The same plan narrowed to some packages, counts recomputed from the rows that are left.
      *
      * @param list<string> $packages composer names or drupal.org project names
      */
@@ -112,9 +106,8 @@ final class Plan
             $this->noRelease,
             static fn (string $name): bool => isset($wanted[self::normalisePackage($name)])
         ));
-        // A warning opens with the package it is about. One about a
-        // package outside the scope answers a question that was not
-        // asked.
+        // A warning about a package outside the scope is dropped; one
+        // naming no package stays.
         $warnings = \array_values(\array_filter(
             $this->warnings,
             static function (string $warning) use ($wanted): bool {
@@ -131,10 +124,10 @@ final class Plan
         $raw = $this->raw;
         $raw['scope'] = $packages;
         if (isset($raw['plan']) && \is_array($raw['plan'])) {
-            $nested = Value::keyed($raw['plan']);
+            $nested = $raw['plan'];
             $nested['patches'] = \array_values(\array_filter(
-                Value::objects($nested, 'patches'),
-                static fn (array $row): bool => isset($wanted[self::normalisePackage(Value::str($row, 'package'))])
+                (array) ($nested['patches'] ?? []),
+                static fn (array $row): bool => isset($wanted[self::normalisePackage((string) ($row['package'] ?? ''))])
             ));
             $nested['counts'] = $counts;
             $nested['no_release'] = $noRelease;
@@ -159,8 +152,7 @@ final class Plan
     }
 
     /**
-     * A package under one name: `drupal/webform` and `webform` are the
-     * same thing to a person typing --package.
+     * One package name: `drupal/webform` and `webform` are the same thing to a person typing --package.
      */
     private static function normalisePackage(string $name): string
     {
@@ -217,11 +209,6 @@ final class Plan
 
     /**
      * The scenario the run answered for, said in full.
-     *
-     * A patch is judged against its own package's release, never against
-     * core. The core version only decides which release that is, so the
-     * headline names the move rather than the thing patches were applied
-     * to. Each package heading names the release its own rows are about.
      */
     public function scenario(): string
     {
@@ -233,5 +220,28 @@ final class Plan
         }
 
         return 'for a move to core '.$this->against();
+    }
+
+    public const CLEAN = 0;
+
+    public const ACTION_NEEDED = 1;
+
+    public const FAILED = 2;
+
+    /**
+     * The exit code: fails on a patch that will not apply or an unknown verdict; strict adds the unjudged and a vacuous run.
+     */
+    public function exitCode(bool $strict = false, bool $vacuous = false): int
+    {
+        if ($strict && $vacuous) {
+            return self::ACTION_NEEDED;
+        }
+        foreach ($this->patches as $row) {
+            if ($row->fails($strict)) {
+                return self::ACTION_NEEDED;
+            }
+        }
+
+        return self::CLEAN;
     }
 }

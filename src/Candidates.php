@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Resolve;
+namespace TresBienTech\Drupatch;
 
 use Composer\Composer;
 use Composer\Package\PackageInterface;
@@ -15,23 +15,9 @@ use Composer\Semver\VersionParser;
 use Throwable;
 
 /**
- * The release composer would install for each package, if the site moved
- * to a target core.
- *
- * The server answers this from a daily copy of drupal.org and one
- * constraint at a time. Here composer's own repositories are in reach,
- * with the site's stability rules, its platform and whatever private or
- * mirrored repository it configured, so the answer is the one an update
- * would actually produce.
- *
- * What composer's selector does not know is the target core: it picks the
- * newest release matching a constraint, and a release names the core it
- * supports in its own requirements. That filter is applied here.
- *
- * Nothing here answers "no" for a question it could not read. A failure
- * is either thrown, for the caller to report, or recorded in `notes()`.
+ * The release composer would install for each package, if the site moved to a target core.
  */
-final class Candidates
+class Candidates
 {
     /** Where a site declares the core it runs, newest convention first. */
     private const CORE_REQUIREMENTS = ['drupal/core-recommended', 'drupal/core'];
@@ -45,10 +31,6 @@ final class Candidates
 
     /**
      * Builds a resolver over the site's own repositories.
-     *
-     * Throws when composer cannot offer them. A site whose repositories
-     * are out of reach is not a site with nothing to install, and the
-     * caller is where the difference can be said out loud.
      */
     public static function forSite(Composer $composer): self
     {
@@ -57,6 +39,30 @@ final class Candidates
         $set->addRepository(new CompositeRepository($composer->getRepositoryManager()->getRepositories()));
 
         return new self($set, self::phpVersion($composer), $root->getPreferStable());
+    }
+
+    /**
+     * What each installed package requires of core, read from the site's own vendor directory, keyed by composer name.
+     *
+     * @param array<string, string> $packages the packages worth asking about
+     *
+     * @return array<string, string>
+     */
+    public static function declaredCore(Composer $composer, array $packages): array
+    {
+        $out = [];
+        foreach ($composer->getRepositoryManager()->getLocalRepository()->getPackages() as $package) {
+            $name = $package->getName();
+            if (!isset($packages[$name])) {
+                continue;
+            }
+            $requires = $package->getRequires();
+            if (isset($requires['drupal/core'])) {
+                $out[$name] = $requires['drupal/core']->getConstraint()->getPrettyString();
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -70,8 +76,7 @@ final class Candidates
     }
 
     /**
-     * The release each package would move to for the target core, keyed
-     * by composer name. A package with no such release is left out.
+     * The release each package would move to for the target core, keyed by composer name.
      *
      * @param array<string, string> $constraints package name to the site's requirement
      *
@@ -91,13 +96,7 @@ final class Candidates
     }
 
     /**
-     * The newest core release the site's own constraint allows, or an
-     * empty string when it requires no core package.
-     *
-     * `latest` is a question, not a version. Asking composer which release
-     * of a package supports "latest" compares a constraint against a word
-     * and answers no for everything, so the target is resolved to a
-     * release first and the word never reaches a comparison.
+     * The newest core release the site's own constraint allows, or an empty string when it requires no core package.
      *
      * @param array<string, string> $constraints the site's own requirements
      */
@@ -132,8 +131,12 @@ final class Candidates
     }
 
     /**
-     * The newest release of one package that the site could install and
-     * that supports the target core.
+     * The newest release of one package that the site could install and that supports the target core.
+     *
+     * A release qualifies when it says it supports the target core and
+     * the site's PHP satisfies what it asks for. A requirement that will
+     * not parse is unread (null), never a no: the release is left out
+     * and the reason is noted once.
      */
     private function best(string $name, string $constraint, string $target): ?PackageInterface
     {
@@ -149,11 +152,17 @@ final class Candidates
         $bestStable = null;
         $unread = false;
         foreach ($found as $package) {
-            $eligibility = Eligibility::of($this->supports($package, $target), $this->runnable($package));
-            if (!$eligibility->keep) {
-                if ('' !== $eligibility->reason && !$unread) {
+            $supports = $this->supports($package, $target);
+            $runnable = $this->runnable($package);
+            $reason = match (null) {
+                $supports => 'its drupal/core requirement could not be read',
+                $runnable => 'its php requirement could not be read',
+                default => '',
+            };
+            if (true !== $supports || true !== $runnable) {
+                if ('' !== $reason && !$unread) {
                     $unread = true;
-                    $this->notes[] = \sprintf('%s %s was left out: %s', $name, $package->getPrettyVersion(), $eligibility->reason);
+                    $this->notes[] = \sprintf('%s %s was left out: %s', $name, $package->getPrettyVersion(), $reason);
                 }
                 continue;
             }
@@ -170,46 +179,39 @@ final class Candidates
     }
 
     /**
-     * Whether a release says it supports the target core.
-     *
-     * A release naming no core requirement has answered: it does not.
-     * A requirement that will not parse has not.
+     * Whether a release says it supports the target core; null when its requirement could not be read.
      */
-    private function supports(PackageInterface $package, string $target): Answer
+    private function supports(PackageInterface $package, string $target): ?bool
     {
         $requires = $package->getRequires();
         if (!isset($requires['drupal/core'])) {
-            return Answer::No;
+            return false;
         }
         try {
-            return Answer::of(Semver::satisfies($target, $requires['drupal/core']->getConstraint()->getPrettyString()));
+            return Semver::satisfies($target, $requires['drupal/core']->getConstraint()->getPrettyString());
         } catch (Throwable) {
-            return Answer::Unread;
+            return null;
         }
     }
 
     /**
-     * Whether the site's PHP satisfies what the release asks for.
-     *
-     * A release asking for no PHP, or a site whose PHP is unknown,
-     * leaves nothing to refuse.
+     * Whether the site's PHP satisfies what the release asks for; null when its requirement could not be read.
      */
-    private function runnable(PackageInterface $package): Answer
+    private function runnable(PackageInterface $package): ?bool
     {
         $requires = $package->getRequires();
         if ('' === $this->phpVersion || !isset($requires['php'])) {
-            return Answer::Yes;
+            return true;
         }
         try {
-            return Answer::of(Semver::satisfies($this->phpVersion, $requires['php']->getConstraint()->getPrettyString()));
+            return Semver::satisfies($this->phpVersion, $requires['php']->getConstraint()->getPrettyString());
         } catch (Throwable) {
-            return Answer::Unread;
+            return null;
         }
     }
 
     /**
-     * The PHP the site runs, as its platform config declares it or as the
-     * process reports it.
+     * The PHP the site runs, as its platform config declares it or as the process reports it.
      */
     private static function phpVersion(Composer $composer): string
     {

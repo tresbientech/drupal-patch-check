@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests\Render;
+namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\Plan\Plan;
-use Tresbien\Drupatch\Render\HookReport;
-use Tresbien\Drupatch\Tests\PlanFactory;
+use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Render\HookReport;
+use TresBienTech\Drupatch\Tests\PlanFactory;
 
 final class HookReportTest extends TestCase
 {
@@ -73,7 +73,7 @@ final class HookReportTest extends TestCase
     {
         $lines = HookReport::lines($this->plan());
 
-        self::assertStringContainsString('--reroll', $lines[\count($lines) - 2]);
+        self::assertStringContainsString('--write', $lines[\count($lines) - 2]);
         self::assertStringContainsString('--fix', $lines[\count($lines) - 1]);
     }
 

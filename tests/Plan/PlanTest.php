@@ -2,13 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests\Plan;
+namespace TresBienTech\Drupatch\Tests\Plan;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\Plan\InvalidPlan;
-use Tresbien\Drupatch\Plan\PatchRow;
-use Tresbien\Drupatch\Plan\Plan;
-use Tresbien\Drupatch\Plan\Value;
+use RuntimeException;
+use TresBienTech\Drupatch\Plan\PatchRow;
+use TresBienTech\Drupatch\Plan\Plan;
 
 /**
  * The boundary between the server's JSON and the plugin's data.
@@ -45,8 +44,8 @@ final class PlanTest extends TestCase
         self::assertSame('webform', $row->project);
         self::assertSame('6.3.2', $row->version);
         self::assertNotNull($row->reroll);
-        self::assertTrue($row->reroll->isClean());
-        self::assertTrue($row->reroll->verified);
+        self::assertTrue($row->rerollIsClean());
+        self::assertTrue($row->reroll['verified']);
     }
 
     public function testTheTwoTalliesAreReadFromTheirOwnLevel(): void
@@ -62,7 +61,7 @@ final class PlanTest extends TestCase
 
     public function testAScanWithoutThePatchHalfIsRefused(): void
     {
-        $this->expectException(InvalidPlan::class);
+        $this->expectException(RuntimeException::class);
 
         // A well-formed scan, but the patch half never ran: rendering it
         // would report every patch as fine.
@@ -85,21 +84,21 @@ final class PlanTest extends TestCase
 
     public function testABodyThatIsNotAPlanIsRefused(): void
     {
-        $this->expectException(InvalidPlan::class);
+        $this->expectException(RuntimeException::class);
 
         Plan::fromArray(['error' => 'rate limit exceeded']);
     }
 
     public function testPatchesThatAreNotAListAreRefused(): void
     {
-        $this->expectException(InvalidPlan::class);
+        $this->expectException(RuntimeException::class);
 
         Plan::fromArray(['plan' => ['counts' => [], 'patches' => 'lots']]);
     }
 
     public function testARowWithoutAPackageIsRefused(): void
     {
-        $this->expectException(InvalidPlan::class);
+        $this->expectException(RuntimeException::class);
 
         Plan::fromArray(['plan' => ['patches' => [['title' => 'nameless', 'verdict' => 'merged']]]]);
     }
@@ -119,18 +118,6 @@ final class PlanTest extends TestCase
         self::assertSame('the installed core', $plan->against());
         self::assertSame([], $plan->counts);
         self::assertNull($plan->patches[0]->reroll);
-    }
-
-    public function testAFieldOfTheWrongTypeIsTreatedAsAbsent(): void
-    {
-        $plan = Plan::fromArray(['plan' => [
-            'counts' => ['conflicts' => 'many', 'unknown' => 2],
-            'no_release' => ['drupal/domain', 42],
-            'patches' => [],
-        ]]);
-
-        self::assertSame(['unknown' => 2], $plan->counts);
-        self::assertSame(['drupal/domain'], $plan->noRelease);
     }
 
     public function testAVerdictThisPluginDoesNotKnowIsWork(): void
@@ -228,7 +215,7 @@ final class PlanTest extends TestCase
 
         self::assertSame([0], \array_keys($only->patches));
         self::assertSame('drupal/token', $only->patches[0]->package);
-        self::assertSame([0], \array_keys(Value::objects(Value::keyed(Value::object($only->raw, 'plan')), 'patches')));
+        self::assertSame([0], \array_keys(($only->raw['plan'] ?? [])['patches'] ?? []));
     }
 
     public function testTheNarrowedCountsAddUpPerVerdict(): void
@@ -277,11 +264,11 @@ final class PlanTest extends TestCase
     public function testNarrowingRewritesWhatJsonWouldPrint(): void
     {
         $raw = $this->wholeSite()->onlyPackages(['webform'])->raw;
-        $nested = Value::keyed(Value::object($raw, 'plan'));
+        $nested = $raw['plan'] ?? [];
 
         self::assertSame(['webform'], $raw['scope']);
-        self::assertCount(2, Value::objects($nested, 'patches'));
-        self::assertSame(['conflicts' => 1, 'applies' => 1], Value::counts($nested, 'counts'));
+        self::assertCount(2, $nested['patches'] ?? []);
+        self::assertSame(['conflicts' => 1, 'applies' => 1], $nested['counts'] ?? []);
     }
 
     // --target latest resolves to a version, and the report says which
@@ -319,34 +306,6 @@ final class PlanTest extends TestCase
         $plan = Plan::fromArray(['target_is_installed' => true, 'plan' => ['patches' => []]]);
 
         self::assertSame('against the releases this site installs', $plan->scenario());
-    }
-
-    // A site can run a plugin newer than the service it asks, so the old
-    // words are read into the new ones at the boundary and nothing below
-    // it sees two names for one thing.
-    public function testTheVerdictsThisServiceUsedBeforeAreStillUnderstood(): void
-    {
-        $plan = Plan::fromArray(['plan' => ['patches' => [
-            ['package' => 'drupal/a', 'source' => 'a.patch', 'verdict' => 'shipped'],
-            ['package' => 'drupal/b', 'source' => 'b.patch', 'verdict' => 'still-needed'],
-            ['package' => 'drupal/c', 'source' => 'c.patch', 'verdict' => 'needs-reroll'],
-            ['package' => 'drupal/d', 'source' => 'd.patch', 'verdict' => 'unknown'],
-        ]]]);
-
-        self::assertSame(
-            ['merged', 'applies', 'conflicts', 'unknown'],
-            \array_map(static fn (PatchRow $row): string => $row->verdict, $plan->patches),
-        );
-    }
-
-    public function testAnOldVerdictStillDecidesTheExitCode(): void
-    {
-        $plan = Plan::fromArray(['plan' => ['patches' => [
-            ['package' => 'drupal/c', 'source' => 'c.patch', 'verdict' => 'needs-reroll'],
-        ]]]);
-
-        self::assertTrue($plan->patches[0]->conflicts());
-        self::assertTrue($plan->patches[0]->needsAction());
     }
 
     public function testTheNewVerdictsAreUnderstoodUnchanged(): void

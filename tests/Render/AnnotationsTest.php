@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests\Render;
+namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\PatchConfig\Lines;
-use Tresbien\Drupatch\Render\Annotations;
-use Tresbien\Drupatch\Tests\PlanFactory;
+use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Render\Report;
+use TresBienTech\Drupatch\Tests\PlanFactory;
 
 final class AnnotationsTest extends TestCase
 {
@@ -91,7 +91,7 @@ final class AnnotationsTest extends TestCase
 
         self::assertSame(
             ['::error file=patches.json,line=4::conflicts drupal/webform 6.2.9: Style fix'],
-            Annotations::lines($plan, 'patches.json', Lines::in($document)),
+            Report::annotations($plan, 'patches.json', $document),
         );
     }
 
@@ -182,8 +182,8 @@ final class AnnotationsTest extends TestCase
     /**
      * @return list<string>
      */
-    private function lines(\Tresbien\Drupatch\Plan\Plan $plan): array
+    private function lines(Plan $plan): array
     {
-        return Annotations::lines($plan, 'composer.json', Lines::in(self::DOCUMENT));
+        return Report::annotations($plan, 'composer.json', self::DOCUMENT);
     }
 }

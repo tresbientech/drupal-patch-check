@@ -2,21 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch;
+namespace TresBienTech\Drupatch;
 
 use Composer\Composer;
 use Composer\Factory;
 use RuntimeException;
-use Tresbien\Drupatch\PatchConfig\Reader;
-use Tresbien\Drupatch\PatchConfig\Resolution;
-use Tresbien\Drupatch\Plan\Value;
-use Tresbien\Drupatch\Request\Filtered;
 
 /**
- * The two composer files of one site, and the text of the patches it
- * declares.
+ * The two composer files of one site, and the text of the patches it declares.
  */
-final class Site
+class Site
 {
     /** The body the service accepts for one scan. */
     private const BODY_LIMIT = 32 * 1024 * 1024;
@@ -25,12 +20,15 @@ final class Site
     private const ENVELOPE_BYTES = 64 * 1024;
 
     /**
+     * @param array<string, string> $checkable   checkable package to its installed version
      * @param array<string, string> $constraints
      */
     private function __construct(
         private readonly string $root,
-        private readonly Filtered $request,
-        private readonly Resolution $patches,
+        private readonly string $composerJson,
+        private readonly string $composerLock,
+        private readonly array $checkable,
+        private readonly PatchConfig $patches,
         private readonly array $constraints,
     ) {
     }
@@ -58,8 +56,6 @@ final class Site
             $installed[] = $package->getName();
         }
 
-        $extra = Value::keyed($composer->getPackage()->getExtra());
-
         // What the site requires, so a candidate can be resolved inside
         // the constraint rather than past it.
         $constraints = [];
@@ -71,29 +67,24 @@ final class Site
 
         // What the service can judge decides the whole request: the two
         // documents, the patches resolved, and the candidates asked for.
-        $request = Filtered::of($json, $lock);
-        $reader = new Reader($root, self::textBudget($request), $request->packages);
-        $constraints = \array_intersect_key($constraints, $request->packages);
+        $request = Client::filter($json, $lock);
+        $budget = \max(0, self::BODY_LIMIT - self::ENVELOPE_BYTES
+            - \strlen(\json_encode($request['json'], \JSON_THROW_ON_ERROR))
+            - \strlen(\json_encode($request['lock'], \JSON_THROW_ON_ERROR)));
+        $patches = PatchConfig::read($root, $budget, $request['packages'], $composer->getPackage()->getExtra(), $installed);
 
-        return new self($root, $request, $reader->read($extra, $installed), $constraints);
+        return new self(
+            $root,
+            $request['json'],
+            $request['lock'],
+            $request['packages'],
+            $patches,
+            \array_intersect_key($constraints, $request['packages']),
+        );
     }
 
     /**
-     * What is left of the request once the two composer files are in it,
-     * measured as they are escaped in the body. The service refuses a
-     * larger one, so a patch beyond this is named rather than sent.
-     */
-    private static function textBudget(Filtered $request): int
-    {
-        $taken = \strlen(\json_encode($request->composerJson, \JSON_THROW_ON_ERROR))
-            + \strlen(\json_encode($request->composerLock, \JSON_THROW_ON_ERROR));
-
-        return \max(0, self::BODY_LIMIT - $taken - self::ENVELOPE_BYTES);
-    }
-
-    /**
-     * The directory holding composer.json: where a re-rolled patch is
-     * written, and the only tree the plugin touches.
+     * The directory holding composer.json: where a re-rolled patch is written, and the only tree the plugin touches.
      */
     public function root(): string
     {
@@ -101,21 +92,19 @@ final class Site
     }
 
     /**
-     * The composer.json the service receives: the five keys it reads, with
-     * every package map narrowed to what it can judge.
+     * The composer.json the service receives.
      */
     public function composerJson(): string
     {
-        return $this->request->composerJson;
+        return $this->composerJson;
     }
 
     /**
-     * The composer.lock the service receives: a name and a version per
-     * checkable package, which is the slim form it already accepts.
+     * The composer.lock the service receives: a name and a version per checkable package.
      */
     public function composerLock(): string
     {
-        return $this->request->composerLock;
+        return $this->composerLock;
     }
 
     /**
@@ -125,12 +114,11 @@ final class Site
      */
     public function checkable(): array
     {
-        return $this->request->packages;
+        return $this->checkable;
     }
 
     /**
-     * The site's own requirement for each patched package, keyed by
-     * composer name. A package the site does not require is left out.
+     * The site's own requirement for each checkable package, keyed by composer name.
      *
      * @return array<string, string>
      */
@@ -139,7 +127,7 @@ final class Site
         return $this->constraints;
     }
 
-    public function patches(): Resolution
+    public function patches(): PatchConfig
     {
         return $this->patches;
     }

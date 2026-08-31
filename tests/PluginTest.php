@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests;
+namespace TresBienTech\Drupatch\Tests;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\Plugin;
+use TresBienTech\Drupatch\Plugin;
 
 final class PluginTest extends TestCase
 {

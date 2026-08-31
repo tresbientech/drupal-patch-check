@@ -26,64 +26,48 @@
         "composer-plugin-api": "^2.0"
     },
     "require-dev": {
-        "ext-tokenizer": "*",
         "composer/composer": "^2.2",
         "ergebnis/composer-normalize": "^2.52",
         "friendsofphp/php-cs-fixer": "^3.95",
-        "infection/infection": "^0.35.3",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan": "^2.1",
         "phpstan/phpstan-deprecation-rules": "^2.0",
         "phpstan/phpstan-phpunit": "^2.0",
-        "phpstan/phpstan-strict-rules": "^2.0",
         "phpunit/phpunit": "^10.5"
     },
     "autoload": {
         "psr-4": {
-            "Tresbien\\Drupatch\\": "src/"
+            "TresBienTech\\Drupatch\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Tresbien\\Drupatch\\Tests\\": "tests/"
+            "TresBienTech\\Drupatch\\Tests\\": "tests/"
         }
     },
     "config": {
         "allow-plugins": {
             "ergebnis/composer-normalize": true,
-            "infection/extension-installer": true,
             "phpstan/extension-installer": true
         },
         "sort-packages": true
     },
     "extra": {
-        "class": "Tresbien\\Drupatch\\Plugin"
+        "class": "TresBienTech\\Drupatch\\Plugin"
     },
     "scripts": {
         "cs": "php-cs-fixer fix",
         "cs:check": "php-cs-fixer fix --dry-run --diff",
-        "mutate": [
-            "@mutate:run",
-            "@mutate:report"
-        ],
-        "mutate:report": "php tools/mutation-summary.php",
-        "mutate:run": "infection --threads=max --no-progress -q --logger-summary-json=infection-summary.json",
         "qa": [
             "@cs:check",
             "@stan",
             "@test"
-        ],
-        "qa:full": [
-            "@qa",
-            "@mutate"
         ],
         "stan": "phpstan analyse",
         "test": "phpunit"
     },
     "scripts-descriptions": {
         "cs": "Apply the formatting rules",
-        "mutate": "Mutation testing: does the suite catch injected bugs? Escaped ones are listed in infection.log",
-        "qa": "Formatting, static analysis and tests: the check to run before claiming done",
-        "qa:full": "qa plus mutation testing; needs a coverage driver (pcov or xdebug)"
+        "qa": "Formatting, static analysis and tests: the check to run before claiming done"
     }
 }

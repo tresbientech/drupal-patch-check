@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Tresbien\Drupatch\Tests\Request;
+namespace TresBienTech\Drupatch\Tests\Request;
 
 use PHPUnit\Framework\TestCase;
-use Tresbien\Drupatch\Request\Filtered;
+use TresBienTech\Drupatch\Client;
 
 final class FilteredTest extends TestCase
 {
@@ -18,8 +18,7 @@ final class FilteredTest extends TestCase
             ['name' => 'drupal/webform', 'version' => '6.2.9', 'notification-url' => self::DRUPAL],
         ]);
 
-        self::assertSame(['drupal/webform' => '6.2.9'], $request->packages);
-        self::assertSame([], $request->heldBack);
+        self::assertSame(['drupal/webform' => '6.2.9'], $request['packages']);
     }
 
     public function testAForkCarryingADrupalNameIsHeldBack(): void
@@ -30,8 +29,7 @@ final class FilteredTest extends TestCase
             ['name' => 'drupal/coder', 'version' => '8.3.31', 'notification-url' => self::PACKAGIST],
         ]);
 
-        self::assertSame([], $request->packages);
-        self::assertSame(['drupal/coder'], $request->heldBack);
+        self::assertSame([], $request['packages']);
     }
 
     public function testCoresOwnPackagesAreCheckableDespitePackagist(): void
@@ -44,7 +42,7 @@ final class FilteredTest extends TestCase
 
         self::assertSame(
             ['drupal/core', 'drupal/core-recommended', 'drupal/core-composer-scaffold'],
-            \array_keys($request->packages),
+            \array_keys($request['packages']),
         );
     }
 
@@ -56,23 +54,21 @@ final class FilteredTest extends TestCase
             ['name' => 'drupal/domain_access', 'version' => '3.0.1', 'notification-url' => self::DRUPAL],
         ]);
 
-        self::assertSame(['drupal/domain_access' => '3.0.1'], $request->packages);
+        self::assertSame(['drupal/domain_access' => '3.0.1'], $request['packages']);
     }
 
     public function testAPackageWithNoNotificationUrlIsHeldBack(): void
     {
         $request = $this->of([], [['name' => 'drupal/acme_sso', 'version' => '1.0.0']]);
 
-        self::assertSame([], $request->packages);
-        self::assertSame(['drupal/acme_sso'], $request->heldBack);
+        self::assertSame([], $request['packages']);
     }
 
     public function testANonDrupalPackageIsDroppedWithoutBeingNamed(): void
     {
         $request = $this->of([], [['name' => 'symfony/console', 'version' => '6.4.0', 'notification-url' => self::PACKAGIST]]);
 
-        self::assertSame([], $request->packages);
-        self::assertSame([], $request->heldBack, 'a vendor package is not a finding, it is simply not this tool"s business');
+        self::assertSame([], $request['packages']);
     }
 
     public function testTheRequestCarriesFiveKeysAndNoOthers(): void
@@ -101,14 +97,14 @@ final class FilteredTest extends TestCase
             ['name' => 'drupal/devel', 'version' => '5.3.2', 'notification-url' => self::DRUPAL],
         ]);
 
-        $sent = \json_decode($request->composerJson, true);
+        $sent = \json_decode($request['json'], true);
         self::assertIsArray($sent);
         self::assertSame(['require', 'require-dev', 'minimum-stability', 'prefer-stable', 'extra'], \array_keys($sent));
         self::assertSame(['drupal/webform' => '^6.2'], $sent['require']);
         self::assertSame(['drupal/devel' => '^5'], $sent['require-dev']);
         self::assertSame(['patches' => ['drupal/webform' => ['Alter hook' => 'patches/webform.patch']]], $sent['extra']);
-        self::assertStringNotContainsString('acme-internal', $request->composerJson);
-        self::assertStringNotContainsString('deploy.sh', $request->composerJson);
+        self::assertStringNotContainsString('acme-internal', $request['json']);
+        self::assertStringNotContainsString('deploy.sh', $request['json']);
     }
 
     public function testTheLockCarriesNamesAndVersionsOnly(): void
@@ -122,14 +118,14 @@ final class FilteredTest extends TestCase
         self::assertSame([
             'packages' => [['name' => 'drupal/webform', 'version' => '6.2.9']],
             'packages-dev' => [['name' => 'drupal/devel', 'version' => '5.3.2']],
-        ], \json_decode($request->composerLock, true));
+        ], \json_decode($request['lock'], true));
     }
 
     public function testAnEmptyRequireIsLeftOutRatherThanSentEmpty(): void
     {
         $request = $this->of(['require' => ['acme/private' => '^1.0']], []);
 
-        self::assertSame('{}', $request->composerJson);
+        self::assertSame('{}', $request['json']);
     }
 
     /**
@@ -142,36 +138,35 @@ final class FilteredTest extends TestCase
     }
 
     /**
-     * @param list<string> $heldBack
-     *
      * @dataProvider siteFixtures
      */
-    public function testARealSiteKeepsWhatTheServiceCanJudge(string $fixture, int $checkable, array $heldBack): void
+    public function testARealSiteKeepsWhatTheServiceCanJudge(string $fixture, int $checkable): void
     {
         // Two real sites, their module names replaced. The counts and the
         // notification-url of every entry are as they were installed.
         $lock = (string) \file_get_contents(__DIR__.'/fixtures/'.$fixture.'.lock.json');
 
-        $request = Filtered::of('{}', $lock);
+        $request = Client::filter('{}', $lock);
 
-        self::assertCount($checkable, $request->packages);
-        self::assertSame($heldBack, $request->heldBack);
-        self::assertStringNotContainsString('vendor/', $request->composerLock);
+        self::assertCount($checkable, $request['packages']);
+        self::assertStringNotContainsString('vendor/', $request['lock']);
     }
 
     /**
      * @param array<string, mixed>       $json
      * @param list<array<string, mixed>> $packages
      * @param list<array<string, mixed>> $dev
+     *
+     * @return array{json: string, lock: string, packages: array<string, string>}
      */
-    private function of(array $json, array $packages, array $dev = []): Filtered
+    private function of(array $json, array $packages, array $dev = []): array
     {
         $lock = ['packages' => $packages];
         if ([] !== $dev) {
             $lock['packages-dev'] = $dev;
         }
 
-        return Filtered::of(
+        return Client::filter(
             \json_encode($json, \JSON_THROW_ON_ERROR),
             \json_encode($lock, \JSON_THROW_ON_ERROR),
         );
