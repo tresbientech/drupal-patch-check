@@ -11,19 +11,15 @@ use Tresbien\Drupatch\Site;
  *
  * A run that judged nothing looks like a run where everything was fine.
  * The difference matters most in CI, where nobody reads a green job, so
- * every run says how much of the site it covered and how much it held
- * back.
+ * every run says how many patches it covered and how many it held back.
  */
 final class Coverage
 {
     /**
-     * @param list<string> $heldBackPackages
      * @param list<string> $heldBackPatches
      */
     public function __construct(
-        public readonly int $packages,
         public readonly int $patches,
-        public readonly array $heldBackPackages,
         public readonly array $heldBackPatches,
     ) {
     }
@@ -31,9 +27,7 @@ final class Coverage
     public static function of(Site $site): self
     {
         return new self(
-            \count($site->checkable()),
             \count($site->patches()->patches),
-            $site->heldBack(),
             $site->patches()->heldBack,
         );
     }
@@ -50,32 +44,26 @@ final class Coverage
 
     /**
      * The lines a person reads before the table: what was covered, then
-     * each package and patch that was not.
+     * each patch that was not.
      *
      * @return list<string>
      */
     public function lines(): array
     {
-        if (0 === $this->packages) {
-            return ['drupatch: nothing was checked. No installed package comes from drupal.org, so the service has no release to judge against.'];
+        if ($this->isVacuous()) {
+            return ['drupatch: no patch could be checked. Every declared patch is on a package the service has no release for.'];
         }
 
         $line = \sprintf(
-            'drupatch: checked %d package%s and %d patch%s',
-            $this->packages,
-            1 === $this->packages ? '' : 's',
+            'drupatch: checked %d patch%s',
             $this->patches,
             1 === $this->patches ? '' : 'es',
         );
-        $held = \count($this->heldBackPackages) + \count($this->heldBackPatches);
-        if ($held > 0) {
-            $line .= \sprintf('; held back %d', $held);
+        if ([] !== $this->heldBackPatches) {
+            $line .= \sprintf('; held back %d', \count($this->heldBackPatches));
         }
 
         $out = [$line];
-        foreach ($this->heldBackPackages as $package) {
-            $out[] = '  held back  '.$package.' (not a drupal.org release)';
-        }
         foreach ($this->heldBackPatches as $patch) {
             $out[] = '  held back  '.$patch;
         }

@@ -72,10 +72,38 @@ final class OutcomeTest extends TestCase
         self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true));
     }
 
-    // A package with no release is a finding, and not a patch that broke.
-    public function testABlockedPackageOnlyFailsAStrictRun(): void
+    // The exit code is about patches. A blocked package carrying none says
+    // nothing about them, and a blocked package whose patches were judged
+    // has already had its say through their verdicts.
+    public function testABlockedPackageCarryingNoPatchIsCleanUnderStrict(): void
     {
         $plan = $this->planFrom(['no_release' => ['drupal/domain']]);
+
+        self::assertSame(Outcome::CLEAN, Outcome::of($plan));
+        self::assertSame(Outcome::CLEAN, Outcome::of($plan, true));
+    }
+
+    public function testABlockedPackageWhosePatchesWereJudgedIsCleanUnderStrict(): void
+    {
+        $plan = $this->planFrom([
+            'no_release' => ['drupal/select2'],
+            'patches' => [
+                $this->row(['package' => 'drupal/select2', 'verdict' => 'still-needed']),
+                $this->row(['package' => 'drupal/select2', 'verdict' => 'still-needed']),
+            ],
+        ]);
+
+        self::assertSame(Outcome::CLEAN, Outcome::of($plan));
+        self::assertSame(Outcome::CLEAN, Outcome::of($plan, true));
+    }
+
+    // Blocking cost a real answer here, and the unclear row is what says so.
+    public function testABlockedPackageWithAnUnclearRowStillFailsAStrictRun(): void
+    {
+        $plan = $this->planFrom([
+            'no_release' => ['drupal/domain'],
+            'patches' => [$this->row(['package' => 'drupal/domain', 'verdict' => 'unknown'])],
+        ]);
 
         self::assertSame(Outcome::CLEAN, Outcome::of($plan));
         self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true));

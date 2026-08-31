@@ -11,12 +11,17 @@ use RuntimeException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Terminal;
 use Throwable;
 use Tresbien\Drupatch\Outcome;
+use Tresbien\Drupatch\PatchConfig\Lines;
 use Tresbien\Drupatch\Plan\Client;
 use Tresbien\Drupatch\Plan\Plan;
 use Tresbien\Drupatch\Plan\Value;
+use Tresbien\Drupatch\Render\Annotations;
+use Tresbien\Drupatch\Render\Budget;
 use Tresbien\Drupatch\Render\Coverage;
+use Tresbien\Drupatch\Render\Format;
 use Tresbien\Drupatch\Render\Summary;
 use Tresbien\Drupatch\Render\Table;
 use Tresbien\Drupatch\Resolve\Candidates;
@@ -35,6 +40,9 @@ use Tresbien\Drupatch\Write\WrittenFile;
  */
 final class CheckCommand extends BaseCommand
 {
+    /** The word a run uses to ask for the newest core its constraint allows. */
+    private const TARGET_LATEST = 'latest';
+
     protected function configure(): void
     {
         $this
@@ -49,7 +57,8 @@ final class CheckCommand extends BaseCommand
             ->addOption('force', null, InputOption::VALUE_NONE, 'Let --fix rewrite a file that already has uncommitted changes')
             ->addOption('package', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only this package, repeatable: drupal/webform or webform. Narrows the report, --reroll and --fix, and the exit code with them.')
             ->addOption('strict', null, InputOption::VALUE_NONE, 'Fail on a patch that could not be judged and on a package with no release, as well as on one that will not apply')
-            ->addOption('json', null, InputOption::VALUE_NONE, 'Print the plan as one JSON object')
+            ->addOption('json', null, InputOption::VALUE_NONE, 'Print the plan as one JSON object. The same as --format=json.')
+            ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output shape: '.\implode(', ', Format::accepted()).'. Defaults to table.')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print the request that would be sent and stop. Nothing is asked of the service and nothing is written.');
     }
 
@@ -68,7 +77,7 @@ final class CheckCommand extends BaseCommand
         }
 
         $file = $site->patches()->file;
-        $path = '' === $file ? 'composer.json' : $file;
+        [$path] = self::declaration($site);
         if (!$force && (new WorkingTree(new ProcessExecutor($this->getIO())))->isModified($site->root(), $path)) {
             throw new RuntimeException($path.' has uncommitted changes; commit them or pass --force');
         }
@@ -133,15 +142,47 @@ final class CheckCommand extends BaseCommand
     /**
      * What composer would install for each patched package, or nothing
      * when it cannot say. A site with no repository in reach still gets
-     * the server's answer.
+     * the server's answer, and hears why it got no candidates.
      *
      * @return array<string, string>
      */
-    private function candidates(Composer $composer, Site $site, string $target): array
+    private function candidates(Composer $composer, Site $site, string &$target, OutputInterface $output): array
     {
-        $resolver = Candidates::forSite($composer);
-        if (null === $resolver) {
-            return [];
+        $resolver = null;
+        try {
+            $resolver = Candidates::forSite($composer);
+            $out = $this->resolveCandidates($resolver, $site, $target);
+        } catch (Throwable $e) {
+            $output->writeln('<comment>drupatch: composer resolved no candidates, '.$e->getMessage().'</comment>');
+            $out = [];
+        }
+        if (null !== $resolver) {
+            foreach ($resolver->notes() as $note) {
+                $output->writeln('<comment>drupatch: '.$note.'</comment>');
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function resolveCandidates(Candidates $resolver, Site $site, string &$target): array
+    {
+        // `latest` is a question. Composer answers questions about a
+        // release, so it is resolved to one here: otherwise every
+        // constraint is compared against the word and refuses, and the run
+        // silently falls back to the service's own release table.
+        if (self::TARGET_LATEST === $target) {
+            $resolved = $resolver->coreTarget($site->constraints());
+            if ('' === $resolved) {
+                // The site requires no core package. The service falls
+                // back to the installed core and says so; nothing here can
+                // pick candidates for a core nobody named.
+                return [];
+            }
+            $target = $resolved;
         }
         $wanted = [];
         $constraints = $site->constraints();
@@ -156,12 +197,38 @@ final class CheckCommand extends BaseCommand
         return $resolver->forTarget($target, $wanted);
     }
 
+    /**
+     * The document declaring the site's patches, as a path relative to
+     * the site root and as text. An unreadable file reads as empty, and
+     * every annotation then anchors to its first line.
+     *
+     * @return array{string, string}
+     */
+    private static function declaration(Site $site): array
+    {
+        $file = $site->patches()->file;
+        $path = '' === $file ? 'composer.json' : $file;
+        $text = @\file_get_contents($site->root().\DIRECTORY_SEPARATOR.$path);
+
+        return [$path, false === $text ? '' : $text];
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $target = $input->getOption('target');
         $target = \is_string($target) ? \trim($target) : '';
         $fix = true === $input->getOption('fix');
         $reroll = $fix || true === $input->getOption('reroll');
+        // Resolved before anything is read or asked for, so a run told
+        // two different things stops without touching the site.
+        $chosen = $input->getOption('format');
+        try {
+            $format = Format::of(\is_string($chosen) ? $chosen : null, true === $input->getOption('json'));
+        } catch (Throwable $e) {
+            $output->writeln('<error>drupatch: '.$e->getMessage().'</error>');
+
+            return Outcome::FAILED;
+        }
 
         try {
             $composer = $this->requireComposer();
@@ -178,7 +245,7 @@ final class CheckCommand extends BaseCommand
             }
             // A bare run judges what the lock installs, so there is no
             // candidate to resolve and no repository to ask.
-            $candidates = '' === $target ? [] : $this->candidates($composer, $site, $target);
+            $candidates = '' === $target ? [] : $this->candidates($composer, $site, $target, $output);
             // What the site has on disk says what it supports, whatever
             // the service's copy of the release data knows.
             $declared = Declared::forSite($composer, $site->checkable());
@@ -204,18 +271,20 @@ final class CheckCommand extends BaseCommand
         }
 
         $strict = true === $input->getOption('strict');
-        if (true === $input->getOption('json')) {
+        if (Format::JSON === $format) {
             $output->writeln((string) \json_encode($plan->raw + [
                 'summary' => Summary::of($plan, $strict, $coverage->isVacuous()),
             ] + ['written' => \array_map(
                 static fn (WrittenFile $file): array => ['path' => $file->path, 'status' => $file->status],
                 $written
             )], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES));
-        } else {
-            foreach (Table::lines($plan) as $line) {
+        } elseif (Format::GITHUB === $format) {
+            [$path, $text] = self::declaration($site);
+            foreach (Annotations::lines($plan, $path, Lines::in($text)) as $line) {
                 $output->writeln($line);
             }
-            foreach (Table::written($written) as $line) {
+        } else {
+            foreach (Table::report($plan, $written, Budget::clamp((new Terminal())->getWidth())) as $line) {
                 $output->writeln($line);
             }
         }

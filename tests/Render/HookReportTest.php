@@ -61,13 +61,33 @@ final class HookReportTest extends TestCase
         self::assertSame('<info>drupatch</info>: 1 unclear, 2 can go after this update', $first);
     }
 
-    public function testTheLastLineIsTheWholeHint(): void
+    public function testTheHintIsPrintedWhole(): void
+    {
+        self::assertContains(
+            '  run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade',
+            HookReport::lines($this->plan())
+        );
+    }
+
+    public function testTheFooterIsTheLastThingPrinted(): void
     {
         $lines = HookReport::lines($this->plan());
 
+        self::assertStringContainsString('--reroll', $lines[\count($lines) - 2]);
+        self::assertStringContainsString('--fix', $lines[\count($lines) - 1]);
+    }
+
+    public function testAPlanWithNothingToRunAddsNoFooter(): void
+    {
+        $plan = $this->planFrom(['counts' => ['unknown' => 1], 'patches' => [
+            $this->row(['verdict' => 'unknown']),
+        ]]);
+        $lines = HookReport::lines($plan);
+
         self::assertSame(
             '  run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade',
-            $lines[\count($lines) - 1]
+            $lines[\count($lines) - 1],
+            'the hook gains no line when there is nothing to run'
         );
     }
 
@@ -138,6 +158,18 @@ final class HookReportTest extends TestCase
         self::assertStringStartsWith('  run `', $lines[2]);
     }
 
+    public function testEveryRowOpensWithTheSameMarkAsTheReport(): void
+    {
+        $rows = \array_values(\array_filter(
+            HookReport::lines($this->plan()),
+            static fn (string $line): bool => 1 === \preg_match('/^  (<\\w+>)?[!?·✓*]/u', $line),
+        ));
+
+        self::assertCount(2, $rows, 'a still-needed patch stays in the tally');
+        self::assertStringStartsWith('  <error>!</error> needs-reroll', $rows[0]);
+        self::assertStringStartsWith('  <info>✓</info> shipped', $rows[1]);
+    }
+
     public function testPointsAtTheCommandThatShowsMore(): void
     {
         self::assertStringContainsString('composer drupal-patch-check', \implode("\n", HookReport::lines($this->plan())));
@@ -147,8 +179,10 @@ final class HookReportTest extends TestCase
     // advice to upgrade to where it already is.
     public function testTheTargetHintNamesNoVersion(): void
     {
-        $lines = HookReport::lines($this->plan());
-        $hint = $lines[\count($lines) - 1];
+        $hint = \implode("\n", \array_filter(
+            HookReport::lines($this->plan()),
+            static fn (string $line): bool => \str_contains($line, '--target'),
+        ));
 
         self::assertStringContainsString('--target <version>', $hint);
         self::assertStringNotContainsString('11.4.5', $hint);
@@ -182,24 +216,36 @@ final class HookReportTest extends TestCase
         self::assertSame([], $lines);
     }
 
-    public function testNamesThePackagesThatBlockAnUpgrade(): void
+    public function testABlockedPackageIsNotNamed(): void
     {
-        self::assertStringContainsString('drupal/domain', \implode("\n", HookReport::lines($this->plan())));
+        self::assertStringNotContainsString('drupal/domain', \implode("\n", HookReport::lines($this->plan())));
     }
 
-    // A blocked package is worth a line even when every patch applies.
-    public function testABlockedPackageAloneIsWorthSpeaking(): void
+    // Composer refused to move the package during the update the hook is
+    // reporting on, so it has already been said.
+    public function testABlockedPackageAloneSaysNothing(): void
     {
-        $lines = HookReport::lines($this->planFrom([
+        self::assertSame([], HookReport::lines($this->planFrom([
             'counts' => ['still-needed' => 1],
             'no_release' => ['drupal/domain'],
             'patches' => [$this->row()],
+        ])));
+    }
+
+    // What the site itself can change is worth one line, even when every
+    // patch applies.
+    public function testAWarningAloneIsWorthSpeaking(): void
+    {
+        $lines = HookReport::lines($this->planFrom([
+            'counts' => ['still-needed' => 1],
+            'no_release' => ['drupal/select2'],
+            'warnings' => ['drupal/select2 2.0.0 supports 11.4.5; the site requires 2.x-dev@dev. Widen it to ^2.0.'],
+            'patches' => [$this->row()],
         ]));
 
-        self::assertNotSame([], $lines);
         self::assertStringContainsString('no patch needs a decision', $lines[0]);
-        self::assertStringContainsString('drupal/domain', $lines[1], 'the packages are named once, under the headline');
-        self::assertStringNotContainsString('no release for', $lines[0], 'the headline does not repeat the line below it');
+        self::assertStringContainsString('Widen it to ^2.0.', $lines[1]);
+        self::assertStringNotContainsString('no release for', \implode("\n", $lines));
     }
 
     public function testSaysNothingWhenTheSiteDeclaresNoPatches(): void

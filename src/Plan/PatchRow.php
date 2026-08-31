@@ -44,6 +44,8 @@ final class PatchRow
         public readonly string $strictRefused,
         /** An earlier patch of the package that did not apply. */
         public readonly string $judgedWithout,
+        /** The first file the patch failed on, and why. */
+        private readonly string $failedHunk,
         /** Where the release this row is about came from: composer, or the bundle. */
         public readonly string $decidedBy,
         public readonly ?Reroll $reroll,
@@ -63,6 +65,7 @@ final class PatchRow
         $reroll = isset($result['reroll']) && \is_array($result['reroll'])
             ? Reroll::fromArray(Value::keyed($result['reroll']))
             : null;
+        $failed = Value::objects($result, 'hunks_failed');
 
         return new self(
             $package,
@@ -76,6 +79,7 @@ final class PatchRow
             Value::str($result, 'error'),
             Value::str($result, 'strict_refused'),
             Value::str($result, 'judged_without'),
+            [] === $failed ? '' : self::hunk($failed[0]),
             Value::str($data, 'decided_by'),
             $reroll,
         );
@@ -87,6 +91,33 @@ final class PatchRow
     public function needsAction(): bool
     {
         return !\in_array($this->verdict, self::CLEAN_VERDICTS, true);
+    }
+
+    /**
+     * One failed hunk as a person reads it: the file, and why git
+     * refused it there.
+     *
+     * @param array<string, mixed> $hunk
+     */
+    private static function hunk(array $hunk): string
+    {
+        $file = Value::str($hunk, 'file');
+        $reason = Value::str($hunk, 'reason');
+        if ('' === $file || '' === $reason) {
+            return $file.$reason;
+        }
+
+        return $file.': '.$reason;
+    }
+
+    /**
+     * The first file a re-roll has to fix, empty when the verdict stands
+     * or the server named none. One line is the size of a hint; the rest
+     * of the failure is in the patch.
+     */
+    public function firstFailure(): string
+    {
+        return $this->needsReroll() ? $this->failedHunk : '';
     }
 
     /**
@@ -127,6 +158,40 @@ final class PatchRow
     /**
      * What the row is called in output: its title, or the patch it names.
      */
+    /**
+     * Whether the verdict is about a release other than the one the lock
+     * holds.
+     *
+     * Composer writes a branch two ways: `dev-2.x` as a reference and
+     * `2.x-dev` as the alias for a branch named like a version. They are
+     * one branch, so a heading pairing them would claim a move that is
+     * not happening.
+     */
+    public function movesRelease(): bool
+    {
+        if ('' === $this->installed || '' === $this->version) {
+            return false;
+        }
+
+        return self::branch($this->installed) !== self::branch($this->version);
+    }
+
+    /**
+     * A version with either spelling of a development branch reduced to
+     * the branch name, and any other version left alone.
+     */
+    private static function branch(string $version): string
+    {
+        if (\str_starts_with($version, 'dev-')) {
+            return \substr($version, 4);
+        }
+        if (\str_ends_with($version, '-dev')) {
+            return \substr($version, 0, -4);
+        }
+
+        return $version;
+    }
+
     public function label(): string
     {
         return '' !== $this->title ? $this->title : $this->source;

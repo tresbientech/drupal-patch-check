@@ -15,10 +15,18 @@ use Tresbien\Drupatch\Write\WrittenFile;
 final class Table
 {
     /**
+     * @param int $width the terminal width the report is laid out for
+     *
      * @return list<string>
      */
-    public static function lines(Plan $plan): array
+    public static function lines(Plan $plan, int $width = 100): array
     {
+        $detail = Budget::detailIndent();
+        $trailing = 0;
+        foreach ($plan->patches as $patch) {
+            $trailing = \max($trailing, \mb_strlen(self::fileName($patch)));
+        }
+        $titleWidth = Budget::title($width, $trailing);
         $total = \count($plan->patches);
         $lines = [\sprintf(
             '<info>Drupal Code Query</info>: %d patch%s against %s',
@@ -27,49 +35,96 @@ final class Table
             $plan->judgedAgainst()
         ), ''];
 
-        foreach ($plan->warnings as $warning) {
-            $lines[] = '  <comment>! '.$warning.'</comment>';
+        $grouped = self::byPackage($plan);
+        $placed = self::warningsByPackage($plan->warnings, \array_keys($grouped));
+        $loose = \array_diff($plan->warnings, \array_merge([], ...\array_values($placed)));
+
+        foreach ($loose as $warning) {
+            $lines[] = self::warning($warning);
         }
-        if ([] !== $plan->warnings) {
+        if ([] !== $loose) {
             $lines[] = '';
         }
 
-        foreach (self::byPackage($plan) as $rows) {
-            $lines[] = '  '.self::heading($rows[0]);
+        $first = true;
+        foreach ($grouped as $package => $rows) {
+            if (!$first) {
+                $lines[] = '';
+            }
+            $first = false;
+            foreach ($placed[$package] ?? [] as $warning) {
+                $lines[] = self::warning($warning);
+            }
+            $lines[] = '  '.self::heading($rows[0]).'   '.self::packageTally($rows);
             foreach ($rows as $row) {
-                $lines[] = \sprintf('    %-13s %s', $row->verdict, $row->label());
+                $lines[] = \rtrim(\sprintf(
+                    '    %s %-13s %s  %s',
+                    Verdict::marked($row->verdict),
+                    $row->verdict,
+                    Budget::pad(Budget::fit($row->label(), $titleWidth), $titleWidth),
+                    self::fileName($row),
+                ));
                 if ('' !== $row->reason()) {
-                    $lines[] = '                  '.$row->reason();
+                    $lines[] = $detail.$row->reason();
+                }
+                // What a re-roll is up against, so the size of the work
+                // is readable without opening the patch.
+                if ('' !== $row->firstFailure()) {
+                    $lines[] = $detail.$row->firstFailure();
                 }
                 // The verdict stands; this says the patch needed a
                 // looser reading than git apply gives.
                 if ('' !== $row->strictRefused) {
-                    $lines[] = '                  '.$row->strictRefused;
+                    $lines[] = $detail.$row->strictRefused;
                 }
                 // The row may be a consequence of the named patch, so
                 // that one is the thing to fix first.
                 if ('' !== $row->judgedWithout) {
-                    $lines[] = '                  judged without "'.$row->judgedWithout.'", which did not apply';
+                    $lines[] = $detail.'judged without "'.$row->judgedWithout.'", which did not apply';
                 }
             }
         }
 
         $lines[] = '';
-        // A run narrowed to some packages has no site-wide package
-        // tally to quote, so it prints only the patch one.
-        if ([] !== $plan->packageCounts) {
-            $lines[] = '  packages: '.self::tally($plan->packageCounts);
-        }
-        $lines[] = '  patches:  '.self::tally($plan->counts);
+        $lines[] = '  patches: '.self::tally($plan->counts);
 
-        if ($plan->isBlocked()) {
-            $lines[] = \sprintf('  no release for %s: %s', $plan->against(), \implode(', ', $plan->noRelease));
-        }
         if ([] !== $plan->missingFiles) {
             $lines[] = '  patch text not sent for: '.\implode(', ', $plan->missingFiles);
         }
 
         return $lines;
+    }
+
+    /**
+     * The whole report in the order it is printed: the rows, the files a
+     * re-roll wrote, then what to run next.
+     *
+     * The footer is last because that is where a reader's eye stops when
+     * the output does.
+     *
+     * @param list<WrittenFile> $written
+     *
+     * @return list<string>
+     */
+    public static function report(Plan $plan, array $written, int $width = 100): array
+    {
+        return \array_merge(
+            self::lines($plan, $width),
+            self::written($written),
+            self::footer($plan),
+        );
+    }
+
+    /**
+     * What to run next, empty when there is nothing to run.
+     *
+     * @return list<string>
+     */
+    public static function footer(Plan $plan): array
+    {
+        $lines = NextSteps::lines($plan->counts);
+
+        return [] === $lines ? [] : \array_merge([''], $lines);
     }
 
     /**
@@ -109,6 +164,35 @@ final class Table
     }
 
     /**
+     * The patch file as a reader would name it: the last segment of its
+     * path or URL, without a query string.
+     *
+     * A patch with no title of its own is already labelled by its
+     * source, so a column repeating it would say the same thing twice.
+     */
+    private static function fileName(PatchRow $row): string
+    {
+        if ('' === $row->title || '' === $row->source) {
+            return '';
+        }
+        $path = $row->source;
+        $query = \strpos($path, '?');
+        if (false !== $query) {
+            $path = \substr($path, 0, $query);
+        }
+        $cut = \strrpos($path, '/');
+
+        return Budget::fit(false === $cut ? $path : \substr($path, $cut + 1), Budget::TRAILING_MAX);
+    }
+
+    /**
+     * Patches under their package, worst package first.
+     *
+     * Ordering is total: a package sorts by its worst verdict then by
+     * name, and a row by its verdict then by its label. The alphabetical
+     * tie is what makes two runs on one plan byte-identical, so a CI log
+     * can be diffed against the last one.
+     *
      * @return array<string, non-empty-list<PatchRow>>
      */
     private static function byPackage(Plan $plan): array
@@ -117,8 +201,77 @@ final class Table
         foreach ($plan->patches as $row) {
             $grouped[$row->package][] = $row;
         }
+        foreach ($grouped as $package => $rows) {
+            \usort($rows, static fn (PatchRow $a, PatchRow $b): int => [Verdict::rank($a->verdict), $a->label()] <=> [Verdict::rank($b->verdict), $b->label()]);
+            $grouped[$package] = $rows;
+        }
+        \uksort($grouped, static fn (string $a, string $b): int => [self::worst($grouped[$a]), $a] <=> [self::worst($grouped[$b]), $b]);
 
         return $grouped;
+    }
+
+    /**
+     * One warning, marked so it reads as a caveat on the rows near it.
+     */
+    private static function warning(string $warning): string
+    {
+        return '  <comment>! '.$warning.'</comment>';
+    }
+
+    /**
+     * Warnings grouped under the package each one is about.
+     *
+     * A warning about a package opens with its name, which is the only
+     * handle the plugin has: the sentence is built by the service and
+     * arrives as text. A warning matching no printed package is left out
+     * here and printed above the report instead.
+     *
+     * @param list<string> $warnings
+     * @param list<string> $packages
+     *
+     * @return array<string, non-empty-list<string>>
+     */
+    private static function warningsByPackage(array $warnings, array $packages): array
+    {
+        $out = [];
+        foreach ($warnings as $warning) {
+            foreach ($packages as $package) {
+                if (\str_starts_with($warning, $package.' ')) {
+                    $out[$package][] = $warning;
+                    break;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The rank of the package's worst verdict.
+     *
+     * @param non-empty-list<PatchRow> $rows
+     */
+    private static function worst(array $rows): int
+    {
+        $ranks = \array_map(static fn (PatchRow $row): int => Verdict::rank($row->verdict), $rows);
+
+        return \min($ranks);
+    }
+
+    /**
+     * What one package's patches came to, worst verdict first.
+     *
+     * @param non-empty-list<PatchRow> $rows
+     */
+    private static function packageTally(array $rows): string
+    {
+        $counts = [];
+        foreach ($rows as $row) {
+            $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) + 1;
+        }
+        \uksort($counts, static fn (string $a, string $b): int => [Verdict::rank($a), $a] <=> [Verdict::rank($b), $b]);
+
+        return self::tally($counts);
     }
 
     /**
@@ -127,11 +280,14 @@ final class Table
      */
     private static function heading(PatchRow $row): string
     {
+        // Nothing was judged, so there is no second release to point at.
+        // The heading names the one the lock holds and the rows say why
+        // they carry no verdict.
         if ('' === $row->version) {
-            return \sprintf('%s %s → no release for the target', $row->package, $row->installed);
+            return $row->package.' '.$row->installed;
         }
-        if ('' === $row->installed || $row->installed === $row->version) {
-            return $row->package.' '.$row->version;
+        if (!$row->movesRelease()) {
+            return $row->package.' '.('' === $row->installed ? $row->version : $row->installed);
         }
 
         return \sprintf('%s %s → %s', $row->package, $row->installed, $row->version);

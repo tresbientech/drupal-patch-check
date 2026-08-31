@@ -211,13 +211,4 @@ final class Plan
 
         return $this->against().($this->targetIsInstalled ? ' (the core this site runs)' : '');
     }
-
-    /**
-     * True when a package has no release for the target and so blocks the
-     * upgrade whatever its patches say.
-     */
-    public function isBlocked(): bool
-    {
-        return [] !== $this->noRelease;
-    }
 }

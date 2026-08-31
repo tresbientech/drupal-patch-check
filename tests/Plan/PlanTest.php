@@ -258,7 +258,6 @@ final class PlanTest extends TestCase
         $only = $this->wholeSite()->onlyPackages(['domain']);
 
         self::assertSame(['drupal/domain'], $only->noRelease);
-        self::assertTrue($only->isBlocked());
     }
 
     public function testNarrowingToNothingLeavesAPlanWithNoPatches(): void

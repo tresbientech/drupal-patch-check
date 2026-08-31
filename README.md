@@ -6,6 +6,22 @@ A command to add to your CI that checks if your patches are still needed and
 apply. The check also run after every `composer update` and prints one line per 
 patch that needs attention: patch is not necessary anymore or no longer applies.
 
+## What this answers, and what it does not
+
+One question: what happens to your patches. For each one, whether it
+already shipped upstream, still applies and is still needed, or no longer
+applies and has to be re-rolled.
+
+It does not scan your code for deprecated API use. [Upgrade
+Status](https://www.drupal.org/project/upgrade_status) does that, and
+[Drupal Rector](https://www.drupal.org/project/rector) rewrites much of
+what it finds. It does not tell you which packages block a core upgrade;
+`composer why-not drupal/core 11.4.5` answers that, and core's Update
+Status lists what has a newer release.
+
+Those tools say nothing about your patches, which is the gap this fills.
+It reads the site and writes nothing unless you ask it to.
+
 ## Install
 
 ```
@@ -19,11 +35,19 @@ to delete, or patches on modules that are not required anymore.
 
 ```
 drupatch: 1 unclear, 1 can go after this update
-  unknown       drupal/domain   Domain content translations permissions
-                the lock does not install drupal/domain, so there is no release to judge this patch against
-  shipped       drupal/token 1.15.0  Cache tag on token replacement
+  ? unknown       drupal/domain   Domain content translations permissions
+                  the lock does not install drupal/domain, so there is no release to judge this patch against
+  ✓ shipped       drupal/token 1.15.0  Cache tag on token replacement
+  run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade
+  Next:  composer drupal-patch-check --fix   drops the shipped entry from composer.json
 ```
-When every patch applies and nothing is blocked, it prints nothing.
+When every patch applies it prints nothing. The `Next:` line appears only
+when a flag would clear something.
+
+A package with no release for the target is left out. Composer refused to
+move it during the update this hook reports on, so it has been said
+already. Where the block is something your own composer.json can change,
+that reaches you as a `!` line naming the requirement to widen.
 
 Enabled by default, to turn the hook off add to your composer.json:
 
@@ -40,16 +64,49 @@ The command is unaffected, so `composer drupal-patch-check` still works.
 composer drupal-patch-check
 ```
 
+Patches are grouped under their package, worst package first, so whatever
+needs a person is at the top. Each row carries a mark, the verdict, the
+patch title and the file it came from.
+
+```
+Drupal Code Query: 5 patches against 11.4.5
+
+  drupal/webform 6.2.9 → 6.3.2   1 needs-reroll, 1 still-needed
+    ! needs-reroll  Allow numeric machine names in handlers      webform-numeric.patch
+    · still-needed  Fix the alter hook                           webform-alter.patch
+
+  ! drupal/domain 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.
+  drupal/domain 2.0.1   1 unknown
+    ? unknown       Domain access on entity clone                domain-clone.patch
+                    drupal/domain has no release for 11.4.5
+
+  drupal/paragraphs 1.17.0 → 1.19.0   1 still-needed
+    · still-needed  Drag handle keyboard access                  paragraphs-a11y.patch
+
+  drupal/token 1.15.0   1 shipped
+    ✓ shipped       Cache tag on token replacement               token-cache.patch
+
+  patches: 1 needs-reroll, 2 still-needed, 1 shipped, 1 unknown
+
+  Next:  composer drupal-patch-check --reroll   writes the re-roll
+         composer drupal-patch-check --fix      drops the shipped entry from composer.json
+```
+
+The report is laid out for the terminal it is printed to, between 80 and
+120 columns. Titles are shortened to fit; nothing is wrapped, so one patch
+is always one row.
+
 | Option | What it does |
 | --- | --- |
 | `--target=11.4.5` | Judge the patches against the releases that core version would bring in, before you move to it. |
 | `--target=latest` | The same, against the newest core release your own constraint allows. Nothing to type, so a scheduled job stays correct. |
-| `--strict` | Also fail on a patch that could not be judged and on a package with no release. |
+| `--strict` | Also fail on a patch that could not be judged, and on a run that judged none. |
 | `--reroll` | Write a re-rolled patch file for each patch that no longer applies. |
 | `--fix` | Rewrite the patch declarations: drop what shipped, point the rest at their re-rolls. Implies `--reroll`. |
 | `--force` | Let `--fix` write a file that already has uncommitted changes. |
 | `--package=drupal/webform` | Only this package. Repeatable, and `webform` works too. Narrows the report, `--reroll`, `--fix` and the exit code. |
-| `--json` | Print the plan as one JSON object. |
+| `--format=json` | Print the plan as one JSON object. `--json` is the older spelling and still works. |
+| `--format=github` | Print each verdict as a workflow command, so GitHub Actions shows it as an annotation on the line declaring the patch. |
 | `--dry-run` | Print the request that would be sent and stop. Nothing is asked of the service, nothing is written. |
 
 With `--target`, the plugin asks composer itself which release each patched
@@ -73,22 +130,32 @@ its own constraint against it, so nothing needs a version typed into it.
 
 ```yaml
 # weekly
-- run: composer drupal-patch-check --target latest --json > patch-check.json
+- run: composer drupal-patch-check --target latest --format json > patch-check.json
+- run: composer drupal-patch-check --target latest --format github
 - run: composer drupal-patch-check --target latest
 - uses: actions/upload-artifact@v4
   if: always()
   with: { name: patch-check, path: patch-check.json }
 ```
 
+`--format github` writes one `::error`, `::warning` or `::notice` line per
+patch needing a decision, anchored to the line of `composer.json` (or your
+patches file) that declares it. A patch that still applies writes nothing.
+Gitea Actions accepts the same commands and does not render them yet.
+
 | exit | meaning |
 | --- | --- |
-| 0 | Nothing needs a person. Patches that shipped upstream, ones that could not be judged, and packages with no release are reported and do not fail. |
+| 0 | Nothing needs a person. Patches that shipped upstream and ones that could not be judged are reported and do not fail. |
 | 1 | A patch will not apply against the release it was judged against, or carries a verdict this plugin does not know. |
 | 2 | The plan could not be fetched. A service outage, not a finding. |
 
-`--strict` also fails on a patch that could not be judged, on a package with
-no release for the target, and on a run that declared patches and checked
-none. Without it a lagging mirror will not turn a nightly job red.
+`--strict` also fails on a patch that could not be judged and on a run that
+declared patches and checked none. Without it a lagging mirror will not turn
+a nightly job red.
+
+A package with no release for the target never fails a run on its own. It
+carries no patch, or its patches were judged against the branch the site
+installs and their verdicts already said so.
 
 The `--json` output carries a `summary` object for a notification step:
 
@@ -210,17 +277,18 @@ packages. That is the set the service has a release for.
 A `drupal/` name is not enough. A fork of `drupal/webform` kept in a company
 repository carries that name, and so does a private `drupal/acme_sso`.
 Neither has a drupal.org release, so neither is sent, and neither could have
-been judged. Each run names what it held back:
+been judged. Each run names the patches it held back:
 
 ```
-drupatch: checked 101 packages and 53 patches; held back 9
-  held back  drupal/coder (not a drupal.org release)
+drupatch: checked 53 patches; held back 2
   held back  acme/private "In-house fix"
+  held back  drupal/acme_sso "Single sign-on tweak"
 ```
 
 A patch is held back with its package, text included. A patch whose source
 URL is not one the service fetches from is held back too, so an internal
-host is never named.
+host is never named. A package carrying no patch is not named at all: this
+report is about patches.
 
 If your site installs from a repository that rewrites `notification-url`,
 such as some Satis or Private Packagist setups, nothing will be checked and

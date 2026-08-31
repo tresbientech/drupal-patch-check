@@ -9,14 +9,21 @@ use Tresbien\Drupatch\Plan\Plan;
 
 /**
  * The lines the post-update hook prints: the verdict tally, the patches
- * that need attention, and the packages that block an upgrade.
+ * that need attention, and any caveat on the counts.
  *
  * Patches that still apply and are still needed collapse into the tally.
+ * A package with no release for the target is left out: composer refused
+ * to move it during the update this hook reports on, so it has been said
+ * already. What the site itself can change reaches the reader as a
+ * warning instead.
  */
 final class HookReport
 {
     /** The command the hook points at for anything it does not print. */
     public const COMMAND = 'composer drupal-patch-check';
+
+    /** Row indent, the mark and its space, then the verdict column. */
+    private const DETAIL_INDENT = '                  ';
 
     /** Longest list before the tail becomes an ellipsis. */
     private const MAX_ROWS = 20;
@@ -41,7 +48,7 @@ final class HookReport
         // this hook runs after it. A patch that still applies is
         // something composer has already proved, so saying it again is
         // noise; what composer cannot say is that a patch can be deleted.
-        if ([] === $rows && !$plan->isBlocked() && [] === $plan->warnings) {
+        if ([] === $rows && [] === $plan->warnings) {
             return [];
         }
 
@@ -57,26 +64,21 @@ final class HookReport
                 break;
             }
             ++$shown;
-            $lines[] = \sprintf('  %-13s %s %s  %s', $row->verdict, $row->package, $row->version, $row->label());
+            $lines[] = \sprintf('  %s %-13s %s %s  %s', Verdict::marked($row->verdict), $row->verdict, $row->package, $row->version, $row->label());
             // An unclear row is the one case where the verdict alone says
             // nothing: the reason is whether a package blocks the upgrade,
             // a patch file is unreadable, or the mirror is a day behind.
             if ('' !== $row->reason()) {
-                $lines[] = '                '.$row->reason();
+                $lines[] = self::DETAIL_INDENT.$row->reason();
             }
         }
 
-        if ($plan->isBlocked()) {
-            $blocking = $plan->noRelease;
-            $lines[] = \sprintf(
-                '  %d package%s with no release for %s: %s',
-                \count($blocking),
-                1 === \count($blocking) ? '' : 's',
-                $plan->against(),
-                \implode(', ', \array_slice($blocking, 0, 10))
-            );
-        }
         $lines[] = '  run `'.self::COMMAND.'` for the detail, or `--target <version>` before a core upgrade';
+        // Only when there is something to run. A hook that always
+        // suggested a command would be read as boilerplate and skipped.
+        foreach (NextSteps::lines($plan->counts) as $line) {
+            $lines[] = $line;
+        }
 
         return $lines;
     }
@@ -103,8 +105,8 @@ final class HookReport
         foreach ($counts as $verdict => $count) {
             $parts[] = $count.' '.$verdict;
         }
-        // The blocked line below names the packages, so the headline
-        // says only that no patch is waiting on a person.
+        // A run reaches here with a warning and no row, so the headline
+        // says the patches are fine and the warning speaks for itself.
         if ([] === $parts) {
             return 'no patch needs a decision';
         }

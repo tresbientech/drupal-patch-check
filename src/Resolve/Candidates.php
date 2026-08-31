@@ -27,28 +27,46 @@ use Throwable;
  * What composer's selector does not know is the target core: it picks the
  * newest release matching a constraint, and a release names the core it
  * supports in its own requirements. That filter is applied here.
+ *
+ * Nothing here answers "no" for a question it could not read. A failure
+ * is either thrown, for the caller to report, or recorded in `notes()`.
  */
 final class Candidates
 {
+    /** Where a site declares the core it runs, newest convention first. */
+    private const CORE_REQUIREMENTS = ['drupal/core-recommended', 'drupal/core'];
+
+    /** @var list<string> */
+    private array $notes = [];
+
     private function __construct(private readonly RepositorySet $set, private readonly string $phpVersion, private readonly bool $preferStable)
     {
     }
 
     /**
-     * Builds a resolver over the site's own repositories, or null when
-     * composer cannot offer them.
+     * Builds a resolver over the site's own repositories.
+     *
+     * Throws when composer cannot offer them. A site whose repositories
+     * are out of reach is not a site with nothing to install, and the
+     * caller is where the difference can be said out loud.
      */
-    public static function forSite(Composer $composer): ?self
+    public static function forSite(Composer $composer): self
     {
-        try {
-            $root = $composer->getPackage();
-            $set = new RepositorySet($root->getMinimumStability(), $root->getStabilityFlags());
-            $set->addRepository(new CompositeRepository($composer->getRepositoryManager()->getRepositories()));
+        $root = $composer->getPackage();
+        $set = new RepositorySet($root->getMinimumStability(), $root->getStabilityFlags());
+        $set->addRepository(new CompositeRepository($composer->getRepositoryManager()->getRepositories()));
 
-            return new self($set, self::phpVersion($composer), $root->getPreferStable());
-        } catch (Throwable) {
-            return null;
-        }
+        return new self($set, self::phpVersion($composer), $root->getPreferStable());
+    }
+
+    /**
+     * What this resolver could not answer, in the order it came up.
+     *
+     * @return list<string>
+     */
+    public function notes(): array
+    {
+        return $this->notes;
     }
 
     /**
@@ -73,6 +91,47 @@ final class Candidates
     }
 
     /**
+     * The newest core release the site's own constraint allows, or an
+     * empty string when it requires no core package.
+     *
+     * `latest` is a question, not a version. Asking composer which release
+     * of a package supports "latest" compares a constraint against a word
+     * and answers no for everything, so the target is resolved to a
+     * release first and the word never reaches a comparison.
+     *
+     * @param array<string, string> $constraints the site's own requirements
+     */
+    public function coreTarget(array $constraints): string
+    {
+        foreach (self::CORE_REQUIREMENTS as $name) {
+            $constraint = $constraints[$name] ?? '';
+            if ('' === $constraint) {
+                continue;
+            }
+            $best = null;
+            try {
+                $found = $this->set->findPackages('drupal/core', (new VersionParser())->parseConstraints($constraint));
+            } catch (Throwable $e) {
+                $this->notes[] = \sprintf('no core release was read for %s %s: %s', $name, $constraint, $e->getMessage());
+                continue;
+            }
+            foreach ($found as $package) {
+                if ('stable' !== $package->getStability()) {
+                    continue;
+                }
+                if (null === $best || Comparator::greaterThan($package->getVersion(), $best->getVersion())) {
+                    $best = $package;
+                }
+            }
+            if (null !== $best) {
+                return $best->getPrettyVersion();
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * The newest release of one package that the site could install and
      * that supports the target core.
      */
@@ -81,13 +140,21 @@ final class Candidates
         try {
             $parser = new VersionParser();
             $found = $this->set->findPackages($name, '' === $constraint ? null : $parser->parseConstraints($constraint));
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            $this->notes[] = \sprintf('no candidate was read for %s %s: %s', $name, '' === $constraint ? '*' : $constraint, $e->getMessage());
+
             return null;
         }
         $best = null;
         $bestStable = null;
+        $unread = false;
         foreach ($found as $package) {
-            if (!$this->supports($package, $target) || !$this->runnable($package)) {
+            $eligibility = Eligibility::of($this->supports($package, $target), $this->runnable($package));
+            if (!$eligibility->keep) {
+                if ('' !== $eligibility->reason && !$unread) {
+                    $unread = true;
+                    $this->notes[] = \sprintf('%s %s was left out: %s', $name, $package->getPrettyVersion(), $eligibility->reason);
+                }
                 continue;
             }
             if (null === $best || Comparator::greaterThan($package->getVersion(), $best->getVersion())) {
@@ -104,33 +171,39 @@ final class Candidates
 
     /**
      * Whether a release says it supports the target core.
+     *
+     * A release naming no core requirement has answered: it does not.
+     * A requirement that will not parse has not.
      */
-    private function supports(PackageInterface $package, string $target): bool
+    private function supports(PackageInterface $package, string $target): Answer
     {
         $requires = $package->getRequires();
         if (!isset($requires['drupal/core'])) {
-            return false;
+            return Answer::No;
         }
         try {
-            return Semver::satisfies($target, $requires['drupal/core']->getConstraint()->getPrettyString());
+            return Answer::of(Semver::satisfies($target, $requires['drupal/core']->getConstraint()->getPrettyString()));
         } catch (Throwable) {
-            return false;
+            return Answer::Unread;
         }
     }
 
     /**
      * Whether the site's PHP satisfies what the release asks for.
+     *
+     * A release asking for no PHP, or a site whose PHP is unknown,
+     * leaves nothing to refuse.
      */
-    private function runnable(PackageInterface $package): bool
+    private function runnable(PackageInterface $package): Answer
     {
         $requires = $package->getRequires();
         if ('' === $this->phpVersion || !isset($requires['php'])) {
-            return true;
+            return Answer::Yes;
         }
         try {
-            return Semver::satisfies($this->phpVersion, $requires['php']->getConstraint()->getPrettyString());
+            return Answer::of(Semver::satisfies($this->phpVersion, $requires['php']->getConstraint()->getPrettyString()));
         } catch (Throwable) {
-            return true;
+            return Answer::Unread;
         }
     }
 

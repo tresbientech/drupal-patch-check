@@ -129,17 +129,6 @@ final class Site
     }
 
     /**
-     * drupal/ packages the lock installs that the service cannot judge: a
-     * fork, a private module, or one pinned from a repository of its own.
-     *
-     * @return list<string>
-     */
-    public function heldBack(): array
-    {
-        return $this->request->heldBack;
-    }
-
-    /**
      * The site's own requirement for each patched package, keyed by
      * composer name. A package the site does not require is left out.
      *

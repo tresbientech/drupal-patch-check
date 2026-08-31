@@ -152,4 +152,34 @@ final class SummaryTest extends TestCase
         self::assertSame([], $summary['needs_reroll']);
         self::assertSame(Outcome::CLEAN, $summary['exit_code']);
     }
+
+    // A scheduled job reads this, so the report's layout must never
+    // reach it. A key added here is a contract change, not a rendering
+    // choice.
+    public function testTheSummaryCarriesTheseKeysAndNoOthers(): void
+    {
+        self::assertSame(
+            [
+                'target_core',
+                'target_is_installed',
+                'counts',
+                'needs_reroll',
+                'unclear',
+                'shipped',
+                'blocked',
+                'decided_by',
+                'exit_code',
+            ],
+            \array_keys(Summary::of($this->planFrom())),
+        );
+    }
+
+    public function testNoSummaryValueCarriesAMarkOrAnEllipsis(): void
+    {
+        $encoded = (string) \json_encode(Summary::of($this->plan()));
+
+        foreach (['!', '?', '·', '✓', '…', 'Next:'] as $decoration) {
+            self::assertStringNotContainsString($decoration, $encoded, 'the report\'s decoration reached the summary');
+        }
+    }
 }
