@@ -51,7 +51,11 @@ final class HookReport
         // this hook runs after it. A patch that still applies is
         // something composer has already proved, so saying it again is
         // noise; what composer cannot say is that a patch can be deleted.
-        if ([] === $rows && [] === $warnings) {
+        //
+        // A warning is a caveat on those rows, never a reason to speak.
+        // A constraint that could be widened has not changed because of
+        // this update, and the command says so when it is asked.
+        if ([] === $rows) {
             return [];
         }
 
@@ -116,6 +120,9 @@ final class HookReport
      * The first line: what is left to decide, not what composer already
      * applied.
      *
+     * Only called with at least one row, so there is always something to
+     * count.
+     *
      * @param list<PatchRow> $rows
      */
     private static function headline(array $rows): string
@@ -133,11 +140,6 @@ final class HookReport
         }
         foreach ($counts as $verdict => $count) {
             $parts[] = $count.' '.$verdict;
-        }
-        // A run reaches here with a warning and no row, so the headline
-        // says the patches are fine and the warning speaks for itself.
-        if ([] === $parts) {
-            return 'no patch needs a decision';
         }
 
         return \implode(', ', $parts).' after this update';

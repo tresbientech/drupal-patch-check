@@ -46,8 +46,9 @@ when a flag would clear something.
 
 A package with no release for the target is left out. Composer refused to
 move it during the update this hook reports on, so it has been said
-already. Where the block is something your own composer.json can change,
-that reaches you as a `!` line naming the requirement to widen.
+already. A `!` line naming a requirement you could widen prints beside a
+patch that needs a decision, never on its own: nothing about that
+constraint changed because of the update.
 
 Enabled by default, to turn the hook off add to your composer.json:
 
@@ -277,18 +278,20 @@ packages. That is the set the service has a release for.
 A `drupal/` name is not enough. A fork of `drupal/webform` kept in a company
 repository carries that name, and so does a private `drupal/acme_sso`.
 Neither has a drupal.org release, so neither is sent, and neither could have
-been judged. Each run names the patches it held back:
+been judged. Each run names the packages it skipped and how many of their
+patches went with them:
 
 ```
-drupatch: checked 53 patches; held back 2
-  held back  acme/private "In-house fix"
-  held back  drupal/acme_sso "Single sign-on tweak"
+drupatch: checked 53 patches; skipped 7 on 2 packages
+  skipped  acme/private, 6 patches (not a drupal.org release)
+  skipped  drupal/acme_sso, 1 patch (not a drupal.org release)
 ```
 
-A patch is held back with its package, text included. A patch whose source
-URL is not one the service fetches from is held back too, so an internal
-host is never named. A package carrying no patch is not named at all: this
-report is about patches.
+A patch is skipped with its package, text included, and its title is never
+printed: a package the run never touched is one decision. A patch whose
+source URL is not one the service fetches from is skipped too, so an
+internal host is never named. A package carrying no patch is not named at
+all: this report is about patches.
 
 If your site installs from a repository that rewrites `notification-url`,
 such as some Satis or Private Packagist setups, nothing will be checked and

@@ -68,7 +68,7 @@ final class ReaderTest extends TestCase
         self::assertSame(['patches/local.patch' => "diff --git a/x b/x\n"], $resolution->files);
         self::assertSame([], $resolution->notes);
         self::assertSame([], $resolution->unsent);
-        self::assertSame([], $resolution->heldBack);
+        self::assertSame([], $resolution->skipped);
     }
 
     public function testReadsAnExternalPatchesFile(): void
@@ -187,7 +187,10 @@ final class ReaderTest extends TestCase
 
         self::assertSame([], $resolution->patches);
         self::assertSame([], $resolution->files, 'the text of a patch that cannot be judged never leaves the site');
-        self::assertSame(['acme/private "In-house fix"'], $resolution->heldBack);
+        self::assertSame(
+            [['package' => 'acme/private', 'title' => 'In-house fix', 'reason' => 'not a drupal.org release']],
+            $resolution->skipped,
+        );
         self::assertSame([], $resolution->notes, 'the hook stays quiet about a site that will always be this way');
     }
 
@@ -200,7 +203,10 @@ final class ReaderTest extends TestCase
         $resolution = $this->reader()->read($extra);
 
         self::assertSame([], $resolution->patches);
-        self::assertSame(['drupal/coder "Internal sniff"'], $resolution->heldBack);
+        self::assertSame(
+            [['package' => 'drupal/coder', 'title' => 'Internal sniff', 'reason' => 'not a drupal.org release']],
+            $resolution->skipped,
+        );
     }
 
     public function testHoldsBackAPatchTheServiceWouldRefuseToFetch(): void
@@ -214,8 +220,8 @@ final class ReaderTest extends TestCase
 
         self::assertSame(['From drupal.org'], \array_column($resolution->patches, 'title'));
         self::assertSame(
-            ['drupal/webform "From our gitlab": the service does not fetch from that host'],
-            $resolution->heldBack,
+            [['package' => 'drupal/webform', 'title' => 'From our gitlab', 'reason' => 'the service does not fetch from that host']],
+            $resolution->skipped,
         );
     }
 
@@ -239,7 +245,7 @@ final class ReaderTest extends TestCase
         $resolution = $this->reader()->read($extra);
 
         self::assertSame(['drupal/webform'], \array_column($resolution->patches, 'package'));
-        self::assertCount(2, $resolution->heldBack);
+        self::assertCount(2, $resolution->skipped);
     }
 
     public function testAStripLevelDoesNotStopAPatchBeingRead(): void

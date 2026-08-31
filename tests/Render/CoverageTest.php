@@ -9,6 +9,10 @@ use Tresbien\Drupatch\Render\Coverage;
 
 final class CoverageTest extends TestCase
 {
+    private const FORK = 'not a drupal.org release';
+
+    private const HOST = 'the service does not fetch from that host';
+
     public function testARunSaysHowManyPatchesItChecked(): void
     {
         $coverage = $this->coverage(53);
@@ -17,41 +21,72 @@ final class CoverageTest extends TestCase
         self::assertFalse($coverage->isVacuous());
     }
 
-    public function testHeldBackPatchesAreNamedOnTheTerminal(): void
+    // One package, one line. Six lines naming six patches on a package
+    // the run never touched is detail nobody acts on.
+    public function testAPackageIsNamedOnceWithItsPatchCount(): void
     {
-        $coverage = $this->coverage(53, ['drupal/acme "Fix"', 'acquia/cohesion "PHP warning fix"']);
+        $coverage = $this->coverage(53, [
+            $this->skip('acquia/cohesion', 'PHP warning fix'),
+            $this->skip('acquia/cohesion', 'Fix compatibility with ECA'),
+            $this->skip('acquia/cohesion', 'Tmgmt issue fix'),
+        ]);
 
-        $lines = $coverage->lines();
-
-        self::assertSame('drupatch: checked 53 patches; held back 2', $lines[0]);
-        self::assertSame('  held back  drupal/acme "Fix"', $lines[1]);
-        self::assertSame('  held back  acquia/cohesion "PHP warning fix"', $lines[2]);
+        self::assertSame([
+            'drupatch: checked 53 patches; skipped 3 on 1 package',
+            '  skipped  acquia/cohesion, 3 patches (not a drupal.org release)',
+        ], $coverage->lines());
     }
 
-    public function testAPackageCarryingNoPatchIsNeverNamed(): void
+    public function testTwoPackagesGetALineEach(): void
     {
-        $coverage = $this->coverage(53);
+        $coverage = $this->coverage(50, [
+            $this->skip('acquia/cohesion', 'One'),
+            $this->skip('drupal/nouislider_js', 'Two'),
+            $this->skip('acquia/cohesion', 'Three'),
+        ]);
 
-        self::assertSame(['drupatch: checked 53 patches'], $coverage->lines());
+        self::assertSame([
+            'drupatch: checked 50 patches; skipped 3 on 2 packages',
+            '  skipped  acquia/cohesion, 2 patches (not a drupal.org release)',
+            '  skipped  drupal/nouislider_js, 1 patch (not a drupal.org release)',
+        ], $coverage->lines());
     }
 
-    public function testAForkedPackageIsReachedThroughItsHeldBackPatch(): void
+    // The reason is the patch's, not the package's, so a package can
+    // appear twice when its patches were skipped for different reasons.
+    public function testOnePackageWithTwoReasonsGetsALinePerReason(): void
     {
-        $coverage = $this->coverage(52, ['drupal/nouislider_js "Custom fix"']);
+        $coverage = $this->coverage(50, [
+            $this->skip('drupal/webform', 'From our gitlab', self::HOST),
+            $this->skip('drupal/webform', 'From our other gitlab', self::HOST),
+        ]);
 
-        self::assertSame('  held back  drupal/nouislider_js "Custom fix"', $coverage->lines()[1]);
+        self::assertSame([
+            'drupatch: checked 50 patches; skipped 2 on 1 package',
+            '  skipped  drupal/webform, 2 patches (the service does not fetch from that host)',
+        ], $coverage->lines());
     }
 
-    public function testTheHeldBackTotalCountsPatches(): void
+    public function testASinglePatchReadsAsEnglish(): void
     {
-        $coverage = $this->coverage(4, ['drupal/a "One"', 'drupal/b "Two"', 'drupal/c "Three"']);
+        $coverage = $this->coverage(1, [$this->skip('acme/private', 'In-house fix')]);
 
-        self::assertSame('drupatch: checked 4 patches; held back 3', $coverage->lines()[0]);
+        self::assertSame([
+            'drupatch: checked 1 patch; skipped 1 on 1 package',
+            '  skipped  acme/private, 1 patch (not a drupal.org release)',
+        ], $coverage->lines());
     }
 
-    public function testASiteWhoseEveryPatchWasHeldBackIsToldPlainly(): void
+    public function testNoPatchTitleReachesTheOutput(): void
     {
-        $coverage = $this->coverage(0, ['drupal/webform "Style fix"']);
+        $lines = \implode("\n", $this->coverage(53, [$this->skip('acquia/cohesion', 'Page builder lock logic')])->lines());
+
+        self::assertStringNotContainsString('Page builder lock logic', $lines);
+    }
+
+    public function testASiteWhoseEveryPatchWasSkippedIsToldPlainly(): void
+    {
+        $coverage = $this->coverage(0, [$this->skip('drupal/webform', 'Style fix')]);
 
         self::assertSame(
             ['drupatch: no patch could be checked. Every declared patch is on a package the service has no release for.'],
@@ -66,7 +101,7 @@ final class CoverageTest extends TestCase
 
     public function testDeclaringPatchesAndCheckingNoneIsVacuous(): void
     {
-        self::assertTrue($this->coverage(0, ['drupal/acme "Fix"'])->isVacuous());
+        self::assertTrue($this->coverage(0, [$this->skip('drupal/a', 'Fix')])->isVacuous());
     }
 
     public function testDeclaringNoPatchesAtAllIsNotVacuous(): void
@@ -76,24 +111,22 @@ final class CoverageTest extends TestCase
 
     public function testCheckingSomePatchesIsNotVacuous(): void
     {
-        self::assertFalse($this->coverage(1, ['drupal/acme "Fix"'])->isVacuous());
-    }
-
-    public function testTheSingularReadsAsEnglish(): void
-    {
-        self::assertSame(['drupatch: checked 1 patch'], $this->coverage(1)->lines());
-    }
-
-    public function testOneHeldBackPatchReadsAsEnglish(): void
-    {
-        self::assertSame('drupatch: checked 2 patches; held back 1', $this->coverage(2, ['drupal/a "One"'])->lines()[0]);
+        self::assertFalse($this->coverage(1, [$this->skip('drupal/a', 'Fix')])->isVacuous());
     }
 
     /**
-     * @param list<string> $heldBackPatches
+     * @return array{package: string, title: string, reason: string}
      */
-    private function coverage(int $patches, array $heldBackPatches = []): Coverage
+    private function skip(string $package, string $title, string $reason = self::FORK): array
     {
-        return new Coverage($patches, $heldBackPatches);
+        return ['package' => $package, 'title' => $title, 'reason' => $reason];
+    }
+
+    /**
+     * @param list<array{package: string, title: string, reason: string}> $skipped
+     */
+    private function coverage(int $patches, array $skipped = []): Coverage
+    {
+        return new Coverage($patches, $skipped);
     }
 }

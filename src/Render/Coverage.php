@@ -11,16 +11,16 @@ use Tresbien\Drupatch\Site;
  *
  * A run that judged nothing looks like a run where everything was fine.
  * The difference matters most in CI, where nobody reads a green job, so
- * every run says how many patches it covered and how many it held back.
+ * every run says how many patches it covered and how many it skipped.
  */
 final class Coverage
 {
     /**
-     * @param list<string> $heldBackPatches
+     * @param list<array{package: string, title: string, reason: string}> $skipped
      */
     public function __construct(
         public readonly int $patches,
-        public readonly array $heldBackPatches,
+        public readonly array $skipped,
     ) {
     }
 
@@ -28,7 +28,7 @@ final class Coverage
      * What a run covered, narrowed to the packages it was asked about.
      *
      * A run scoped with --package is answering for those packages, so a
-     * patch held back on another one is not part of the answer.
+     * patch skipped on another one is not part of the answer.
      *
      * @param list<string> $packages composer names or short names, empty for the whole site
      */
@@ -36,7 +36,7 @@ final class Coverage
     {
         $resolution = $site->patches();
         if ([] === $packages) {
-            return new self(\count($resolution->patches), $resolution->heldBack);
+            return new self(\count($resolution->patches), $resolution->skipped);
         }
 
         $wanted = [];
@@ -49,14 +49,14 @@ final class Coverage
                 ++$patches;
             }
         }
-        $heldBack = [];
-        foreach ($resolution->heldBack as $line) {
-            if (isset($wanted[self::shortName(\explode(' ', $line)[0])])) {
-                $heldBack[] = $line;
+        $skipped = [];
+        foreach ($resolution->skipped as $entry) {
+            if (isset($wanted[self::shortName($entry['package'])])) {
+                $skipped[] = $entry;
             }
         }
 
-        return new self($patches, $heldBack);
+        return new self($patches, $skipped);
     }
 
     /**
@@ -77,12 +77,16 @@ final class Coverage
      */
     public function isVacuous(): bool
     {
-        return 0 === $this->patches && [] !== $this->heldBackPatches;
+        return 0 === $this->patches && [] !== $this->skipped;
     }
 
     /**
      * The lines a person reads before the table: what was covered, then
-     * each patch that was not.
+     * one line per package the run left alone.
+     *
+     * A patch title never appears here. A package the run never touched
+     * is one decision, and naming its six patches is detail nobody acts
+     * on.
      *
      * @return list<string>
      */
@@ -92,20 +96,54 @@ final class Coverage
             return ['drupatch: no patch could be checked. Every declared patch is on a package the service has no release for.'];
         }
 
-        $line = \sprintf(
-            'drupatch: checked %d patch%s',
-            $this->patches,
-            1 === $this->patches ? '' : 'es',
-        );
-        if ([] !== $this->heldBackPatches) {
-            $line .= \sprintf('; held back %d', \count($this->heldBackPatches));
+        $groups = self::grouped($this->skipped);
+        $line = \sprintf('drupatch: checked %d patch%s', $this->patches, 1 === $this->patches ? '' : 'es');
+        if ([] !== $groups) {
+            $line .= \sprintf(
+                '; skipped %d on %d package%s',
+                \count($this->skipped),
+                \count($groups),
+                1 === \count($groups) ? '' : 's',
+            );
         }
 
         $out = [$line];
-        foreach ($this->heldBackPatches as $patch) {
-            $out[] = '  held back  '.$patch;
+        foreach ($groups as $group) {
+            $out[] = \sprintf(
+                '  skipped  %s, %d patch%s (%s)',
+                $group['package'],
+                $group['count'],
+                1 === $group['count'] ? '' : 'es',
+                $group['reason'],
+            );
         }
 
         return $out;
+    }
+
+    /**
+     * The skipped patches as one entry per package and reason, in the
+     * order they were declared.
+     *
+     * The reason belongs to the patch rather than to the package: a
+     * package can be skipped whole for having no drupal.org release, and
+     * a checkable one can have a single patch skipped for its host.
+     *
+     * @param list<array{package: string, title: string, reason: string}> $skipped
+     *
+     * @return list<array{package: string, reason: string, count: int}>
+     */
+    private static function grouped(array $skipped): array
+    {
+        $counts = [];
+        foreach ($skipped as $entry) {
+            $key = $entry['package']."\0".$entry['reason'];
+            if (!isset($counts[$key])) {
+                $counts[$key] = ['package' => $entry['package'], 'reason' => $entry['reason'], 'count' => 0];
+            }
+            ++$counts[$key]['count'];
+        }
+
+        return \array_values($counts);
     }
 }

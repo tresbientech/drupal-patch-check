@@ -64,7 +64,7 @@ final class Reader
         $patches = [];
         $files = [];
         $unsent = [];
-        $heldBack = [];
+        $skipped = [];
         $spent = 0;
         foreach ($declarations as $entry) {
             [$package, $title, $source] = $entry;
@@ -72,11 +72,11 @@ final class Reader
                 continue;
             }
             if (!isset($this->checkable[$package])) {
-                $heldBack[] = self::names($package, $title);
+                $skipped[] = self::skip($package, $title, 'not a drupal.org release');
                 continue;
             }
             if (Entry::isUrl($source) && !Entry::isFetchable($source)) {
-                $heldBack[] = self::names($package, $title).': the service does not fetch from that host';
+                $skipped[] = self::skip($package, $title, 'the service does not fetch from that host');
                 continue;
             }
             $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
@@ -117,7 +117,7 @@ final class Reader
             $notes[] = $manager.' is installed and its patch configuration is not read';
         }
 
-        return new Resolution($patches, $files, $notes, $file, $heldBack, $unsent);
+        return new Resolution($patches, $files, $notes, $file, $skipped, $unsent);
     }
 
     /**
@@ -245,6 +245,17 @@ final class Reader
     private static function names(string $package, string $title): string
     {
         return $package.' "'.$title.'"';
+    }
+
+    /**
+     * One patch the run did not judge, with the reason kept apart from
+     * the names so the report can group by either.
+     *
+     * @return array{package: string, title: string, reason: string}
+     */
+    private static function skip(string $package, string $title, string $reason): array
+    {
+        return ['package' => $package, 'title' => $title, 'reason' => $reason];
     }
 
     /**

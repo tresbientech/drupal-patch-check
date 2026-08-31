@@ -14,7 +14,7 @@ final class Resolution
      * @param list<array{package: string, title: string, source: string}> $patches
      * @param array<string, string>                                       $files
      * @param list<string>                                                $notes
-     * @param list<string>                                                $heldBack
+     * @param list<array{package: string, title: string, reason: string}> $skipped
      * @param list<string>                                                $unsent
      */
     public function __construct(
@@ -23,8 +23,12 @@ final class Resolution
         public readonly array $notes,
         /** Path of the external patches file, empty when the declarations are inline. */
         public readonly string $file,
-        /** One line per declared patch the service cannot judge, naming it and why. */
-        public readonly array $heldBack,
+        /**
+         * One entry per declared patch the run did not judge: the package
+         * it is on, its title, and why. The report groups these, so the
+         * parts travel apart rather than as a formatted line.
+         */
+        public readonly array $skipped,
         /** One line per patch whose text did not fit, naming it and why. */
         public readonly array $unsent,
     ) {

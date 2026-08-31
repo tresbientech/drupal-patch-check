@@ -191,9 +191,9 @@ final class HookReportTest extends TestCase
     public function testPrintsAWarningTheTallyDependsOn(): void
     {
         $plan = $this->planFrom([
-            'counts' => ['applies' => 1],
+            'counts' => ['unknown' => 1],
             'warnings' => ['9 core patch(es) were not judged: 11.4 does not name a core release.'],
-            'patches' => [$this->row()],
+            'patches' => [$this->row(['verdict' => 'unknown'])],
         ]);
 
         $lines = HookReport::lines($plan);
@@ -232,32 +232,46 @@ final class HookReportTest extends TestCase
         ])));
     }
 
-    // What the site itself can change is worth one line, even when every
-    // patch applies, so long as the package carries a patch at all.
-    public function testAWarningAboutAPatchedPackageIsWorthSpeaking(): void
+    // Composer applied every patch during the update it is reporting on,
+    // so there is nothing left to say. A constraint that could be widened
+    // is not a reason to speak on a run where nothing about the patches
+    // changed.
+    public function testAWarningAloneSaysNothing(): void
     {
-        $lines = HookReport::lines($this->planFrom([
+        self::assertSame([], HookReport::lines($this->planFrom([
             'counts' => ['applies' => 1],
             'no_release' => ['drupal/webform'],
             'warnings' => ['drupal/webform 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.'],
             'patches' => [$this->row()],
+        ])));
+    }
+
+    // With a row to carry, the warning is the caveat on it.
+    public function testAWarningPrintsBesideARowThatNeedsADecision(): void
+    {
+        $lines = HookReport::lines($this->planFrom([
+            'counts' => ['merged' => 1],
+            'no_release' => ['drupal/webform'],
+            'warnings' => ['drupal/webform 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.'],
+            'patches' => [$this->row(['verdict' => 'merged'])],
         ]));
 
-        self::assertStringContainsString('no patch needs a decision', $lines[0]);
+        self::assertStringContainsString('1 can go after this update', $lines[0]);
         self::assertStringContainsString('Widen it to ^6.3.', $lines[1]);
-        self::assertStringNotContainsString('no release for', \implode("\n", $lines));
     }
 
     // The hook is about patches too. A blocked package carrying none has
     // nothing here to caveat.
-    public function testAWarningAboutAPackageWithNoPatchesSaysNothing(): void
+    public function testAWarningAboutAPackageWithNoPatchesIsNeverPrinted(): void
     {
-        self::assertSame([], HookReport::lines($this->planFrom([
-            'counts' => ['applies' => 1],
+        $lines = HookReport::lines($this->planFrom([
+            'counts' => ['merged' => 1],
             'no_release' => ['drupal/select2'],
             'warnings' => ['drupal/select2 2.0.0 supports 11.4.5; the site requires 2.x-dev@dev. Widen it to ^2.0.'],
-            'patches' => [$this->row()],
-        ])));
+            'patches' => [$this->row(['verdict' => 'merged'])],
+        ]));
+
+        self::assertStringNotContainsString('drupal/select2', \implode("\n", $lines));
     }
 
     public function testSaysNothingWhenTheSiteDeclaresNoPatches(): void
