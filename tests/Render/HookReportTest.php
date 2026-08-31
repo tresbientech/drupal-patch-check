@@ -104,6 +104,40 @@ final class HookReportTest extends TestCase
         self::assertStringNotContainsString('Fix b', $lines, 'a still-needed patch is what composer just applied');
     }
 
+    // An unclear row is the one verdict that says nothing on its own: it
+    // covers a package that blocks the upgrade, an unreadable patch file
+    // and a mirror a day behind drupal.org, and only the reason separates
+    // what a person can act on from what they cannot.
+    public function testAnUnclearRowCarriesTheReasonUnderIt(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->row([
+            'verdict' => 'unknown',
+            'package' => 'drupal/domain',
+            'version' => '3.0.1',
+            'title' => 'Domain content translations permissions',
+            'note' => 'drupal/domain has no release for 11.4.5: the package blocks the upgrade, so its patches cannot be judged',
+        ])]]);
+
+        $lines = HookReport::lines($plan);
+
+        self::assertStringContainsString('unknown', $lines[1]);
+        self::assertStringContainsString('the package blocks the upgrade', $lines[2]);
+    }
+
+    public function testARowWithNothingToExplainStaysOneLine(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->row([
+            'verdict' => 'shipped',
+            'package' => 'drupal/token',
+            'title' => 'Cache tag on token replacement',
+        ])]]);
+
+        $lines = HookReport::lines($plan);
+
+        self::assertStringContainsString('shipped', $lines[1]);
+        self::assertStringStartsWith('  run `', $lines[2]);
+    }
+
     public function testPointsAtTheCommandThatShowsMore(): void
     {
         self::assertStringContainsString('composer drupal-patch-check', \implode("\n", HookReport::lines($this->plan())));

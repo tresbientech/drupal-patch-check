@@ -12,28 +12,23 @@ patch that needs attention: patch is not necessary anymore or no longer applies.
 composer require --dev tresbientech/drupatch
 ```
 
-## The update hook
+## composer update hook
 
-The plugin subscribes to `post-update-cmd`. It prints and stops. It writes
-no file, and a failure on its side never fails the update.
-
-Your patch manager applies the patches before this runs, so a patch that
-still applies is something it has already proved. The hook reports only what
-composer cannot: patches whose fix is now upstream, ones it could not judge,
-and packages with no release for the core you are on.
+On `post-update-cmd` it show patches that were already shipped and are safe
+to delete. 
 
 ```
 drupatch: 1 unclear, 2 can go after this update
   unknown       drupal/domain 3.0.1  Domain content translations permissions
+                drupal/domain has no release for 11.4.5: the package blocks the upgrade, so its patches cannot be judged
   shipped       drupal/token 1.15.0  Cache tag on token replacement
   shipped       drupal/redis 1.11.0  Default null cache_prefix
   run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade
 ```
-
 When every patch applies and nothing is blocked, it prints nothing.
 
-Turn it off when the check runs on a schedule and the report after each
-update is noise:
+
+Enabled by default, to turn the hook off add to your composer.json:
 
 ```json
 { "extra": { "drupatch": { "hook": false } } }
@@ -120,7 +115,7 @@ The `--json` output carries a `summary` object for a notification step:
 | `still-needed` | The patch applies to the release and its fix is not upstream. Keep it. |
 | `shipped` | The release already carries the fix. Drop the entry. |
 | `needs-reroll` | The patch does not apply and its fix is not upstream. |
-| `unknown` | The release or the patch could not be resolved. The row carries the reason. |
+| `unknown` | No verdict could be reached, and the row says why. Some reasons are yours: the lock does not install the package, it has no release for the target, the patch file could not be read, or the patch is malformed. Some are not: the patch URL could not be fetched, or the release tag has not reached the service's mirror yet. |
 
 A re-roll that merges cleanly is written as `.patch`. One that leaves
 conflict markers is written as `.conflict.patch` and is never referenced

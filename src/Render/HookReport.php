@@ -58,6 +58,12 @@ final class HookReport
             }
             ++$shown;
             $lines[] = \sprintf('  %-13s %s %s  %s', $row->verdict, $row->package, $row->version, $row->label());
+            // An unclear row is the one case where the verdict alone says
+            // nothing: the reason is whether a package blocks the upgrade,
+            // a patch file is unreadable, or the mirror is a day behind.
+            if ('' !== $row->reason()) {
+                $lines[] = '                '.$row->reason();
+            }
         }
 
         if ($plan->isBlocked()) {
