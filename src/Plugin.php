@@ -16,6 +16,7 @@ use Throwable;
 use Tresbien\Drupatch\Plan\Client;
 use Tresbien\Drupatch\Plan\Value;
 use Tresbien\Drupatch\Render\HookReport;
+use Tresbien\Drupatch\Resolve\Declared;
 
 /**
  * Prints a patch verdict tally after every composer update.
@@ -90,7 +91,7 @@ final class Plugin implements PluginInterface, EventSubscriberInterface, Capable
                 return;
             }
             $client = Client::fromComposer($this->composer, $this->io);
-            $plan = $client->plan($site->composerJson(), $site->composerLock(), $site->patches());
+            $plan = $client->plan($site->composerJson(), $site->composerLock(), $site->patches(), '', false, [], Declared::forSite($this->composer, $site->checkable()));
             foreach (HookReport::lines($plan) as $line) {
                 $this->io->write($line);
             }

@@ -12,21 +12,18 @@ patch that needs attention: patch is not necessary anymore or no longer applies.
 composer require --dev tresbientech/drupatch
 ```
 
-## composer update hook
+## Composer update hook
 
 On `post-update-cmd` it show patches that were already shipped and are safe
-to delete. 
+to delete, or patches on modules that are not required anymore.
 
 ```
-drupatch: 1 unclear, 2 can go after this update
+drupatch: 1 unclear, 1 can go after this update
   unknown       drupal/domain   Domain content translations permissions
                 the lock does not install drupal/domain, so there is no release to judge this patch against
   shipped       drupal/token 1.15.0  Cache tag on token replacement
-  shipped       drupal/redis 1.11.0  Default null cache_prefix
-  run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade
 ```
 When every patch applies and nothing is blocked, it prints nothing.
-
 
 Enabled by default, to turn the hook off add to your composer.json:
 

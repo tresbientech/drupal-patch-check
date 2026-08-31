@@ -54,10 +54,11 @@ final class Client
      */
     /**
      * @param array<string, string> $candidates composer name to the release composer would install
+     * @param array<string, string> $declared   composer name to the core requirement its installed release declares
      */
-    public function plan(string $composerJson, string $composerLock, Resolution $patches, string $targetCore = '', bool $reroll = false, array $candidates = []): Plan
+    public function plan(string $composerJson, string $composerLock, Resolution $patches, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = []): Plan
     {
-        $body = \json_encode(self::body($composerJson, $composerLock, $patches, $targetCore, $reroll, $candidates), \JSON_THROW_ON_ERROR);
+        $body = \json_encode(self::body($composerJson, $composerLock, $patches, $targetCore, $reroll, $candidates, $declared), \JSON_THROW_ON_ERROR);
 
         try {
             $response = $this->downloader->get($this->endpoint, [
@@ -90,10 +91,11 @@ final class Client
      * guess a patch manager's shape.
      *
      * @param array<string, string> $candidates
+     * @param array<string, string> $declared
      *
      * @return array<string, mixed>
      */
-    public static function body(string $composerJson, string $composerLock, Resolution $patches, string $targetCore = '', bool $reroll = false, array $candidates = []): array
+    public static function body(string $composerJson, string $composerLock, Resolution $patches, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = []): array
     {
         return [
             'composer_json' => $composerJson,
@@ -107,6 +109,10 @@ final class Client
             // server's own answer comes from a daily copy of drupal.org
             // and one constraint at a time.
             'candidates' => (object) $candidates,
+            // What each installed release says it needs of core, read from
+            // the site's own vendor directory. The service's copy of the
+            // release data can be months behind; this cannot.
+            'installed_core' => (object) $declared,
         ];
     }
 

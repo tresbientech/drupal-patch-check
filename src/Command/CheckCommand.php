@@ -20,6 +20,7 @@ use Tresbien\Drupatch\Render\Coverage;
 use Tresbien\Drupatch\Render\Summary;
 use Tresbien\Drupatch\Render\Table;
 use Tresbien\Drupatch\Resolve\Candidates;
+use Tresbien\Drupatch\Resolve\Declared;
 use Tresbien\Drupatch\Site;
 use Tresbien\Drupatch\Write\ConfigRewriter;
 use Tresbien\Drupatch\Write\PatchFiles;
@@ -178,16 +179,19 @@ final class CheckCommand extends BaseCommand
             // A bare run judges what the lock installs, so there is no
             // candidate to resolve and no repository to ask.
             $candidates = '' === $target ? [] : $this->candidates($composer, $site, $target);
+            // What the site has on disk says what it supports, whatever
+            // the service's copy of the release data knows.
+            $declared = Declared::forSite($composer, $site->checkable());
             if (true === $input->getOption('dry-run')) {
                 $output->writeln((string) \json_encode(
-                    Client::body($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates),
+                    Client::body($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates, $declared),
                     \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES,
                 ));
 
                 return Outcome::CLEAN;
             }
             $plan = Client::fromComposer($composer, $this->getIO())
-                ->plan($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates);
+                ->plan($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates, $declared);
             // The whole site is sent because the server needs the whole
             // lock; the narrowing happens here, so everything after it
             // is about the packages that were asked for.

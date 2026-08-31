@@ -57,6 +57,16 @@ final class ClientBodyTest extends TestCase
 
         self::assertStringContainsString('"patch_files":{}', $encoded);
         self::assertStringContainsString('"candidates":{}', $encoded);
+        self::assertStringContainsString('"installed_core":{}', $encoded);
+    }
+
+    // The service reads release data that can lag a project by months. What
+    // the site has on disk cannot lag, so it travels with every run.
+    public function testTheBodyCarriesWhatEachInstalledReleaseDeclares(): void
+    {
+        $body = Client::body('{}', '{}', $this->resolution(), '', false, [], ['drupal/webform' => '^10.3 || ^11']);
+
+        self::assertSame(['drupal/webform' => '^10.3 || ^11'], (array) $body['installed_core']);
     }
 
     private function resolution(): Resolution
