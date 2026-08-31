@@ -135,15 +135,21 @@ final class Coverage
      */
     private static function grouped(array $skipped): array
     {
-        $counts = [];
+        $groups = [];
         foreach ($skipped as $entry) {
-            $key = $entry['package']."\0".$entry['reason'];
-            if (!isset($counts[$key])) {
-                $counts[$key] = ['package' => $entry['package'], 'reason' => $entry['reason'], 'count' => 0];
+            $seen = false;
+            foreach ($groups as $i => $group) {
+                if ($group['package'] === $entry['package'] && $group['reason'] === $entry['reason']) {
+                    $groups[$i] = ['package' => $group['package'], 'reason' => $group['reason'], 'count' => $group['count'] + 1];
+                    $seen = true;
+                    break;
+                }
             }
-            ++$counts[$key]['count'];
+            if (!$seen) {
+                $groups[] = ['package' => $entry['package'], 'reason' => $entry['reason'], 'count' => 1];
+            }
         }
 
-        return \array_values($counts);
+        return $groups;
     }
 }

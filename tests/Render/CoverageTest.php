@@ -52,18 +52,36 @@ final class CoverageTest extends TestCase
         ], $coverage->lines());
     }
 
-    // The reason is the patch's, not the package's, so a package can
-    // appear twice when its patches were skipped for different reasons.
+    // The reason is the patch's, not the package's, so one package can
+    // take two lines when its patches were skipped for different reasons.
     public function testOnePackageWithTwoReasonsGetsALinePerReason(): void
     {
         $coverage = $this->coverage(50, [
             $this->skip('drupal/webform', 'From our gitlab', self::HOST),
+            $this->skip('drupal/webform', 'A fork of it', self::FORK),
             $this->skip('drupal/webform', 'From our other gitlab', self::HOST),
         ]);
 
         self::assertSame([
-            'drupatch: checked 50 patches; skipped 2 on 1 package',
+            'drupatch: checked 50 patches; skipped 3 on 2 packages',
             '  skipped  drupal/webform, 2 patches (the service does not fetch from that host)',
+            '  skipped  drupal/webform, 1 patch (not a drupal.org release)',
+        ], $coverage->lines());
+    }
+
+    // Two packages sharing a reason stay apart, so the key is not the
+    // reason alone.
+    public function testTwoPackagesSharingAReasonStayApart(): void
+    {
+        $coverage = $this->coverage(50, [
+            $this->skip('drupal/a', 'One'),
+            $this->skip('drupal/b', 'Two'),
+        ]);
+
+        self::assertSame([
+            'drupatch: checked 50 patches; skipped 2 on 2 packages',
+            '  skipped  drupal/a, 1 patch (not a drupal.org release)',
+            '  skipped  drupal/b, 1 patch (not a drupal.org release)',
         ], $coverage->lines());
     }
 
