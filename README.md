@@ -19,8 +19,8 @@ to delete.
 
 ```
 drupatch: 1 unclear, 2 can go after this update
-  unknown       drupal/domain 3.0.1  Domain content translations permissions
-                drupal/domain has no release for 11.4.5: the package blocks the upgrade, so its patches cannot be judged
+  unknown       drupal/domain   Domain content translations permissions
+                the lock does not install drupal/domain, so there is no release to judge this patch against
   shipped       drupal/token 1.15.0  Cache tag on token replacement
   shipped       drupal/redis 1.11.0  Default null cache_prefix
   run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade

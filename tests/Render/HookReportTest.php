@@ -113,15 +113,15 @@ final class HookReportTest extends TestCase
         $plan = $this->planFrom(['patches' => [$this->row([
             'verdict' => 'unknown',
             'package' => 'drupal/domain',
-            'version' => '3.0.1',
+            'version' => '',
             'title' => 'Domain content translations permissions',
-            'note' => 'drupal/domain has no release for 11.4.5: the package blocks the upgrade, so its patches cannot be judged',
+            'note' => 'the lock does not install drupal/domain, so there is no release to judge this patch against',
         ])]]);
 
         $lines = HookReport::lines($plan);
 
         self::assertStringContainsString('unknown', $lines[1]);
-        self::assertStringContainsString('the package blocks the upgrade', $lines[2]);
+        self::assertStringContainsString('the lock does not install drupal/domain', $lines[2]);
     }
 
     public function testARowWithNothingToExplainStaysOneLine(): void
