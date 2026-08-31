@@ -147,7 +147,9 @@ many. The check judges a patch against a drupal.org release, so a patch on
 What stays behind is the patch itself.
 
 A source that is a URL is sent as the URL, and the server fetches it. Local
-patch files are read up to 256 KB each, 100 files per run.
+patch files are read up to 1 MB each, 100 files per run, and only while the
+request stays inside the 4 MB the service accepts. A patch whose text does
+not fit is named, and its row says it was not judged.
 
 The call goes through composer's own HTTP client, so the site's proxy and
 certificate settings apply. The answer is the plan.

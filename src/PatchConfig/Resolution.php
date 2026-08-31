@@ -14,6 +14,7 @@ final class Resolution
      * @param list<array{package: string, title: string, source: string}> $patches
      * @param array<string, string>                                       $files
      * @param list<string>                                                $notes
+     * @param list<string>                                                $unsent
      */
     public function __construct(
         public readonly array $patches,
@@ -23,6 +24,8 @@ final class Resolution
         public readonly string $file,
         /** Declared patches on packages outside drupal/, which are not sent. */
         public readonly int $outside,
+        /** One line per patch whose text did not fit, naming it and why. */
+        public readonly array $unsent,
     ) {
     }
 

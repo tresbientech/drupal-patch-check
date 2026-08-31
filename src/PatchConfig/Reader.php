@@ -18,8 +18,11 @@ namespace Tresbien\Drupatch\PatchConfig;
  */
 final class Reader
 {
-    /** Largest patch file read from disk. */
-    private const MAX_PATCH_BYTES = 256 * 1024;
+    /**
+     * Largest patch file read from disk, the same cap the service applies
+     * to a patch it fetches from a URL.
+     */
+    private const MAX_PATCH_BYTES = 1024 * 1024;
 
     /** Largest number of local patch files sent in one call. */
     private const MAX_PATCH_FILES = 100;
@@ -38,7 +41,10 @@ final class Reader
         'drupal/core-composer-scaffold',
     ];
 
-    public function __construct(private readonly string $root)
+    /**
+     * @param int $textBudget bytes the patch text may occupy in the request
+     */
+    public function __construct(private readonly string $root, private readonly int $textBudget)
     {
     }
 
@@ -55,7 +61,9 @@ final class Reader
 
         $patches = [];
         $files = [];
+        $unsent = [];
         $outside = 0;
+        $spent = 0;
         foreach ($declarations as $entry) {
             [$package, $title, $source] = $entry;
             if ('' === $source || isset($ignored[$package."\0".$title])) {
@@ -66,13 +74,34 @@ final class Reader
                 continue;
             }
             $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
-            if (Entry::isUrl($source) || isset($files[$source]) || \count($files) >= self::MAX_PATCH_FILES) {
+            if (Entry::isUrl($source) || isset($files[$source])) {
+                continue;
+            }
+            if (\count($files) >= self::MAX_PATCH_FILES) {
+                $unsent[] = self::names($package, $title).': more than '.self::MAX_PATCH_FILES.' local patch files';
+                continue;
+            }
+            $size = $this->sizeOf($source);
+            if (null === $size) {
+                continue;
+            }
+            if ($size > self::MAX_PATCH_BYTES) {
+                $unsent[] = self::names($package, $title).': '.$size.' bytes, above the '.self::MAX_PATCH_BYTES.' byte cap';
                 continue;
             }
             $text = $this->readFile($source);
-            if (null !== $text) {
-                $files[$source] = $text;
+            if (null === $text) {
+                continue;
             }
+            // What the text costs once escaped, which is what the request
+            // is measured in.
+            $cost = \strlen(\json_encode($text, \JSON_THROW_ON_ERROR));
+            if ($spent + $cost > $this->textBudget) {
+                $unsent[] = self::names($package, $title).': no room left under the service body limit';
+                continue;
+            }
+            $spent += $cost;
+            $files[$source] = $text;
         }
 
         if (isset($extra['patches-search'])) {
@@ -82,7 +111,7 @@ final class Reader
             $notes[] = $manager.' is installed and its patch configuration is not read';
         }
 
-        return new Resolution($patches, $files, $notes, $file, $outside);
+        return new Resolution($patches, $files, $notes, $file, $outside, $unsent);
     }
 
     /**
@@ -205,13 +234,36 @@ final class Reader
     }
 
     /**
+     * How a patch is named in a line about it.
+     */
+    private static function names(string $package, string $title): string
+    {
+        return $package.' "'.$title.'"';
+    }
+
+    /**
+     * The size of a declared patch, or null when the path does not name a
+     * file under the site root.
+     */
+    private function sizeOf(string $source): ?int
+    {
+        $full = $this->resolve($source);
+        if (null === $full) {
+            return null;
+        }
+        $size = \filesize($full);
+
+        return false === $size ? null : $size;
+    }
+
+    /**
      * Reads a file under the site root. A path leaving the root is
      * refused: composer.json names the site's own files.
      */
     private function readFile(string $source): ?string
     {
         $full = $this->resolve($source);
-        if (null === $full || \filesize($full) > self::MAX_PATCH_BYTES) {
+        if (null === $full) {
             return null;
         }
         $text = @\file_get_contents($full);

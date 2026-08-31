@@ -166,6 +166,9 @@ final class CheckCommand extends BaseCommand
             foreach ($site->patches()->notes as $note) {
                 $output->writeln('<comment>drupatch: '.$note.'</comment>');
             }
+            foreach ($site->patches()->unsent as $line) {
+                $output->writeln('<comment>drupatch: patch text not sent, '.$line.'</comment>');
+            }
             if ($site->patches()->outside > 0) {
                 $output->writeln('<comment>drupatch: '.$site->patches()->outside.' patch(es) on packages outside drupal/ are not checked: a patch is judged against a drupal.org release</comment>');
             }

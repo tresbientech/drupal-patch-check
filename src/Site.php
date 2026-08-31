@@ -17,6 +17,12 @@ use Tresbien\Drupatch\Plan\Value;
  */
 final class Site
 {
+    /** The body the service accepts for one scan. */
+    private const BODY_LIMIT = 4 * 1024 * 1024;
+
+    /** Room kept for the field names, the flags and the candidates. */
+    private const ENVELOPE_BYTES = 64 * 1024;
+
     /**
      * @param array<string, string> $constraints
      */
@@ -63,7 +69,22 @@ final class Site
             }
         }
 
-        return new self($root, $json, $lock, (new Reader($root))->read($extra, $installed), $constraints);
+        $reader = new Reader($root, self::textBudget($json, $lock));
+
+        return new self($root, $json, $lock, $reader->read($extra, $installed), $constraints);
+    }
+
+    /**
+     * What is left of the request once the two composer files are in it,
+     * measured as they are escaped in the body. The service refuses a
+     * larger one, so a patch beyond this is named rather than sent.
+     */
+    private static function textBudget(string $json, string $lock): int
+    {
+        $taken = \strlen(\json_encode($json, \JSON_THROW_ON_ERROR))
+            + \strlen(\json_encode($lock, \JSON_THROW_ON_ERROR));
+
+        return \max(0, self::BODY_LIMIT - $taken - self::ENVELOPE_BYTES);
     }
 
     /**

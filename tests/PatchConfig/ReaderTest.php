@@ -39,9 +39,12 @@ final class ReaderTest extends TestCase
         return false === $found ? [] : $found;
     }
 
-    private function reader(): Reader
+    /** A budget no case here comes near, so size is only what a case asks about. */
+    private const AMPLE = 1024 * 1024;
+
+    private function reader(int $textBudget = self::AMPLE): Reader
     {
-        return new Reader($this->root);
+        return new Reader($this->root, $textBudget);
     }
 
     public function testReadsTheInlineMapEveryDrupalSiteUses(): void
@@ -53,6 +56,7 @@ final class ReaderTest extends TestCase
         self::assertSame([['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patches/local.patch']], $resolution->patches);
         self::assertSame(['patches/local.patch' => "diff --git a/x b/x\n"], $resolution->files);
         self::assertSame([], $resolution->notes);
+        self::assertSame([], $resolution->unsent);
     }
 
     public function testReadsAnExternalPatchesFile(): void
@@ -128,6 +132,34 @@ final class ReaderTest extends TestCase
 
         self::assertCount(1, $resolution->patches);
         self::assertSame('Keep me', $resolution->patches[0]['title']);
+    }
+
+    public function testLeavesAPatchFileAboveTheCapOnDisk(): void
+    {
+        \file_put_contents($this->root.'/patches/big.patch', \str_repeat('x', 1024 * 1024 + 1));
+
+        $resolution = $this->reader()->read(['patches' => ['drupal/webform' => ['Huge' => 'patches/big.patch']]]);
+
+        self::assertSame([], $resolution->files);
+        self::assertCount(1, $resolution->patches, 'the patch keeps its row, so the report says it was not judged');
+        self::assertSame(['drupal/webform "Huge": 1048577 bytes, above the 1048576 byte cap'], $resolution->unsent);
+    }
+
+    public function testStopsSendingPatchTextWhenTheRequestIsFull(): void
+    {
+        \file_put_contents($this->root.'/patches/second.patch', "diff --git a/y b/y\n");
+        $first = (string) \file_get_contents($this->root.'/patches/local.patch');
+
+        $resolution = $this->reader(\strlen(\json_encode($first, \JSON_THROW_ON_ERROR)))->read([
+            'patches' => ['drupal/webform' => [
+                'First' => 'patches/local.patch',
+                'Second' => 'patches/second.patch',
+            ]],
+        ]);
+
+        self::assertSame(['patches/local.patch'], \array_keys($resolution->files));
+        self::assertCount(2, $resolution->patches);
+        self::assertSame(['drupal/webform "Second": no room left under the service body limit'], $resolution->unsent);
     }
 
     public function testLeavesAPatchOnANonDrupalPackageAlone(): void
@@ -252,14 +284,14 @@ final class ReaderTest extends TestCase
         \sort($sorted);
         self::assertNotSame(\array_keys($declared), $sorted, 'this case must distinguish declared order from sorted');
 
-        $resolution = (new Reader($this->root))->read(['patches' => ['drupal/domain' => $declared]]);
+        $resolution = $this->reader()->read(['patches' => ['drupal/domain' => $declared]]);
 
         self::assertSame(\array_keys($declared), \array_column($resolution->patches, 'title'));
     }
 
     public function testKeepsTheOrderOfAListShapedDeclaration(): void
     {
-        $resolution = (new Reader($this->root))->read(['patches' => ['drupal/domain' => [
+        $resolution = $this->reader()->read(['patches' => ['drupal/domain' => [
             'patchs/b.patch',
             'patchs/a.patch',
             'patchs/c.patch',
