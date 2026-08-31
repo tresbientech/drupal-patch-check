@@ -38,6 +38,24 @@ final class OutcomeTest extends TestCase
         self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true), 'strict asked to be woken by it');
     }
 
+    // A run that declared patches and checked none proves nothing. Under
+    // strict that is worth waking someone for; on its own it is not a
+    // finding about the repository.
+    public function testARunThatCheckedNothingFailsOnlyUnderStrict(): void
+    {
+        $plan = $this->planFrom(['patches' => []]);
+
+        self::assertSame(Outcome::CLEAN, Outcome::of($plan, false, true));
+        self::assertSame(Outcome::ACTION_NEEDED, Outcome::of($plan, true, true));
+    }
+
+    public function testASiteWithNoPatchesAtAllIsCleanUnderStrict(): void
+    {
+        $plan = $this->planFrom(['patches' => []]);
+
+        self::assertSame(Outcome::CLEAN, Outcome::of($plan, true, false));
+    }
+
     public function testAPatchThatWillNotApplyFailsEitherWay(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'needs-reroll'])]]);

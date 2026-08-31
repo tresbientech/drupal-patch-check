@@ -48,6 +48,7 @@ composer drupal-patch-check
 | `--force` | Let `--fix` write a file that already has uncommitted changes. |
 | `--package=drupal/webform` | Only this package. Repeatable, and `webform` works too. Narrows the report, `--reroll`, `--fix` and the exit code. |
 | `--json` | Print the plan as one JSON object. |
+| `--dry-run` | Print the request that would be sent and stop. Nothing is asked of the service, nothing is written. |
 
 With `--target`, the plugin asks composer itself which release each patched
 package would move to, using the site's own repositories, stability rules and
@@ -83,9 +84,9 @@ its own constraint against it, so nothing needs a version typed into it.
 | 1 | A patch will not apply against the release it was judged against, or carries a verdict this plugin does not know. |
 | 2 | The plan could not be fetched. A service outage, not a finding. |
 
-`--strict` also fails on a patch that could not be judged and on a package
-with no release for the target. Without it a lagging mirror will not turn a
-nightly job red.
+`--strict` also fails on a patch that could not be judged, on a package with
+no release for the target, and on a run that declared patches and checked
+none. Without it a lagging mirror will not turn a nightly job red.
 
 The `--json` output carries a `summary` object for a notification step:
 
@@ -132,24 +133,78 @@ manager with the same shape works. One with its own shape prints a note.
 
 ## What leaves the site
 
-Every run posts to `https://api.tresbien.tech/v1/composer/scan`:
+The plugin builds a request from your composer files rather than sending
+them. The service reads five keys of `composer.json` and two fields per lock
+entry, so that is all it is given.
 
-- `composer.json` and `composer.lock`, whole
-- for each patch declared on a `drupal/*` package, its package, title and
-  source
-- the text of those patches, for the ones whose source is a local file
-- with `--target`, the release composer picked for each patched package
+```json
+{
+  "composer_json": {
+    "require": { "drupal/core-recommended": "^10.6", "drupal/webform": "^6.2" },
+    "require-dev": { "drupal/devel": "^5" },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "extra": { "patches": {
+      "drupal/webform": { "Fix the alter hook": "patches/webform-alter.patch" }
+    }}
+  },
+  "composer_lock": {
+    "packages": [
+      { "name": "drupal/core", "version": "10.6.9" },
+      { "name": "drupal/webform", "version": "6.2.9" }
+    ],
+    "packages-dev": [ { "name": "drupal/devel", "version": "5.3.2" } ]
+  },
+  "patch_files": { "patches/webform-alter.patch": "diff --git a/… " },
+  "target_core": "11.4.5",
+  "candidates": { "drupal/webform": "6.3.1" }
+}
+```
 
-A patch declared on any other package is left out, and the command says how
-many. The check judges a patch against a drupal.org release, so a patch on
-`acme/private` has nothing to be judged against. Its text stays here.
-`composer.json` still goes whole, so a declaration it carries goes with it.
-What stays behind is the patch itself.
+The two composer fields travel as JSON strings; they are shown expanded
+here. Run `composer drupal-patch-check --dry-run` to print the real one for
+your site and read it before you install this anywhere.
 
-A source that is a URL is sent as the URL, and the server fetches it. Local
-patch files are read up to 1 MB each, 100 files per run, and only while the
-request stays inside the 4 MB the service accepts. A patch whose text does
-not fit is named, and its row says it was not judged.
+### What is never sent
+
+From `composer.json`: `repositories`, `config`, `scripts`, `autoload`,
+`name`, `description`, `license`, `authors`, `conflict`, `type`, and every
+`extra` key but `patches`. From `composer.lock`: every package that is not a
+drupal.org release, and for the ones that are, everything but the name and
+the version. That means no `dist` or `source` URL, no `content-hash`, no
+authors, no funding.
+
+On a 320-package site the two documents go from 831 KB to 15 KB.
+
+### Which packages are sent
+
+A package is sent when `composer.lock` records its `notification-url` as
+`https://packages.drupal.org/8/downloads`, or when it is one of core's own
+packages. That is the set the service has a release for.
+
+A `drupal/` name is not enough. A fork of `drupal/webform` kept in a company
+repository carries that name, and so does a private `drupal/acme_sso`.
+Neither has a drupal.org release, so neither is sent, and neither could have
+been judged. Each run names what it held back:
+
+```
+drupatch: checked 101 packages and 53 patches; held back 9
+  held back  drupal/coder (not a drupal.org release)
+  held back  acme/private "In-house fix"
+```
+
+A patch is held back with its package, text included. A patch whose source
+URL is not one the service fetches from is held back too, so an internal
+host is never named.
+
+If your site installs from a repository that rewrites `notification-url`,
+such as some Satis or Private Packagist setups, nothing will be checked and
+the run will say so. Call `/v1/composer/scan` directly with your whole files
+if you want an answer for that site.
+
+A patch source that is a URL is sent as the URL, and the service fetches it.
+Local patch files are read up to 16 MB each, 100 files per run, and only
+while the request stays inside the 32 MB the service accepts.
 
 The call goes through composer's own HTTP client, so the site's proxy and
 certificate settings apply. The answer is the plan.

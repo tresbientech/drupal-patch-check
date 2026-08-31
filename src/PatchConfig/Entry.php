@@ -87,4 +87,19 @@ final class Entry
 
         return \str_starts_with($s, 'http://') || \str_starts_with($s, 'https://');
     }
+
+    /**
+     * Whether the service would fetch this URL. It requests two shapes and
+     * refuses the rest, so a patch hosted anywhere else was never going to
+     * be judged, and its location stays on the site.
+     */
+    public static function isFetchable(string $source): bool
+    {
+        $s = \trim($source);
+        if (\str_starts_with($s, 'https://www.drupal.org/files/issues/')) {
+            return true;
+        }
+
+        return 1 === \preg_match('#^https://git\\.drupalcode\\.org/project/[^/]+/-/merge_requests/\\d+\\.(patch|diff)$#', $s);
+    }
 }

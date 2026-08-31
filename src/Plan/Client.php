@@ -29,8 +29,11 @@ final class Client
      */
     private const TIMEOUT_SECONDS = 15;
 
-    /** Largest plan accepted, matching the api's own body cap. */
-    private const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+    /**
+     * Largest plan accepted. A plan carries a re-rolled diff per patch
+     * that needed one, so it can be larger than the request was.
+     */
+    private const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 
     public function __construct(
         private readonly HttpDownloader $downloader,
@@ -54,22 +57,7 @@ final class Client
      */
     public function plan(string $composerJson, string $composerLock, Resolution $patches, string $targetCore = '', bool $reroll = false, array $candidates = []): Plan
     {
-        // `patches` turns on the half that judges them; `patch_config`
-        // carries the declarations this plugin resolved, so the server
-        // never has to guess a patch manager's shape.
-        $body = \json_encode([
-            'composer_json' => $composerJson,
-            'composer_lock' => $composerLock,
-            'patches' => true,
-            'patch_files' => (object) $patches->files,
-            'patch_config' => $patches->patches,
-            'target_core' => $targetCore,
-            'reroll' => $reroll,
-            // What composer itself picked, when it was in reach. The
-            // server's own answer comes from a daily copy of drupal.org
-            // and one constraint at a time.
-            'candidates' => (object) $candidates,
-        ], \JSON_THROW_ON_ERROR);
+        $body = \json_encode(self::body($composerJson, $composerLock, $patches, $targetCore, $reroll, $candidates), \JSON_THROW_ON_ERROR);
 
         try {
             $response = $this->downloader->get($this->endpoint, [
@@ -91,6 +79,35 @@ final class Client
         }
 
         return Plan::fromArray($decoded);
+    }
+
+    /**
+     * Everything the request carries, in one place, so `--dry-run` shows
+     * the body rather than a description of it.
+     *
+     * `patches` turns on the half that judges them; `patch_config` carries
+     * the declarations this plugin resolved, so the server never has to
+     * guess a patch manager's shape.
+     *
+     * @param array<string, string> $candidates
+     *
+     * @return array<string, mixed>
+     */
+    public static function body(string $composerJson, string $composerLock, Resolution $patches, string $targetCore = '', bool $reroll = false, array $candidates = []): array
+    {
+        return [
+            'composer_json' => $composerJson,
+            'composer_lock' => $composerLock,
+            'patches' => true,
+            'patch_files' => (object) $patches->files,
+            'patch_config' => $patches->patches,
+            'target_core' => $targetCore,
+            'reroll' => $reroll,
+            // What composer itself picked, when it was in reach. The
+            // server's own answer comes from a daily copy of drupal.org
+            // and one constraint at a time.
+            'candidates' => (object) $candidates,
+        ];
     }
 
     /**

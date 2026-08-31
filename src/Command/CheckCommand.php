@@ -16,6 +16,7 @@ use Tresbien\Drupatch\Outcome;
 use Tresbien\Drupatch\Plan\Client;
 use Tresbien\Drupatch\Plan\Plan;
 use Tresbien\Drupatch\Plan\Value;
+use Tresbien\Drupatch\Render\Coverage;
 use Tresbien\Drupatch\Render\Summary;
 use Tresbien\Drupatch\Render\Table;
 use Tresbien\Drupatch\Resolve\Candidates;
@@ -47,7 +48,8 @@ final class CheckCommand extends BaseCommand
             ->addOption('force', null, InputOption::VALUE_NONE, 'Let --fix rewrite a file that already has uncommitted changes')
             ->addOption('package', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only this package, repeatable: drupal/webform or webform. Narrows the report, --reroll and --fix, and the exit code with them.')
             ->addOption('strict', null, InputOption::VALUE_NONE, 'Fail on a patch that could not be judged and on a package with no release, as well as on one that will not apply')
-            ->addOption('json', null, InputOption::VALUE_NONE, 'Print the plan as one JSON object');
+            ->addOption('json', null, InputOption::VALUE_NONE, 'Print the plan as one JSON object')
+            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print the request that would be sent and stop. Nothing is asked of the service and nothing is written.');
     }
 
     /**
@@ -169,12 +171,21 @@ final class CheckCommand extends BaseCommand
             foreach ($site->patches()->unsent as $line) {
                 $output->writeln('<comment>drupatch: patch text not sent, '.$line.'</comment>');
             }
-            if ($site->patches()->outside > 0) {
-                $output->writeln('<comment>drupatch: '.$site->patches()->outside.' patch(es) on packages outside drupal/ are not checked: a patch is judged against a drupal.org release</comment>');
+            $coverage = Coverage::of($site);
+            foreach ($coverage->lines() as $line) {
+                $output->writeln('<comment>'.$line.'</comment>');
             }
             // A bare run judges what the lock installs, so there is no
             // candidate to resolve and no repository to ask.
             $candidates = '' === $target ? [] : $this->candidates($composer, $site, $target);
+            if (true === $input->getOption('dry-run')) {
+                $output->writeln((string) \json_encode(
+                    Client::body($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates),
+                    \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES,
+                ));
+
+                return Outcome::CLEAN;
+            }
             $plan = Client::fromComposer($composer, $this->getIO())
                 ->plan($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates);
             // The whole site is sent because the server needs the whole
@@ -191,7 +202,7 @@ final class CheckCommand extends BaseCommand
         $strict = true === $input->getOption('strict');
         if (true === $input->getOption('json')) {
             $output->writeln((string) \json_encode($plan->raw + [
-                'summary' => Summary::of($plan, $strict),
+                'summary' => Summary::of($plan, $strict, $coverage->isVacuous()),
             ] + ['written' => \array_map(
                 static fn (WrittenFile $file): array => ['path' => $file->path, 'status' => $file->status],
                 $written
@@ -217,6 +228,6 @@ final class CheckCommand extends BaseCommand
             }
         }
 
-        return Outcome::of($plan, $strict);
+        return Outcome::of($plan, $strict, $coverage->isVacuous());
     }
 }

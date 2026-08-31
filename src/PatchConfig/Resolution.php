@@ -14,6 +14,7 @@ final class Resolution
      * @param list<array{package: string, title: string, source: string}> $patches
      * @param array<string, string>                                       $files
      * @param list<string>                                                $notes
+     * @param list<string>                                                $heldBack
      * @param list<string>                                                $unsent
      */
     public function __construct(
@@ -22,8 +23,8 @@ final class Resolution
         public readonly array $notes,
         /** Path of the external patches file, empty when the declarations are inline. */
         public readonly string $file,
-        /** Declared patches on packages outside drupal/, which are not sent. */
-        public readonly int $outside,
+        /** One line per declared patch the service cannot judge, naming it and why. */
+        public readonly array $heldBack,
         /** One line per patch whose text did not fit, naming it and why. */
         public readonly array $unsent,
     ) {

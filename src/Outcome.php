@@ -27,9 +27,16 @@ final class Outcome
      * mirror is not something the repository can fix, and a scheduled job
      * that woke for one would soon be ignored. Strict adds both, for a
      * run that would rather be woken than miss a finding.
+     *
+     * Strict also fails a run that declared patches and checked none. A
+     * job asking to be woken about anything unclear should be woken when
+     * its check proved nothing at all.
      */
-    public static function of(Plan $plan, bool $strict = false): int
+    public static function of(Plan $plan, bool $strict = false, bool $vacuous = false): int
     {
+        if ($strict && $vacuous) {
+            return self::ACTION_NEEDED;
+        }
         if ($strict && $plan->isBlocked()) {
             return self::ACTION_NEEDED;
         }

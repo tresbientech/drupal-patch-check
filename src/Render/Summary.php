@@ -20,7 +20,7 @@ final class Summary
     /**
      * @return array<string, mixed>
      */
-    public static function of(Plan $plan, bool $strict = false): array
+    public static function of(Plan $plan, bool $strict = false, bool $vacuous = false): array
     {
         $counts = [];
         foreach ($plan->patches as $row) {
@@ -37,7 +37,7 @@ final class Summary
             'shipped' => self::packagesWith($plan, PatchRow::SHIPPED),
             'blocked' => $plan->noRelease,
             'decided_by' => self::sources($plan),
-            'exit_code' => Outcome::of($plan, $strict),
+            'exit_code' => Outcome::of($plan, $strict, $vacuous),
         ];
         if ('' !== $plan->targetFrom) {
             $summary['target_from'] = $plan->targetFrom;

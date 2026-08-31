@@ -10,6 +10,7 @@ use RuntimeException;
 use Tresbien\Drupatch\PatchConfig\Reader;
 use Tresbien\Drupatch\PatchConfig\Resolution;
 use Tresbien\Drupatch\Plan\Value;
+use Tresbien\Drupatch\Request\Filtered;
 
 /**
  * The two composer files of one site, and the text of the patches it
@@ -18,7 +19,7 @@ use Tresbien\Drupatch\Plan\Value;
 final class Site
 {
     /** The body the service accepts for one scan. */
-    private const BODY_LIMIT = 4 * 1024 * 1024;
+    private const BODY_LIMIT = 32 * 1024 * 1024;
 
     /** Room kept for the field names, the flags and the candidates. */
     private const ENVELOPE_BYTES = 64 * 1024;
@@ -28,8 +29,7 @@ final class Site
      */
     private function __construct(
         private readonly string $root,
-        private readonly string $composerJson,
-        private readonly string $composerLock,
+        private readonly Filtered $request,
         private readonly Resolution $patches,
         private readonly array $constraints,
     ) {
@@ -69,9 +69,13 @@ final class Site
             }
         }
 
-        $reader = new Reader($root, self::textBudget($json, $lock));
+        // What the service can judge decides the whole request: the two
+        // documents, the patches resolved, and the candidates asked for.
+        $request = Filtered::of($json, $lock);
+        $reader = new Reader($root, self::textBudget($request), $request->packages);
+        $constraints = \array_intersect_key($constraints, $request->packages);
 
-        return new self($root, $json, $lock, $reader->read($extra, $installed), $constraints);
+        return new self($root, $request, $reader->read($extra, $installed), $constraints);
     }
 
     /**
@@ -79,10 +83,10 @@ final class Site
      * measured as they are escaped in the body. The service refuses a
      * larger one, so a patch beyond this is named rather than sent.
      */
-    private static function textBudget(string $json, string $lock): int
+    private static function textBudget(Filtered $request): int
     {
-        $taken = \strlen(\json_encode($json, \JSON_THROW_ON_ERROR))
-            + \strlen(\json_encode($lock, \JSON_THROW_ON_ERROR));
+        $taken = \strlen(\json_encode($request->composerJson, \JSON_THROW_ON_ERROR))
+            + \strlen(\json_encode($request->composerLock, \JSON_THROW_ON_ERROR));
 
         return \max(0, self::BODY_LIMIT - $taken - self::ENVELOPE_BYTES);
     }
@@ -96,14 +100,43 @@ final class Site
         return $this->root;
     }
 
+    /**
+     * The composer.json the service receives: the five keys it reads, with
+     * every package map narrowed to what it can judge.
+     */
     public function composerJson(): string
     {
-        return $this->composerJson;
+        return $this->request->composerJson;
     }
 
+    /**
+     * The composer.lock the service receives: a name and a version per
+     * checkable package, which is the slim form it already accepts.
+     */
     public function composerLock(): string
     {
-        return $this->composerLock;
+        return $this->request->composerLock;
+    }
+
+    /**
+     * Packages the service can judge, to the versions the lock installs.
+     *
+     * @return array<string, string>
+     */
+    public function checkable(): array
+    {
+        return $this->request->packages;
+    }
+
+    /**
+     * drupal/ packages the lock installs that the service cannot judge: a
+     * fork, a private module, or one pinned from a repository of its own.
+     *
+     * @return list<string>
+     */
+    public function heldBack(): array
+    {
+        return $this->request->heldBack;
     }
 
     /**

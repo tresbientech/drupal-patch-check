@@ -27,9 +27,18 @@ final class CheckCommandTest extends TestCase
     {
         $definition = (new CheckCommand())->getDefinition();
 
-        foreach (['target', 'reroll', 'fix', 'force', 'json', 'package', 'strict'] as $option) {
+        foreach (['target', 'reroll', 'fix', 'force', 'json', 'package', 'strict', 'dry-run'] as $option) {
             self::assertTrue($definition->hasOption($option), $option.' is not an option');
         }
+    }
+
+    // A reviewer approving the plugin for CI reads the request rather
+    // than the README, so the flag takes no value and asks nothing.
+    public function testDryRunIsAFlag(): void
+    {
+        $option = (new CheckCommand())->getDefinition()->getOption('dry-run');
+
+        self::assertFalse($option->acceptValue());
     }
 
     // --package is repeatable, because a person updating two modules

@@ -40,11 +40,22 @@ final class ReaderTest extends TestCase
     }
 
     /** A budget no case here comes near, so size is only what a case asks about. */
-    private const AMPLE = 1024 * 1024;
+    private const AMPLE = 32 * 1024 * 1024;
 
-    private function reader(int $textBudget = self::AMPLE): Reader
+    /** The packages the service can judge in these cases. */
+    private const CHECKABLE = [
+        'drupal/core' => '11.4.5',
+        'drupal/webform' => '6.2.9',
+        'drupal/domain' => '2.0.1',
+        'drupal/redis' => '1.11.0',
+    ];
+
+    /**
+     * @param array<string, string> $checkable
+     */
+    private function reader(int $textBudget = self::AMPLE, array $checkable = self::CHECKABLE): Reader
     {
-        return new Reader($this->root, $textBudget);
+        return new Reader($this->root, $textBudget, $checkable);
     }
 
     public function testReadsTheInlineMapEveryDrupalSiteUses(): void
@@ -57,6 +68,7 @@ final class ReaderTest extends TestCase
         self::assertSame(['patches/local.patch' => "diff --git a/x b/x\n"], $resolution->files);
         self::assertSame([], $resolution->notes);
         self::assertSame([], $resolution->unsent);
+        self::assertSame([], $resolution->heldBack);
     }
 
     public function testReadsAnExternalPatchesFile(): void
@@ -136,13 +148,18 @@ final class ReaderTest extends TestCase
 
     public function testLeavesAPatchFileAboveTheCapOnDisk(): void
     {
-        \file_put_contents($this->root.'/patches/big.patch', \str_repeat('x', 1024 * 1024 + 1));
+        // Sparse, so the case costs a seek rather than 16 MB of writing.
+        $handle = \fopen($this->root.'/patches/big.patch', 'w');
+        self::assertNotFalse($handle);
+        \fseek($handle, 16 * 1024 * 1024);
+        \fwrite($handle, 'x');
+        \fclose($handle);
 
         $resolution = $this->reader()->read(['patches' => ['drupal/webform' => ['Huge' => 'patches/big.patch']]]);
 
         self::assertSame([], $resolution->files);
         self::assertCount(1, $resolution->patches, 'the patch keeps its row, so the report says it was not judged');
-        self::assertSame(['drupal/webform "Huge": 1048577 bytes, above the 1048576 byte cap'], $resolution->unsent);
+        self::assertSame(['drupal/webform "Huge": 16777217 bytes, above the 16777216 byte cap'], $resolution->unsent);
     }
 
     public function testStopsSendingPatchTextWhenTheRequestIsFull(): void
@@ -162,7 +179,7 @@ final class ReaderTest extends TestCase
         self::assertSame(['drupal/webform "Second": no room left under the service body limit'], $resolution->unsent);
     }
 
-    public function testLeavesAPatchOnANonDrupalPackageAlone(): void
+    public function testLeavesAPatchOnAPackageTheServiceCannotJudgeAlone(): void
     {
         $extra = ['patches' => ['acme/private' => ['In-house fix' => 'patches/local.patch']]];
 
@@ -170,11 +187,48 @@ final class ReaderTest extends TestCase
 
         self::assertSame([], $resolution->patches);
         self::assertSame([], $resolution->files, 'the text of a patch that cannot be judged never leaves the site');
-        self::assertSame(1, $resolution->outside);
+        self::assertSame(['acme/private "In-house fix"'], $resolution->heldBack);
         self::assertSame([], $resolution->notes, 'the hook stays quiet about a site that will always be this way');
     }
 
-    public function testKeepsTheDrupalPatchesOfAMixedSite(): void
+    public function testHoldsBackAPatchOnAForkCarryingADrupalName(): void
+    {
+        // drupal/coder installed from a company fork: the name says nothing
+        // about whether drupal.org has the release.
+        $extra = ['patches' => ['drupal/coder' => ['Internal sniff' => 'patches/local.patch']]];
+
+        $resolution = $this->reader()->read($extra);
+
+        self::assertSame([], $resolution->patches);
+        self::assertSame(['drupal/coder "Internal sniff"'], $resolution->heldBack);
+    }
+
+    public function testHoldsBackAPatchTheServiceWouldRefuseToFetch(): void
+    {
+        $extra = ['patches' => ['drupal/webform' => [
+            'From our gitlab' => 'https://git.acme-internal.com/drupal/webform/-/merge_requests/4.patch',
+            'From drupal.org' => 'https://www.drupal.org/files/issues/a.patch',
+        ]]];
+
+        $resolution = $this->reader()->read($extra);
+
+        self::assertSame(['From drupal.org'], \array_column($resolution->patches, 'title'));
+        self::assertSame(
+            ['drupal/webform "From our gitlab": the service does not fetch from that host'],
+            $resolution->heldBack,
+        );
+    }
+
+    public function testKeepsAMergeRequestPatchOnDrupalcode(): void
+    {
+        $extra = ['patches' => ['drupal/webform' => [
+            'MR' => 'https://git.drupalcode.org/project/webform/-/merge_requests/120.patch',
+        ]]];
+
+        self::assertCount(1, $this->reader()->read($extra)->patches);
+    }
+
+    public function testKeepsTheCheckablePatchesOfAMixedSite(): void
     {
         $extra = ['patches' => [
             'acme/private' => ['In-house fix' => 'patches/local.patch'],
@@ -185,14 +239,7 @@ final class ReaderTest extends TestCase
         $resolution = $this->reader()->read($extra);
 
         self::assertSame(['drupal/webform'], \array_column($resolution->patches, 'package'));
-        self::assertSame(2, $resolution->outside);
-    }
-
-    public function testAPackageMerelyStartingWithDrupalIsNotADrupalPackage(): void
-    {
-        $extra = ['patches' => ['drupal-composer/drupal-project' => ['Scaffold' => 'patches/local.patch']]];
-
-        self::assertSame([], $this->reader()->read($extra)->patches);
+        self::assertCount(2, $resolution->heldBack);
     }
 
     public function testAStripLevelDoesNotStopAPatchBeingRead(): void

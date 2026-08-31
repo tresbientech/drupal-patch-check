@@ -12,9 +12,10 @@ namespace Tresbien\Drupatch\PatchConfig;
  * shape resolves to the same list of patches, so the server never has to
  * know which manager a site uses.
  *
- * Only patches on `drupal/*` packages are resolved. The check judges a
+ * Only patches on checkable packages are resolved. The check judges a
  * patch against a drupal.org release, so a patch on any other package
- * has nothing to be judged against, and its text stays on the site.
+ * has nothing to be judged against, and its text stays on the site. So
+ * does a patch the service would refuse to fetch.
  */
 final class Reader
 {
@@ -22,16 +23,13 @@ final class Reader
      * Largest patch file read from disk, the same cap the service applies
      * to a patch it fetches from a URL.
      */
-    private const MAX_PATCH_BYTES = 1024 * 1024;
+    private const MAX_PATCH_BYTES = 16 * 1024 * 1024;
 
     /** Largest number of local patch files sent in one call. */
     private const MAX_PATCH_FILES = 100;
 
     /** Largest external patches file read. */
     private const MAX_PATCHES_FILE_BYTES = 1024 * 1024;
-
-    /** The packages this tool can judge a patch for. */
-    private const PACKAGE_PREFIX = 'drupal/';
 
     /** Managers whose configuration the shapes below cover. */
     private const HANDLED = [
@@ -42,10 +40,14 @@ final class Reader
     ];
 
     /**
-     * @param int $textBudget bytes the patch text may occupy in the request
+     * @param int                   $textBudget bytes the patch text may occupy in the request
+     * @param array<string, string> $checkable  packages the service can judge, to their versions
      */
-    public function __construct(private readonly string $root, private readonly int $textBudget)
-    {
+    public function __construct(
+        private readonly string $root,
+        private readonly int $textBudget,
+        private readonly array $checkable,
+    ) {
     }
 
     /**
@@ -62,15 +64,19 @@ final class Reader
         $patches = [];
         $files = [];
         $unsent = [];
-        $outside = 0;
+        $heldBack = [];
         $spent = 0;
         foreach ($declarations as $entry) {
             [$package, $title, $source] = $entry;
             if ('' === $source || isset($ignored[$package."\0".$title])) {
                 continue;
             }
-            if (!\str_starts_with($package, self::PACKAGE_PREFIX)) {
-                ++$outside;
+            if (!isset($this->checkable[$package])) {
+                $heldBack[] = self::names($package, $title);
+                continue;
+            }
+            if (Entry::isUrl($source) && !Entry::isFetchable($source)) {
+                $heldBack[] = self::names($package, $title).': the service does not fetch from that host';
                 continue;
             }
             $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
@@ -111,7 +117,7 @@ final class Reader
             $notes[] = $manager.' is installed and its patch configuration is not read';
         }
 
-        return new Resolution($patches, $files, $notes, $file, $outside, $unsent);
+        return new Resolution($patches, $files, $notes, $file, $heldBack, $unsent);
     }
 
     /**
