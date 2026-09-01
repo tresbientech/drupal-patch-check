@@ -41,7 +41,9 @@ drupatch: 1 unclear, 1 can go after this update
   run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade
   Next:  composer drupal-patch-check --fix   drops the merged entry from composer.json
 ```
-When every patch applies it prints nothing. The `Next:` line appears only
+When every patch applies it prints nothing. An applying patch whose added
+lines reference a core symbol the target removed, moved or re-signed still
+gets a row, with one `core` line under it. The `Next:` line appears only
 when a flag would clear something.
 
 A package with no release for the target is left out. Composer refused to

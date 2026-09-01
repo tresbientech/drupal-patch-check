@@ -65,6 +65,11 @@ class HookReport
             if ('' !== $row->reason()) {
                 $lines[] = self::DETAIL_INDENT.$row->reason();
             }
+            // An applying row is here for what it references, so that
+            // is its one line.
+            if (PatchRow::APPLIES === $row->verdict) {
+                $lines[] = self::DETAIL_INDENT.self::coreLine($row);
+            }
         }
 
         $lines[] = '  run `'.self::COMMAND.'` for the detail, or `--target <version>` before a core upgrade';
@@ -101,6 +106,16 @@ class HookReport
     }
 
     /**
+     * The first flagged core reference, with the count of the others.
+     */
+    private static function coreLine(PatchRow $row): string
+    {
+        $rest = $row->flaggedCoreReferences() - 1;
+
+        return (Report::coreReferenceLines($row)[0] ?? '').($rest > 0 ? ' (+'.$rest.' more)' : '');
+    }
+
+    /**
      * The first line: what is left to decide, not what composer already applied.
      *
      * @param list<PatchRow> $rows
@@ -108,7 +123,12 @@ class HookReport
     private static function headline(array $rows): string
     {
         $counts = [];
+        $referencing = 0;
         foreach ($rows as $row) {
+            if (PatchRow::APPLIES === $row->verdict) {
+                ++$referencing;
+                continue;
+            }
             $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) + 1;
         }
         $parts = [];
@@ -120,6 +140,9 @@ class HookReport
         }
         foreach ($counts as $verdict => $count) {
             $parts[] = $count.' '.$verdict;
+        }
+        if ($referencing > 0) {
+            $parts[] = $referencing.' with core references to check';
         }
 
         return \implode(', ', $parts).' after this update';

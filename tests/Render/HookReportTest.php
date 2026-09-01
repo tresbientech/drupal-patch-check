@@ -9,7 +9,7 @@ use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Render\HookReport;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 
-final class HookReportTest extends TestCase
+class HookReportTest extends TestCase
 {
     use PlanFactory;
 
@@ -34,6 +34,53 @@ final class HookReportTest extends TestCase
             'counts' => ['applies' => 46],
             'patches' => [$this->row(), $this->row(['title' => 'another'])],
         ]);
+
+        self::assertSame([], HookReport::lines($plan));
+    }
+
+    /**
+     * @param list<array<string, mixed>> $flagged
+     * @param array<string, mixed>       $rest
+     */
+    private function applyingWithCoreReferences(array $flagged, array $rest = []): Plan
+    {
+        return $this->planFrom([
+            'counts' => ['applies' => 1],
+            'patches' => [$this->row(['title' => 'Fix the alter hook', 'verdict' => 'applies', 'result' => [
+                'core_references' => $rest + ['target' => '11.4.5', 'checked' => \count($flagged), 'flagged' => $flagged],
+            ]])],
+        ]);
+    }
+
+    public function testAnApplyingPatchWithAFlaggedCoreReferenceIsMentioned(): void
+    {
+        $lines = HookReport::lines($this->applyingWithCoreReferences([
+            ['symbol' => '\\Drupal\\workspaces\\WorkspaceListBuilder', 'kind' => 'moved', 'change_record' => 3500000,
+                'issue' => '\\Drupal\\workspaces\\WorkspaceListBuilder was removed in 11.4.0; \\Drupal\\workspaces_ui\\WorkspaceListBuilder carries the name now'],
+        ]));
+
+        self::assertStringContainsString('1 with core references to check', $lines[0]);
+        self::assertStringContainsString('applies', $lines[1]);
+        self::assertStringContainsString('Fix the alter hook', $lines[1]);
+        self::assertStringContainsString('core moved: \\Drupal\\workspaces\\WorkspaceListBuilder was removed in 11.4.0', $lines[2]);
+    }
+
+    public function testSeveralFlaggedReferencesAreCountedOnTheDetailLine(): void
+    {
+        $flagged = [];
+        foreach (\range(1, 3) as $n) {
+            $flagged[] = ['symbol' => '\\Drupal\\Core\\Gone'.$n, 'kind' => 'removed', 'issue' => '\\Drupal\\Core\\Gone'.$n.' was removed in 11.0.0'];
+        }
+
+        $lines = HookReport::lines($this->applyingWithCoreReferences($flagged));
+
+        self::assertStringContainsString('core removed: \\Drupal\\Core\\Gone1 was removed in 11.0.0 (+2 more)', $lines[2]);
+        self::assertStringNotContainsString('Gone2', \implode("\n", $lines));
+    }
+
+    public function testAnApplyingPatchWithOnlyDeprecatedReferencesStaysSilent(): void
+    {
+        $plan = $this->applyingWithCoreReferences([], ['deprecated' => [['fqn' => '\\Drupal\\Core\\OldThing', 'deprecated_in' => '11.2.0', 'removal_in' => '12.0.0']]]);
 
         self::assertSame([], HookReport::lines($plan));
     }

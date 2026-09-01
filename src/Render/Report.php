@@ -399,7 +399,7 @@ class Report
             $record = (int) ($finding['change_record'] ?? 0);
             $out[] = 'core '.(string) ($finding['kind'] ?? '').': '.$what.($record > 0 ? ' (change record '.$record.')' : '');
         }
-        $more = \max(0, \count($flagged) - self::CORE_LINES) + (int) ($block['flagged_more'] ?? 0);
+        $more = $row->flaggedCoreReferences() - \min(\count($flagged), self::CORE_LINES);
         if ($more > 0) {
             $out[] = '+'.$more.' more core reference'.(1 === $more ? '' : 's');
         }

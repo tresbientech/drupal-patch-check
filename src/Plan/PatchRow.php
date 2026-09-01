@@ -171,11 +171,19 @@ class PatchRow
     }
 
     /**
-     * Whether the row is worth a line of its own; an applying patch stays in the tally alone.
+     * Whether the row is worth a line of its own: anything but an applying patch, or an applying patch referencing core code the target changed.
      */
     public function needsMention(): bool
     {
-        return self::APPLIES !== $this->verdict;
+        return self::APPLIES !== $this->verdict || $this->flaggedCoreReferences() > 0;
+    }
+
+    /**
+     * How many core references the target removed, moved or re-signed, the ones the server cut included.
+     */
+    public function flaggedCoreReferences(): int
+    {
+        return \count((array) ($this->coreReferences['flagged'] ?? [])) + (int) ($this->coreReferences['flagged_more'] ?? 0);
     }
 
     public function isMerged(): bool

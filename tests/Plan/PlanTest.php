@@ -12,7 +12,7 @@ use TresBienTech\Drupatch\Plan\Plan;
 /**
  * The boundary between the server's JSON and the plugin's data.
  */
-final class PlanTest extends TestCase
+class PlanTest extends TestCase
 {
     public function testReadsThePlanTheApiSends(): void
     {
@@ -155,6 +155,17 @@ final class PlanTest extends TestCase
 
         self::assertFalse($plan->patches[0]->needsAction());
         self::assertFalse($plan->patches[0]->needsMention());
+    }
+
+    public function testAnApplyingPatchWithAFlaggedCoreReferenceIsWorthALine(): void
+    {
+        $plan = Plan::fromArray(['plan' => ['patches' => [['package' => 'drupal/webform', 'verdict' => 'applies', 'result' => [
+            'core_references' => ['target' => '11.4.5', 'checked' => 1, 'flagged' => [['symbol' => '\\Drupal\\Core\\Gone', 'kind' => 'removed', 'issue' => '\\Drupal\\Core\\Gone was removed in 11.0.0']]],
+        ]]]]]);
+
+        self::assertFalse($plan->patches[0]->needsAction(), 'the patch applies');
+        self::assertTrue($plan->patches[0]->needsMention(), 'what it references is gone, so say so');
+        self::assertSame(1, $plan->patches[0]->flaggedCoreReferences());
     }
 
     public function testAShippedPatchIsNoWorkButStillWorthALine(): void
