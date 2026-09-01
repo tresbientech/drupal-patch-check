@@ -104,6 +104,7 @@ is always one row.
 | `--strict` | Also fail on a patch that could not be judged, and on a run that judged none. |
 | `--write` | Replace each patch file whose patch no longer applies with its re-roll. A merge that did not come out clean is written beside it as `<name>.conflict.patch`, which no patch manager reads. |
 | `--fix` | Rewrite the patch declarations: drop what shipped, adopt the ones declared as a URL. Implies `--write`. |
+| `--resolve` | Re-read the `.conflict.patch` files, send the regions you decided, and write back what the service verified. Implies `--write`. |
 | `--force` | Replace a patch file git reports as changed, untracked, or that it cannot speak for. Also lets `--fix` rewrite a declaration file with uncommitted changes. |
 | `--package=drupal/webform` | Only this package. Repeatable, and `webform` works too. Narrows the report, `--write`, `--fix` and the exit code. |
 | `--format=json` | Print the plan as one JSON object. `--json` does the same. |
@@ -168,10 +169,14 @@ The `--json` output carries a `summary` object for a notification step:
     "counts": { "conflicts": 1, "applies": 45 },
     "conflicts": ["drupal/webform"],
     "unclear": [], "merged": [], "blocked": ["drupal/autotitle"],
-    "exit_code": 1
+    "exit_code": 1,
+    "next": [{ "flag": "--write", "effect": "writes the re-roll" }]
   }
 }
 ```
+
+`next` lists the commands the table footer would print, and is absent when
+there is nothing to run.
 
 ## Verdicts
 
@@ -185,6 +190,31 @@ The `--json` output carries a `summary` object for a notification step:
 A re-roll that merges cleanly is written as `.patch`. One that leaves
 conflict markers is written as `.conflict.patch` and is never referenced
 from the patch declarations.
+
+## Conflict files
+
+A conflict file holds the hunks that merged, then each open region between
+a `# drupatch region N file` line and a `# drupatch end N file` line. Inside
+sit the release side and the patch side as merge markers. Replace what sits
+between the two sentinel lines with the code you want. Leave it empty to
+drop the region. Then run `composer drupal-patch-check --resolve`. The
+decided regions are sent, the service merges with them and apply-checks the
+result. The finished patch replaces the file the site declares. A region
+left undecided comes back in a new conflict file.
+
+## Core references
+
+A row can carry `core` lines under it. The patch applies, and the lines it
+adds reference something the target release changed. That is a removed
+class, a class now under another name, or a call whose argument count no
+longer fits. Each line says what changed and names the change record
+documenting it. Three lines are printed per patch; the rest are counted.
+`core deprecated` counts references that still work at the target and are
+scheduled for removal. A note replaces the lines when the references could
+not be checked, such as for a patch that does not apply. These lines never
+change the exit code.
+
+In `--format=json` the same data is `plan.patches[].result.core_references`.
 
 ## Patch managers
 

@@ -7,7 +7,7 @@ namespace TresBienTech\Drupatch\Tests;
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
 
-final class OutcomeTest extends TestCase
+class OutcomeTest extends TestCase
 {
     use PlanFactory;
 
@@ -140,5 +140,18 @@ final class OutcomeTest extends TestCase
     public function testASiteWithNothingToSayIsClean(): void
     {
         self::assertSame(Plan::CLEAN, $this->planFrom([])->exitCode());
+    }
+
+    public function testAFlaggedCoreReferenceLeavesTheExitCodeAlone(): void
+    {
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row([
+            'verdict' => 'applies',
+            'result' => ['core_references' => ['target' => '11.4.5', 'checked' => 1, 'flagged' => [
+                ['symbol' => '\\Drupal\\Core\\Gone', 'kind' => 'removed', 'issue' => '\\Drupal\\Core\\Gone was removed in 11.0.0'],
+            ]]],
+        ])]]);
+
+        self::assertSame(Plan::CLEAN, $plan->exitCode());
+        self::assertSame(Plan::CLEAN, $plan->exitCode(true));
     }
 }

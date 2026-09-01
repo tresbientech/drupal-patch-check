@@ -10,13 +10,14 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 use TresBienTech\Drupatch\CheckCommand;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Write\PatchFiles;
 
 /**
  * `--resolve` driven end to end against a site on disk, because what it
  * prints and what it exits with are the whole of its contract.
  */
 #[CoversClass(CheckCommand::class)]
-final class ResolveTest extends TestCase
+class ResolveTest extends TestCase
 {
     private ?SiteFixture $site = null;
 
@@ -163,6 +164,21 @@ final class ResolveTest extends TestCase
         );
     }
 
+    public function testJsonNamesTheCommandToRunNext(): void
+    {
+        $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
+        $site->write('patches/webform/fix.conflict.patch', self::decided());
+
+        $tester = $this->drive($site, ['--resolve' => true, '--force' => true, '--json' => true], self::plan('conflicts', [
+            'status' => 'conflicts',
+            'patch' => "part\n",
+            'verified' => false,
+            'conflicts' => [['file' => 'src/Form.php', 'regions' => 1, 'hunks' => [['line' => 1, 'release' => "a\n", 'patch' => "b\n"]]]],
+        ]));
+
+        self::assertSame('--resolve', self::at($tester->getDisplay(), 'summary', 'next', 0, 'flag'));
+    }
+
     public function testJsonKeepsStdoutPureWhileNotesGoToStderr(): void
     {
         $site = (new SiteFixture())
@@ -205,5 +221,32 @@ final class ResolveTest extends TestCase
         ]));
 
         self::assertSame(Plan::CLEAN, $tester->getStatusCode(), $tester->getDisplay());
+    }
+
+    public function testAServerCannotChooseTheWriteTarget(): void
+    {
+        $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
+        $plan = self::plan('conflicts', ['status' => 'clean', 'patch' => "new diff\n", 'verified' => true]);
+        $plan['plan']['patches'][0]['source'] = 'web/sites/default/settings.php';
+
+        // --force drops the working-tree guard, which would otherwise
+        // refuse the write because the fixture site is not a git checkout.
+        $this->drive($site, ['--write' => true, '--force' => true], $plan);
+
+        self::assertFalse($site->has('web/sites/default/settings.php'));
+        self::assertSame("new diff\n", $site->read('patches/webform/fix.patch'));
+    }
+
+    public function testARowNamingAPatchTheSiteNeverDeclaredIsRefused(): void
+    {
+        $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
+        $plan = self::plan('conflicts', ['status' => 'clean', 'patch' => "new diff\n", 'verified' => true]);
+        $plan['plan']['patches'][0]['title'] = 'Not what the site declared';
+        $plan['plan']['patches'][0]['source'] = 'web/sites/default/settings.php';
+
+        $tester = $this->drive($site, ['--write' => true], $plan);
+
+        self::assertFalse($site->has('web/sites/default/settings.php'));
+        self::assertStringContainsString(PatchFiles::NOT_DECLARED, $tester->getDisplay());
     }
 }

@@ -10,7 +10,7 @@ use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
-final class TableTest extends TestCase
+class TableTest extends TestCase
 {
     use PlanFactory;
 
@@ -51,6 +51,81 @@ final class TableTest extends TestCase
         $out = \implode("\n", Report::lines($this->plan()));
 
         self::assertStringContainsString('drupal/domain has no release for 11.4.5', $out);
+    }
+
+    public function testListsTheCoreSymbolsAPatchReferencesThatTheTargetRemoved(): void
+    {
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row([
+            'verdict' => 'applies',
+            'result' => ['core_references' => ['target' => '11.4.5', 'checked' => 2, 'flagged' => [
+                ['symbol' => '\\Drupal\\workspaces\\WorkspaceListBuilder', 'kind' => 'moved', 'file' => 'src/X.php', 'line' => 9, 'reference' => 'new',
+                    'issue' => '\\Drupal\\workspaces\\WorkspaceListBuilder was removed in 11.4.0; \\Drupal\\workspaces_ui\\WorkspaceListBuilder carries the name now'],
+            ]]],
+        ])]]);
+
+        $out = \implode("\n", Report::lines($plan));
+
+        self::assertStringContainsString('core moved: \\Drupal\\workspaces\\WorkspaceListBuilder', $out);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $flagged
+     * @param array<string, mixed>       $rest
+     */
+    private function withCoreReferences(array $flagged, array $rest = []): Plan
+    {
+        return $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row([
+            'verdict' => 'applies',
+            'result' => ['core_references' => $rest + ['target' => '11.4.5', 'checked' => \count($flagged), 'flagged' => $flagged]],
+        ])]]);
+    }
+
+    public function testSaysWhatChangedAndWhereItIsDocumented(): void
+    {
+        $out = \implode("\n", Report::lines($this->withCoreReferences([
+            ['symbol' => '\\Drupal\\Core\\Gone', 'kind' => 'removed', 'issue' => '\\Drupal\\Core\\Gone was removed in 11.0.0; replacement: the new_thing service', 'change_record' => 3500000],
+            ['symbol' => '\\Drupal\\Core\\Deep\\Base::__construct', 'kind' => 'signature', 'issue' => 'passes 3 argument(s); \\Drupal\\Core\\Deep\\Base declares 4 (4 required) since 10.2.0'],
+        ])));
+
+        self::assertStringContainsString('core removed: \\Drupal\\Core\\Gone was removed in 11.0.0; replacement: the new_thing service (change record 3500000)', $out);
+        self::assertStringContainsString('core signature: passes 3 argument(s); \\Drupal\\Core\\Deep\\Base declares 4 (4 required) since 10.2.0', $out);
+    }
+
+    public function testCapsTheCoreLinesAndCountsTheRest(): void
+    {
+        $flagged = [];
+        foreach (\range(1, 5) as $n) {
+            $flagged[] = ['symbol' => '\\Drupal\\Core\\Gone'.$n, 'kind' => 'removed', 'issue' => '\\Drupal\\Core\\Gone'.$n.' was removed in 11.0.0'];
+        }
+
+        $lines = Report::lines($this->withCoreReferences($flagged, ['flagged_more' => 4]));
+        $core = \array_values(\array_filter($lines, static fn (string $l): bool => \str_contains($l, 'core removed:')));
+
+        self::assertCount(3, $core);
+        self::assertStringContainsString('+6 more core references', \implode("\n", $lines));
+    }
+
+    public function testCountsTheDeprecatedReferences(): void
+    {
+        $out = \implode("\n", Report::lines($this->withCoreReferences([], ['deprecated' => [
+            ['fqn' => '\\Drupal\\Core\\OldThing', 'deprecated_in' => '11.2.0', 'removal_in' => '12.0.0'],
+            ['fqn' => '\\Drupal\\Core\\OtherThing', 'deprecated_in' => '11.3.0', 'removal_in' => '12.0.0'],
+        ]])));
+
+        self::assertStringContainsString('core deprecated: 2 references, still present at 11.4.5', $out);
+    }
+
+    public function testPrintsTheNoteWhenTheReferencesWentUnchecked(): void
+    {
+        $out = \implode("\n", Report::lines($this->withCoreReferences([], ['note' => 'references not extracted: the patch does not apply to the tag'])));
+
+        self::assertStringContainsString('references not extracted: the patch does not apply to the tag', $out);
+        self::assertDoesNotMatchRegularExpression('/^\s+core (removed|moved|signature):/m', $out);
+    }
+
+    public function testARowWithoutCoreReferencesPrintsNoCoreLine(): void
+    {
+        self::assertDoesNotMatchRegularExpression('/^\s+core (removed|moved|signature):/m', \implode("\n", Report::lines($this->plan())));
     }
 
     public function testNamesTheFileARerollWillHaveToFix(): void

@@ -39,6 +39,9 @@ class Report
     /** What the footer is introduced by. */
     private const LABEL = 'Next:';
 
+    /** Flagged core references printed under a row before the rest is counted. */
+    private const CORE_LINES = 3;
+
     /**
      * Mark, colour tag and sort rank per verdict, worst first. An unknown verdict gets the fallback and sorts with the work.
      *
@@ -249,6 +252,11 @@ class Report
                 if ('' !== $row->judgedWithout) {
                     $lines[] = $detail.'judged without "'.$row->judgedWithout.'", which did not apply';
                 }
+                // Core symbols the added lines reference that the target
+                // removed, moved or re-signed: the patch applies and still breaks.
+                foreach (self::coreReferenceLines($row) as $line) {
+                    $lines[] = $detail.$line;
+                }
             }
         }
 
@@ -371,6 +379,43 @@ class Report
     }
 
     /**
+     * The core references under a row: one line per flagged finding up to the cap, the count left over, the deprecated count, then the server's note.
+     *
+     * @return list<string>
+     */
+    public static function coreReferenceLines(PatchRow $row): array
+    {
+        $block = $row->coreReferences;
+        $flagged = \array_values((array) ($block['flagged'] ?? []));
+        $out = [];
+        foreach (\array_slice($flagged, 0, self::CORE_LINES) as $finding) {
+            $finding = (array) $finding;
+            // Server JSON is the boundary: a finding without the sentence
+            // still names its symbol.
+            $what = (string) ($finding['issue'] ?? '');
+            if ('' === $what) {
+                $what = (string) ($finding['symbol'] ?? '');
+            }
+            $record = (int) ($finding['change_record'] ?? 0);
+            $out[] = 'core '.(string) ($finding['kind'] ?? '').': '.$what.($record > 0 ? ' (change record '.$record.')' : '');
+        }
+        $more = \max(0, \count($flagged) - self::CORE_LINES) + (int) ($block['flagged_more'] ?? 0);
+        if ($more > 0) {
+            $out[] = '+'.$more.' more core reference'.(1 === $more ? '' : 's');
+        }
+        $deprecated = \count((array) ($block['deprecated'] ?? []));
+        if ($deprecated > 0) {
+            $out[] = 'core deprecated: '.$deprecated.' reference'.(1 === $deprecated ? '' : 's').', still present at '.(string) ($block['target'] ?? '');
+        }
+        $note = (string) ($block['note'] ?? '');
+        if ('' !== $note) {
+            $out[] = $note;
+        }
+
+        return $out;
+    }
+
+    /**
      * What to run next, empty when there is nothing to run.
      *
      * @param array{written: list<array<string, mixed>>, refused: list<array{lifts: string}>}|null $wrote
@@ -387,8 +432,8 @@ class Report
     /**
      * The commands worth running, worst finding first.
      *
-     * @param array<string, int>                              $counts patches per verdict
-     * @param array{refused: list<array{lifts: string}>}|null $wrote
+     * @param array<string, int>                                                                   $counts patches per verdict
+     * @param array{written: list<array<string, mixed>>, refused: list<array{lifts: string}>}|null $wrote
      *
      * @return list<array{flag: string, effect: string}>
      */
@@ -404,6 +449,20 @@ class Report
                 ];
             }
         } else {
+            $open = 0;
+            foreach ($wrote['written'] as $file) {
+                if (PatchRow::CONFLICTS === ($file['status'] ?? '')) {
+                    ++$open;
+                }
+            }
+            if ($open > 0) {
+                $out[] = [
+                    'flag' => '--resolve',
+                    'effect' => 1 === $open
+                        ? 'sends the regions you decide in the conflict file'
+                        : 'sends the regions you decide in the '.$open.' conflict files',
+                ];
+            }
             $forcible = self::lifted($wrote['refused'], '--force');
             if ($forcible > 0) {
                 $out[] = [
@@ -426,8 +485,8 @@ class Report
     /**
      * The next-steps footer as printed, empty when there is nothing to run.
      *
-     * @param array<string, int>                              $counts patches per verdict
-     * @param array{refused: list<array{lifts: string}>}|null $wrote
+     * @param array<string, int>                                                                   $counts patches per verdict
+     * @param array{written: list<array<string, mixed>>, refused: list<array{lifts: string}>}|null $wrote
      *
      * @return list<string>
      */
@@ -453,11 +512,13 @@ class Report
     }
 
     /**
-     * The `--json` summary a scheduled job reads: what the run was about, what it found, and which packages are behind each finding.
+     * The `--json` summary a scheduled job reads: what the run was about, what it found, which packages are behind each finding, and what to run next.
+     *
+     * @param array{written: list<array<string, mixed>>, refused: list<array{lifts: string}>}|null $wrote
      *
      * @return array<string, mixed>
      */
-    public static function summary(Plan $plan, bool $strict = false, bool $vacuous = false): array
+    public static function summary(Plan $plan, bool $strict = false, bool $vacuous = false, ?array $wrote = null): array
     {
         $counts = [];
         foreach ($plan->patches as $row) {
@@ -486,6 +547,10 @@ class Report
         ];
         if ('' !== $plan->targetFrom) {
             $summary['target_from'] = $plan->targetFrom;
+        }
+        $next = self::nextSteps($counts, $wrote);
+        if ([] !== $next) {
+            $summary['next'] = $next;
         }
 
         return $summary;

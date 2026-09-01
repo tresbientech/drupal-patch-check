@@ -9,7 +9,7 @@ use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 
-final class SummaryTest extends TestCase
+class SummaryTest extends TestCase
 {
     use PlanFactory;
 
@@ -46,6 +46,25 @@ final class SummaryTest extends TestCase
 
         self::assertSame(\count($plan->patches), \array_sum($counts));
         self::assertSame(['applies' => 1, 'conflicts' => 1, 'merged' => 1, 'unknown' => 1], $counts);
+    }
+
+    public function testNamesTheCommandsTheTableWouldOffer(): void
+    {
+        self::assertSame(['--write', '--fix'], \array_column(Report::summary($this->plan())['next'], 'flag'));
+    }
+
+    public function testAPlanWithNothingToRunCarriesNoNext(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'applies'])]]);
+
+        self::assertArrayNotHasKey('next', Report::summary($plan));
+    }
+
+    public function testNamesResolveAfterARunWroteAConflictFile(): void
+    {
+        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false]], 'refused' => []];
+
+        self::assertSame(['--resolve', '--fix'], \array_column(Report::summary($this->plan(), false, false, $wrote)['next'], 'flag'));
     }
 
     public function testAPackageIsNamedOnceHoweverManyRowsItHas(): void

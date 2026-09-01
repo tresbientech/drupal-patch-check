@@ -51,6 +51,12 @@ class PatchRow
          * @var array<string, mixed>|null
          */
         public readonly ?array $reroll,
+        /**
+         * The core references block as the server sent it, [] when the row carries none.
+         *
+         * @var array<string, mixed>
+         */
+        public readonly array $coreReferences,
     ) {
     }
 
@@ -81,6 +87,7 @@ class PatchRow
             [] === $failed ? '' : self::hunk($failed[0]),
             (string) ($data['decided_by'] ?? ''),
             \is_array($result['reroll'] ?? null) ? $result['reroll'] : null,
+            \is_array($result['core_references'] ?? null) ? $result['core_references'] : [],
         );
     }
 

@@ -8,6 +8,7 @@ use RuntimeException;
 use TresBienTech\Drupatch\PatchConfig;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Render\Report;
 
 /**
  * Writes the re-rolled diffs a plan carries.
@@ -34,6 +35,8 @@ class PatchFiles
 
     public const NO_FILE_NAME = 'its URL ends in no file name';
 
+    public const NOT_DECLARED = 'the site declares no patch by that name';
+
     /** Where an adopted URL patch goes, under the project it is on. */
     private const ADOPTED_DIRECTORY = 'patches';
 
@@ -41,9 +44,29 @@ class PatchFiles
         private readonly string $root,
         /** Asked before a file is replaced; null replaces everything. `--force`. */
         private readonly ?WorkingTree $tree,
+        /**
+         * The patches the site declares, which decide where a re-roll may land.
+         *
+         * @var list<array{package: string, title: string, source: string}>
+         */
+        private readonly array $declared,
         /** Whether a patch declared as a URL is written locally. `--fix`. */
         private readonly bool $adopt = false,
     ) {
+    }
+
+    /**
+     * The source the site declared for this row, null when it declared none.
+     */
+    private function declaredSource(PatchRow $row): ?string
+    {
+        foreach ($this->declared as $patch) {
+            if ($patch['package'] === $row->package && $patch['title'] === $row->title) {
+                return $patch['source'];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -66,20 +89,25 @@ class PatchFiles
                 $refused[] = self::refusal($row, $row->source, '' === $error ? self::NO_REROLL : $error);
                 continue;
             }
-            if (PatchConfig::isUrl($row->source) && !$this->adopt) {
-                $refused[] = self::refusal($row, $row->source, self::URL_DECLARED, '--fix');
+            $declaredSource = $this->declaredSource($row);
+            if (null === $declaredSource) {
+                $refused[] = self::refusal($row, $row->source, self::NOT_DECLARED);
                 continue;
             }
-            $declared = PatchConfig::isUrl($row->source)
-                ? self::adoptedPath($row->package, $row->project, $row->source)
-                : $row->source;
-            if ('' === $declared) {
-                $refused[] = self::refusal($row, $row->source, self::NO_FILE_NAME);
+            if (PatchConfig::isUrl($declaredSource) && !$this->adopt) {
+                $refused[] = self::refusal($row, $declaredSource, self::URL_DECLARED, '--fix');
                 continue;
             }
-            $source = self::inside($declared);
+            $target = PatchConfig::isUrl($declaredSource)
+                ? self::adoptedPath($row->package, $row->project, $declaredSource)
+                : $declaredSource;
+            if ('' === $target) {
+                $refused[] = self::refusal($row, $declaredSource, self::NO_FILE_NAME);
+                continue;
+            }
+            $source = self::inside($target);
             if (null === $source) {
-                $refused[] = self::refusal($row, $row->source, self::OUTSIDE_ROOT);
+                $refused[] = self::refusal($row, $declaredSource, self::OUTSIDE_ROOT);
                 continue;
             }
             $path = $row->rerollIsClean() ? $source : self::conflictPath($source);
@@ -215,6 +243,7 @@ class PatchFiles
         $lines = [
             '# drupatch: '.(int) ($conflict['regions'] ?? 0).' unresolved region(s) in '.$file,
             '# drupatch: keep the region and end lines; replace what sits between them.',
+            '# drupatch: then run '.Report::COMMAND.' --resolve',
         ];
         foreach ((array) ($conflict['hunks'] ?? []) as $index => $hunk) {
             $releaseLine = (int) ($hunk['release_line'] ?? 0);

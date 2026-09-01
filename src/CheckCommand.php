@@ -292,7 +292,7 @@ class CheckCommand extends BaseCommand
             $plan = $this->narrow($plan, $input);
             $tree = true === $input->getOption('force') ? null : new WorkingTree(new ProcessExecutor($this->getIO()));
             $result = $reroll
-                ? (new PatchFiles($site->root(), $tree, $fix))->write($plan)
+                ? (new PatchFiles($site->root(), $tree, $site->patches()->patches, $fix))->write($plan)
                 : ['written' => [], 'refused' => []];
             $written = $result['written'];
         } catch (Throwable $e) {
@@ -304,7 +304,7 @@ class CheckCommand extends BaseCommand
         $strict = true === $input->getOption('strict');
         if ('json' === $format) {
             $output->writeln((string) \json_encode($plan->raw + [
-                'summary' => Report::summary($plan, $strict, $coverage->isVacuous()),
+                'summary' => Report::summary($plan, $strict, $coverage->isVacuous(), $reroll ? $result : null),
             ] + ['written' => \array_map(
                 static fn (array $file): array => ['path' => $file['path'], 'status' => $file['status']],
                 $written

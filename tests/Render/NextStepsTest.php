@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
-final class NextStepsTest extends TestCase
+class NextStepsTest extends TestCase
 {
     public function testAPlanWithNothingToClearSuggestsNothing(): void
     {
@@ -114,6 +114,37 @@ final class NextStepsTest extends TestCase
         $wrote = ['written' => [['path' => 'patches/a.patch', 'status' => 'clean', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => true]], 'refused' => []];
 
         self::assertSame([], Report::nextSteps(['conflicts' => 1], $wrote));
+    }
+
+    public function testARunThatLeftAConflictFileIsOfferedTheFlagThatFinishesIt(): void
+    {
+        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false]], 'refused' => []];
+
+        $steps = Report::nextSteps(['conflicts' => 1], $wrote);
+
+        self::assertSame(['--resolve'], \array_column($steps, 'flag'));
+        self::assertSame('sends the regions you decide in the conflict file', $steps[0]['effect']);
+    }
+
+    public function testSeveralConflictFilesAreCounted(): void
+    {
+        $wrote = ['written' => [
+            ['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false],
+            ['path' => 'patches/b.patch', 'status' => 'clean', 'package' => 'drupal/b', 'title' => 'Fix b', 'verified' => true],
+            ['path' => 'patches/c.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/c', 'title' => 'Fix c', 'verified' => false],
+        ], 'refused' => []];
+
+        self::assertSame('sends the regions you decide in the 2 conflict files', Report::nextSteps(['conflicts' => 3], $wrote)[0]['effect']);
+    }
+
+    public function testTheConflictFileComesBeforeTheRefusal(): void
+    {
+        $wrote = [
+            'written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false]],
+            'refused' => [['package' => 'drupal/b', 'title' => 'Fix b', 'path' => 'patches/b.patch', 'reason' => WorkingTree::UNCOMMITTED, 'lifts' => '--force']],
+        ];
+
+        self::assertSame(['--resolve', '--force'], \array_column(Report::nextSteps(['conflicts' => 2], $wrote), 'flag'));
     }
 
     public function testARunThatCouldNotReplaceAFileIsOfferedTheFlagThatLetsIt(): void
