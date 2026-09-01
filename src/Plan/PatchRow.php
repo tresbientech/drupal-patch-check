@@ -101,6 +101,14 @@ class PatchRow
     }
 
     /**
+     * The patch the merge ran on, when the server did not use the declared one.
+     */
+    public function mergedFrom(): string
+    {
+        return (string) ($this->reroll['merged_from'] ?? '');
+    }
+
+    /**
      * The regions the merge decided on its own by keeping both sides.
      *
      * @return list<array{file: string, line: int}>

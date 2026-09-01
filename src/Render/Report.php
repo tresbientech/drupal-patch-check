@@ -229,6 +229,11 @@ class Report
                 if ('' !== $row->firstFailure()) {
                     $lines[] = $detail.$row->firstFailure();
                 }
+                // The merge ran on a different file from the one the
+                // site declares, so say which.
+                if ('' !== $row->mergedFrom()) {
+                    $lines[] = $detail.self::mergedFromNote($row->mergedFrom());
+                }
                 // The merge answered these itself, so the patch a
                 // person is about to use carries a decision nobody made.
                 if ([] !== $row->unioned()) {
@@ -312,6 +317,16 @@ class Report
         }
 
         return $lines;
+    }
+
+    /**
+     * The patch the merge ran on, named short.
+     */
+    public static function mergedFromNote(string $url): string
+    {
+        $tail = \substr($url, false === \strrpos($url, '/-/') ? 0 : \strrpos($url, '/-/') + 3);
+
+        return 'merged from '.('' === $tail ? $url : $tail).', the squashed form of the patch declared';
     }
 
     /**

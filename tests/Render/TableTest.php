@@ -842,4 +842,28 @@ final class TableTest extends TestCase
         self::assertStringContainsString('src/Form.php:12', $lines);
         self::assertStringContainsString('src/Batch.php:40', $lines);
     }
+
+    public function testSaysWhenTheMergeRanOnADifferentPatchThanDeclared(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->rerolledRow([
+            'status' => 'conflicts',
+            'patch' => "diff\n",
+            'merged_from' => 'https://git.drupalcode.org/project/redirect/-/merge_requests/45.diff',
+        ], ['title' => 'Fix a'])]]);
+
+        self::assertStringContainsString(
+            'merged from merge_requests/45.diff, the squashed form of the patch declared',
+            \implode("\n", Report::lines($plan))
+        );
+    }
+
+    public function testSaysNothingWhenTheMergeRanOnTheDeclaredPatch(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->rerolledRow(
+            ['status' => 'conflicts', 'patch' => "diff\n"],
+            ['title' => 'Fix a']
+        )]]);
+
+        self::assertStringNotContainsString('merged from', \implode("\n", Report::lines($plan)));
+    }
 }
