@@ -294,11 +294,24 @@ class Client
         if ($e instanceof TransportException) {
             $status = $e->getStatusCode();
             if (null !== $status && $status >= 400) {
-                return \sprintf('%s answered %d, patches not checked', $host, $status);
+                $reason = self::serverReason($e->getResponse());
+
+                return \sprintf('%s answered %d%s, patches not checked', $host, $status, '' === $reason ? '' : ' ('.$reason.')');
             }
         }
 
         return \sprintf('%s not reached (%s), patches not checked', $host, self::clip($e->getMessage()));
+    }
+
+    /**
+     * The `error` field of a failed response, clipped; empty when the body carries none.
+     */
+    private static function serverReason(?string $body): string
+    {
+        $decoded = \json_decode((string) $body, true);
+        $error = \is_array($decoded) ? $decoded['error'] ?? '' : '';
+
+        return \is_string($error) ? self::clip($error) : '';
     }
 
     /**
@@ -313,6 +326,6 @@ class Client
             $message = \substr($message, 0, $stop);
         }
 
-        return \strlen($message) > 120 ? \substr($message, 0, 117).'…' : $message;
+        return \strlen($message) > 160 ? \substr($message, 0, 157).'…' : $message;
     }
 }

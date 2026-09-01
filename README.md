@@ -151,7 +151,7 @@ Gitea Actions accepts the same commands and does not render them yet.
 | --- | --- |
 | 0 | Nothing needs a person. Patches that shipped upstream and ones that could not be judged are reported and do not fail. |
 | 1 | A patch will not apply against the release it was judged against, or carries a verdict this plugin does not know. |
-| 2 | The plan could not be fetched. A service outage, not a finding. |
+| 2 | The plan could not be fetched. A service outage, not a finding. The line names the reason the service gave when its answer carried one. |
 
 `--strict` also fails on a patch that could not be judged and on a run that
 declared patches and checked none. Without it a lagging mirror will not turn

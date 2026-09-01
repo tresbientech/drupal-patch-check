@@ -10,7 +10,7 @@ use RuntimeException;
  * A local server that answers every request with one canned plan, so the
  * command can be driven end to end without the api.
  */
-final class PlanServer
+class PlanServer
 {
     private mixed $process = null;
 
@@ -24,16 +24,17 @@ final class PlanServer
     /**
      * @param array<string, mixed> $plan
      */
-    public function __construct(array $plan)
+    public function __construct(array $plan, int $status = 200)
     {
         $this->dir = \sys_get_temp_dir().'/drupatch-plan-'.\bin2hex(\random_bytes(6));
         \mkdir($this->dir, 0o777, true);
         \file_put_contents($this->dir.'/plan.json', (string) \json_encode($plan));
-        \file_put_contents($this->dir.'/router.php', <<<'ROUTER'
+        \file_put_contents($this->dir.'/router.php', \sprintf(<<<'ROUTER'
             <?php
+            http_response_code(%d);
             header('Content-Type: application/json');
             echo file_get_contents(__DIR__ . '/plan.json');
-            ROUTER);
+            ROUTER, $status));
 
         $port = self::freePort();
         $this->endpoint = 'http://127.0.0.1:'.$port.'/scan';
