@@ -24,7 +24,7 @@ final class ConfigRewriterTest extends TestCase
     }
 
     /**
-     * @return list<array{path: string, status: string, package: string, title: string, verified: bool}>
+     * @return list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>}>
      */
     private function written(): array
     {

@@ -17,7 +17,7 @@ class ConfigRewriter
     /**
      * Decides what changes: one entry per declaration the plan settles.
      *
-     * @param list<array{path: string, status: string, package: string, title: string, verified: bool}> $written
+     * @param list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>}> $written
      *
      * @return list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}>
      */

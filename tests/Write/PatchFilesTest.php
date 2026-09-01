@@ -429,4 +429,17 @@ final class PatchFilesTest extends TestCase
         $body = (string) \file_get_contents($this->root.'/patches/core/htaccess.conflict.patch');
         self::assertSame([], Decisions::read($body, 'patches/core/htaccess.conflict.patch'));
     }
+
+    public function testCarriesTheRegionsTheMergeDecidedIntoTheWrittenFile(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->rerolledRow([
+            'status' => 'clean',
+            'patch' => "diff --git a/a b/a\n",
+            'unioned' => [['file' => 'src/Form.php', 'line' => 12]],
+        ], ['source' => 'patches/a.patch'])]]);
+
+        $written = $this->writer()->write($plan)['written'];
+
+        self::assertSame([['file' => 'src/Form.php', 'line' => 12]], $written[0]['unioned']);
+    }
 }

@@ -152,7 +152,7 @@ class Report
     /**
      * The whole report in printed order: the rows, the files a re-roll wrote, then what to run next.
      *
-     * @param array{written: list<array{path: string, status: string, package: string, title: string, verified: bool}>,
+     * @param array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>}>,
      *              refused: list<array{package: string, title: string, path: string, reason: string, lifts: string}>}|null $wrote
      *
      * @return list<string>
@@ -229,6 +229,11 @@ class Report
                 if ('' !== $row->firstFailure()) {
                     $lines[] = $detail.$row->firstFailure();
                 }
+                // The merge answered these itself, so the patch a
+                // person is about to use carries a decision nobody made.
+                if ([] !== $row->unioned()) {
+                    $lines[] = $detail.self::unionNote(\count($row->unioned()));
+                }
                 // The verdict stands; this says the patch needed a
                 // looser reading than git apply gives.
                 if ('' !== $row->strictRefused) {
@@ -269,7 +274,7 @@ class Report
     /**
      * The files a re-roll wrote, and what still needs a person.
      *
-     * @param list<array{path: string, status: string, verified: bool}> $written
+     * @param list<array{path: string, status: string, verified: bool, unioned: list<array{file: string, line: int}>}> $written
      *
      * @return list<string>
      */
@@ -291,6 +296,12 @@ class Report
                 $file['status'],
                 $usable && $file['verified'] ? ', verified against the release by the server' : ''
             );
+            if ([] !== $file['unioned']) {
+                $lines[] = '    '.self::unionNote(\count($file['unioned'])).':';
+                foreach ($file['unioned'] as $region) {
+                    $lines[] = '      '.$region['file'].':'.$region['line'];
+                }
+            }
         }
         if ($conflicts > 0) {
             $lines[] = \sprintf(
@@ -301,6 +312,18 @@ class Report
         }
 
         return $lines;
+    }
+
+    /**
+     * What the merge decided on its own, in one line.
+     */
+    public static function unionNote(int $regions): string
+    {
+        return \sprintf(
+            'the merge kept both sides of %d region%s the release and the patch both added to',
+            $regions,
+            1 === $regions ? '' : 's'
+        );
     }
 
     /**

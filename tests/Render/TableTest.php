@@ -801,4 +801,45 @@ final class TableTest extends TestCase
 
         self::assertSame(Report::report($plan, $wrote, 100), Report::report($plan, $wrote, 100));
     }
+
+    public function testSaysHowManyRegionsTheMergeDecidedOnItsOwn(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->rerolledRow([
+            'status' => 'clean',
+            'patch' => "diff\n",
+            'unioned' => [
+                ['file' => 'src/Form.php', 'line' => 12],
+                ['file' => 'src/Form.php', 'line' => 40],
+            ],
+        ], ['title' => 'Fix a'])]]);
+
+        self::assertStringContainsString(
+            'the merge kept both sides of 2 regions the release and the patch both added to',
+            \implode("\n", Report::lines($plan))
+        );
+    }
+
+    public function testSaysNothingWhenTheMergeDecidedNoRegion(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->rerolledRow(
+            ['status' => 'clean', 'patch' => "diff\n"],
+            ['title' => 'Fix a']
+        )]]);
+
+        self::assertStringNotContainsString('kept both sides', \implode("\n", Report::lines($plan)));
+    }
+
+    public function testNamesTheRegionsTheMergeDecidedBesideTheFileItWrote(): void
+    {
+        $lines = \implode("\n", Report::written([
+            ['unioned' => [
+                ['file' => 'src/Form.php', 'line' => 12],
+                ['file' => 'src/Batch.php', 'line' => 40],
+            ]] + $this->writtenFile('patches/webform-fix-a-1234abcd.patch'),
+        ]));
+
+        self::assertStringContainsString('kept both sides of 2 regions', $lines);
+        self::assertStringContainsString('src/Form.php:12', $lines);
+        self::assertStringContainsString('src/Batch.php:40', $lines);
+    }
 }

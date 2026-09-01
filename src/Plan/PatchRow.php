@@ -101,6 +101,25 @@ class PatchRow
     }
 
     /**
+     * The regions the merge decided on its own by keeping both sides.
+     *
+     * @return list<array{file: string, line: int}>
+     */
+    public function unioned(): array
+    {
+        $out = [];
+        foreach ((array) ($this->reroll['unioned'] ?? []) as $region) {
+            $region = (array) $region;
+            $file = (string) ($region['file'] ?? '');
+            if ('' !== $file) {
+                $out[] = ['file' => $file, 'line' => (int) ($region['line'] ?? 0)];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * One failed hunk as a person reads it: the file, and why.
      *
      * @param array<string, mixed> $hunk
