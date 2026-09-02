@@ -103,7 +103,7 @@ class PatchConfig
                 continue;
             }
             if ($size > self::MAX_PATCH_BYTES) {
-                $unsent[] = self::names($package, $title).': '.$size.' bytes, above the '.self::MAX_PATCH_BYTES.' byte cap';
+                $unsent[] = self::names($package, $title).': '.$size.' bytes, above the 16 MB cap';
                 continue;
             }
             $text = @\file_get_contents($full);

@@ -30,7 +30,7 @@ class PlanTest extends TestCase
         ]);
 
         $this->assertSame(
-            ['src/Plugin/ImageToolkit/ImagemagickToolkit.php: the release already carries this hunk'],
+            ['src/Plugin/ImageToolkit/ImagemagickToolkit.php'],
             $row->hunksShipped,
         );
     }

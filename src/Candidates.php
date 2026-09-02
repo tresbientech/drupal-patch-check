@@ -111,7 +111,7 @@ class Candidates
             try {
                 $found = $this->set->findPackages('drupal/core', (new VersionParser())->parseConstraints($constraint));
             } catch (Throwable $e) {
-                $this->notes[] = \sprintf('no core release was read for %s %s: %s', $name, $constraint, $e->getMessage());
+                $this->notes[] = \sprintf('no core release found for %s %s: %s', $name, $constraint, $e->getMessage());
                 continue;
             }
             foreach ($found as $package) {
@@ -144,7 +144,7 @@ class Candidates
             $parser = new VersionParser();
             $found = $this->set->findPackages($name, '' === $constraint ? null : $parser->parseConstraints($constraint));
         } catch (Throwable $e) {
-            $this->notes[] = \sprintf('no candidate was read for %s %s: %s', $name, '' === $constraint ? '*' : $constraint, $e->getMessage());
+            $this->notes[] = \sprintf('no release found for %s %s: %s', $name, '' === $constraint ? '*' : $constraint, $e->getMessage());
 
             return null;
         }

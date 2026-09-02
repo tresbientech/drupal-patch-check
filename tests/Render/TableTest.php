@@ -832,7 +832,7 @@ class TableTest extends TestCase
         $out = \implode("\n", Report::report($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
 
         self::assertStringContainsString('  wrote patches/webform/fix.conflict.patch  (conflicts, 3 regions to decide)', $out);
-        self::assertStringContainsString('1 re-roll left regions to decide; those files are not usable as patches', $out);
+        self::assertStringContainsString('1 conflict file has regions to decide; it is not a usable patch until you resolve it', $out);
     }
 
     public function testOneOpenRegionIsSingular(): void
@@ -927,7 +927,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row(['title' => 'Menu cache', 'source' => 'patches/menu.patch', 'verdict' => 'merged'])]]);
         $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => 'patches/menu.patch']]));
 
-        self::assertStringContainsString('    - drupal/webform: Menu cache (already in the release; patches/menu.patch is now unreferenced and was kept)', $out);
+        self::assertStringContainsString('    - drupal/webform: Menu cache (already in the release; patches/menu.patch is no longer used and was kept)', $out);
     }
 
     public function testARepointedEntryShowsItsNewPath(): void
@@ -1042,7 +1042,7 @@ class TableTest extends TestCase
         ], ['title' => 'Fix a'])]]);
 
         self::assertStringContainsString(
-            'the merge kept both sides of 2 regions the release and the patch both added to',
+            'the release and the patch both added lines in 2 regions; the merge kept both additions, check them',
             \implode("\n", Report::lines($plan))
         );
     }
@@ -1054,7 +1054,7 @@ class TableTest extends TestCase
             ['title' => 'Fix a']
         )]]);
 
-        self::assertStringNotContainsString('kept both sides', \implode("\n", Report::lines($plan)));
+        self::assertStringNotContainsString('kept both additions', \implode("\n", Report::lines($plan)));
     }
 
     public function testNamesTheRegionsTheMergeDecidedBesideTheFileItWrote(): void
@@ -1063,7 +1063,7 @@ class TableTest extends TestCase
         $lines = Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []]));
 
         self::assertStringContainsString('wrote patches/webform-fix-a-1234abcd.patch', $lines[1]);
-        self::assertStringContainsString('kept both sides of 2 regions', $lines[2]);
+        self::assertStringContainsString('both added lines in 2 regions', $lines[2]);
         self::assertSame('      src/Form.php:12', $lines[3]);
         self::assertSame('      src/Batch.php:40', $lines[4]);
     }
@@ -1077,7 +1077,7 @@ class TableTest extends TestCase
         ], ['title' => 'Fix a'])]]);
 
         self::assertStringContainsString(
-            'merged from merge_requests/45.diff, the squashed form of the patch declared',
+            're-rolled from merge_requests/45.diff, the merge request\'s own diff, not the file declared',
             \implode("\n", Report::lines($plan))
         );
     }

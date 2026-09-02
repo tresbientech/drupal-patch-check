@@ -301,11 +301,9 @@ class Report
         }
         $open = $outcomes->openConflictFiles();
         if ($open > 0) {
-            $lines[] = \sprintf(
-                '  %d re-roll%s left regions to decide; those files are not usable as patches',
-                $open,
-                1 === $open ? '' : 's'
-            );
+            $lines[] = 1 === $open
+                ? '  1 conflict file has regions to decide; it is not a usable patch until you resolve it'
+                : \sprintf('  %d conflict files have regions to decide; they are not usable patches until you resolve them', $open);
         }
 
         return $lines;
@@ -387,7 +385,7 @@ class Report
             return \sprintf('    - %s: %s (already in the release)', $change['package'], $change['title']);
         }
 
-        return \sprintf('    - %s: %s (already in the release; %s is now unreferenced and was kept)', $change['package'], $change['title'], $change['path']);
+        return \sprintf('    - %s: %s (already in the release; %s is no longer used and was kept)', $change['package'], $change['title'], $change['path']);
     }
 
     /**
@@ -397,7 +395,7 @@ class Report
     {
         $tail = \substr($url, false === \strrpos($url, '/-/') ? 0 : \strrpos($url, '/-/') + 3);
 
-        return 'merged from '.('' === $tail ? $url : $tail).', the squashed form of the patch declared';
+        return 're-rolled from '.('' === $tail ? $url : $tail).', the merge request\'s own diff, not the file declared';
     }
 
     /**
@@ -406,7 +404,7 @@ class Report
     public static function unionNote(int $regions): string
     {
         return \sprintf(
-            'the merge kept both sides of %d region%s the release and the patch both added to',
+            'the release and the patch both added lines in %d region%s; the merge kept both additions, check them',
             $regions,
             1 === $regions ? '' : 's'
         );

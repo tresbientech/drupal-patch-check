@@ -27,7 +27,7 @@ class PatchFiles
     /** Extensions a conflict file replaces rather than keeps. */
     private const PATCH_EXTENSIONS = ['.patch', '.diff'];
 
-    public const OUTSIDE_ROOT = 'its source resolves outside the site root';
+    public const OUTSIDE_ROOT = 'its path points outside the site';
 
     public const NO_REROLL = 'the service built no re-roll for it';
 

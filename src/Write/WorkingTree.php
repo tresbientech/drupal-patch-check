@@ -11,7 +11,7 @@ use Composer\Util\ProcessExecutor;
  */
 class WorkingTree
 {
-    public const NOT_A_CHECKOUT = 'the site is not a git checkout, so the text it replaces could not be recovered';
+    public const NOT_A_CHECKOUT = 'the site is not in git, so an overwritten file could not be restored';
 
     public const UNCOMMITTED = 'it has uncommitted changes';
 

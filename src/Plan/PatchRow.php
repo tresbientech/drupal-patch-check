@@ -95,7 +95,7 @@ class PatchRow
             (string) ($result['strict_refused'] ?? ''),
             (string) ($result['judged_without'] ?? ''),
             [] === $failed ? '' : self::hunk($failed[0]),
-            \array_values(\array_map(self::hunk(...), $shipped)),
+            \array_values(\array_map(static fn (array $hunk): string => (string) ($hunk['file'] ?? ''), $shipped)),
             (string) ($data['decided_by'] ?? ''),
             \is_array($result['reroll'] ?? null) ? $result['reroll'] : null,
             \is_array($result['core_references'] ?? null) ? $result['core_references'] : [],

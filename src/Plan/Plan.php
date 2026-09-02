@@ -50,7 +50,7 @@ class Plan
             throw new RuntimeException('the answer has no plan, so the patches were not judged');
         }
         if (!\is_array($data['plan'])) {
-            throw new RuntimeException('the answer\'s plan is not an object');
+            throw new RuntimeException('the service\'s answer is not a plan');
         }
         $plan = $data['plan'];
         if (isset($plan['patches']) && !\is_array($plan['patches'])) {

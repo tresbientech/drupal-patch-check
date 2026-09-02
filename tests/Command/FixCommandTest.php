@@ -74,7 +74,7 @@ class FixCommandTest extends TestCase
         $tester = $this->drive(['--fix' => true]);
         $display = $tester->getDisplay();
 
-        self::assertStringContainsString("  composer.json:\n    - drupal/webform: Menu cache (already in the release; patches/webform/menu.patch is now unreferenced and was kept)", $display);
+        self::assertStringContainsString("  composer.json:\n    - drupal/webform: Menu cache (already in the release; patches/webform/menu.patch is no longer used and was kept)", $display);
         self::assertStringContainsString("  not written:\n    drupal/webform: Fix\n      ".WorkingTree::NOT_A_CHECKOUT, $display);
         self::assertLessThan(\strpos($display, 'Next:'), \strpos($display, 'composer.json:'));
         self::assertStringContainsString('--force   replaces the file this run would not overwrite', $display);

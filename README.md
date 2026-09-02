@@ -128,7 +128,7 @@ it wrote and what it would not, then what `--fix` rewrote:
 ```
   wrote patches/webform/fix.patch  (clean, verified against the release by the server)
   wrote patches/core/tx.conflict.patch  (conflicts, 2 regions to decide)
-  1 re-roll left regions to decide; those files are not usable as patches
+  1 conflict file has regions to decide; it is not a usable patch until you resolve it
 
   not written:
     drupal/token: Cache tag on token replacement

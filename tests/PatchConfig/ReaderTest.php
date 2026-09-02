@@ -164,7 +164,7 @@ final class ReaderTest extends TestCase
 
         self::assertSame([], $resolution->files);
         self::assertCount(1, $resolution->patches, 'the patch keeps its row, so the report says it was not judged');
-        self::assertSame(['drupal/webform "Huge": 16777217 bytes, above the 16777216 byte cap'], $resolution->unsent);
+        self::assertSame(['drupal/webform "Huge": 16777217 bytes, above the 16 MB cap'], $resolution->unsent);
     }
 
     public function testStopsSendingPatchTextWhenTheRequestIsFull(): void
