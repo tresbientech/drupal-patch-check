@@ -1,5 +1,5 @@
 {
-    "name": "tresbientech/drupatch",
+    "name": "tresbientech/drupal-patch-check",
     "description": "Checks whether a Drupal site's composer patches still apply, are already in the release, or need a re-roll.",
     "license": "MIT",
     "type": "composer-plugin",
@@ -15,10 +15,10 @@
             "homepage": "https://tresbien.tech"
         }
     ],
-    "homepage": "https://github.com/tresbientech/drupatch",
+    "homepage": "https://github.com/tresbientech/drupal-patch-check",
     "support": {
-        "issues": "https://github.com/tresbientech/drupatch/issues",
-        "source": "https://github.com/tresbientech/drupatch"
+        "issues": "https://github.com/tresbientech/drupal-patch-check/issues",
+        "source": "https://github.com/tresbientech/drupal-patch-check"
     },
     "require": {
         "php": ">=8.1",

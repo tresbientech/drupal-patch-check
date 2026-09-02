@@ -25,7 +25,7 @@ writes nothing unless you ask it to.
 ## Install
 
 ```
-composer require --dev tresbientech/drupatch
+composer require --dev tresbientech/drupal-patch-check
 ```
 
 ## Composer update hook
