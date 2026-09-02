@@ -1,4 +1,4 @@
-# Drupal Patch Check
+# Drupatch
 
 A composer plugin that checks the patches a Drupal site declares. For each
 patch it says whether the fix is already in the installed release, whether
@@ -34,7 +34,7 @@ After `composer update`, the hook lists the patches whose fix is already in
 the release, and the patches with no release to judge them against.
 
 ```
-drupatch: 1 unknown, 1 merged after this update
+Drupal Patch Check: 1 unknown, 1 merged after this update
   ? unknown       drupal/domain   Domain content translations permissions
                   the lock does not install drupal/domain, so there is no release to judge this patch against
   ✓ merged        drupal/token 1.15.0  Cache tag on token replacement
@@ -71,7 +71,7 @@ needs a person is at the top. Each row has a mark, the verdict, the patch
 title and the file it came from.
 
 ```
-Drupal Code Query: 5 patches for a move from core 11.3.2 to 11.4.5
+Drupal Patch Check: 5 patches for a move from core 11.3.2 to 11.4.5
 
   drupal/webform 6.2.9 → 6.3.2   1 conflicts, 1 applies
     ! conflicts  Allow numeric machine names in handlers      webform-numeric.patch
@@ -110,6 +110,10 @@ Options that change what is judged, and how the answer is printed:
 | `--format=json` | Prints the plan as one JSON object; `--json` does the same. |
 | `--format=github` | Prints each verdict as a workflow command, so GitHub Actions shows it as an annotation on the declaring line. |
 | `--dry-run` | Prints the request that would be sent and stops, without asking the service or writing anything. |
+
+`--json`, `--format=github` and `--dry-run` put a document on standard
+output. Under those, every line meant for a person goes to standard error,
+so `composer drupal-patch-check --dry-run | jq` reads the request alone.
 
 Options that write to the site:
 
@@ -177,7 +181,7 @@ yet.
 | --- | --- |
 | 0 | Nothing needs a person. Patches already in the release, and patches that could not be judged, are reported and do not fail. |
 | 1 | A patch will not apply against the release it was judged against, or has a verdict this plugin does not know. |
-| 2 | The plan could not be fetched. A service outage, not a finding. The line gives the reason the service sent, when it sent one. |
+| 2 | The plan could not be fetched. This reports a service outage rather than anything about your patches. The line gives the reason the service sent, when it sent one. |
 
 `--strict` also fails on a patch that could not be judged, and on a run that
 declared patches and checked none. Without it, a lagging mirror does not turn
@@ -342,32 +346,50 @@ packages. That is the set the service has a release for.
 A `drupal/` name is not enough. A fork of `drupal/webform` kept in a company
 repository has that name, and so does a private `drupal/acme_sso`. Neither
 has a drupal.org release, so neither is sent, and neither could have been
-judged. Each run lists the packages it skipped and how many of their patches
-went with them:
+judged. The table names each one where its patches would have gone, in
+yellow, and says how many went with it:
 
 ```
-drupatch: checked 53 patches; skipped 7 on 2 packages
-  skipped  acme/private, 6 patches (not a drupal.org release)
-  skipped  drupal/acme_sso, 1 patch (not a drupal.org release)
+  drupal/webform 6.2.9 → 6.3.2   1 conflicts, 1 applies
+    ! conflicts  Allow numeric machine names      webform-numeric.patch
+    · applies    Fix the alter hook               webform-alter.patch
+    2 patches skipped (the host answered 401)
+
+  acme/private 2.4.0   6 patches skipped (not a drupal.org project)
+  drupal/acme_sso 1.0.0   1 patch skipped (not a drupal.org project)
 ```
+
+A package the run judged nothing on gets a line of its own, laid out like a
+package heading. A package the table already shows says what it skipped
+under its own rows, so its name is printed once.
 
 A patch is skipped with its package, text included, and its title is never
-printed: a package the run never touched is one decision. A patch whose
-source URL is not one the service fetches from is skipped too, so an
-internal host is never printed. A package with no patch is not listed at
-all: this report is about patches.
+printed: a package the run never touched is one decision. A patch whose URL
+the run could not turn into a diff is skipped the same way, and the reason
+says what the host answered. A package with no patch is not listed at all:
+this report is about patches.
 
 If your site installs from a repository that rewrites `notification-url`,
 such as some Satis or Private Packagist setups, nothing is checked and the
 run says so. Call `/v1/composer/scan` directly with your whole files for an
 answer on that site.
 
-A patch source that is a URL is sent as the URL, and the service fetches it.
-Local patch files are read up to 16 MB each, 100 files per run, and only
-while the request stays inside the 32 MB the service accepts.
+Every patch is sent as text. A local file is read from disk and a URL is
+fetched over your own network, so a patch kept on a company host is checked
+like any other. The service downloads nothing.
 
-The call goes through composer's own HTTP client, so the site's proxy and
-certificate settings apply. The answer is the plan.
+A merge request `.patch` URL is fetched twice: the declared form decides the
+verdict, and the `.diff` form beside it is what a re-roll merges from. A
+series applies its later diffs onto blobs its earlier commits left markers
+in, which the one-diff-per-file form cannot do.
+
+Patches are read up to 16 MB each, 100 per run, and only while the request
+stays inside the 32 MB the service accepts. Fetched text is kept in
+composer's cache directory for a day.
+
+Fetching and the call both go through composer's own HTTP client, so the
+site's credentials, proxy and certificate settings apply. The answer is the
+plan.
 
 The endpoint is configurable:
 

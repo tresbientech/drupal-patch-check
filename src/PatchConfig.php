@@ -9,12 +9,7 @@ namespace TresBienTech\Drupatch;
  */
 class PatchConfig
 {
-    /**
-     * Largest patch file read from disk, the same cap the service applies to a patch it fetches from a URL.
-     */
-    private const MAX_PATCH_BYTES = 16 * 1024 * 1024;
-
-    /** Largest number of local patch files sent in one call. */
+    /** Largest number of patch texts sent in one call. */
     private const MAX_PATCH_FILES = 100;
 
     /** Largest external patches file read. */
@@ -35,11 +30,11 @@ class PatchConfig
     private const TITLE_KEYS = ['description', 'title', 'label'];
 
     /**
-     * @param list<array{package: string, title: string, source: string}> $patches
-     * @param array<string, string>                                       $files
-     * @param list<string>                                                $notes
-     * @param list<array{package: string, title: string, reason: string}> $skipped one entry per declared patch the run did not judge
-     * @param list<string>                                                $unsent  one line per patch whose text did not fit
+     * @param list<array{package: string, title: string, source: string}>                 $patches
+     * @param array<string, string>                                                       $files
+     * @param list<string>                                                                $notes
+     * @param list<array{package: string, title: string, reason: string}>                 $skipped one entry per declared patch the run did not judge
+     * @param list<array{package: string, title: string, source: string, reason: string}> $unsent  one entry per patch whose text did not fit
      */
     public function __construct(
         public readonly array $patches,
@@ -60,12 +55,13 @@ class PatchConfig
     /**
      * Reads the declarations of the site at `$root`.
      *
+     * @param PatchText             $text       turns a declared source into the text that travels
      * @param int                   $textBudget bytes the patch text may occupy in the request
      * @param array<string, string> $checkable  packages the service can judge, to their versions
      * @param array<string, mixed>  $extra      the root package's extra
      * @param list<string>          $installed  installed package names
      */
-    public static function read(string $root, int $textBudget, array $checkable, array $extra, array $installed = []): self
+    public static function read(string $root, PatchText $text, int $textBudget, array $checkable, array $extra, array $installed = []): self
     {
         $notes = [];
         $file = '';
@@ -82,43 +78,41 @@ class PatchConfig
                 continue;
             }
             if (!isset($checkable[$package])) {
-                $skipped[] = ['package' => $package, 'title' => $title, 'reason' => 'not a drupal.org release'];
+                $skipped[] = ['package' => $package, 'title' => $title, 'reason' => 'not a drupal.org project'];
                 continue;
             }
-            if (self::isUrl($source) && !self::isFetchable($source)) {
-                $skipped[] = ['package' => $package, 'title' => $title, 'reason' => 'the service does not fetch from that host'];
-                continue;
-            }
-            $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
-            if (self::isUrl($source) || isset($files[$source])) {
+            if (isset($files[$source])) {
+                $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
                 continue;
             }
             if (\count($files) >= self::MAX_PATCH_FILES) {
-                $unsent[] = self::names($package, $title).': more than '.self::MAX_PATCH_FILES.' local patch files';
+                $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
+                $unsent[] = self::withheld($package, $title, $source, 'more than '.self::MAX_PATCH_FILES.' patch texts');
                 continue;
             }
-            $full = self::resolve($root, $source);
-            $size = null === $full ? false : \filesize($full);
-            if (null === $full || false === $size) {
+            $read = $text->read($source);
+            if ($read['withheld']) {
+                $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
+                $unsent[] = self::withheld($package, $title, $source, $read['reason']);
                 continue;
             }
-            if ($size > self::MAX_PATCH_BYTES) {
-                $unsent[] = self::names($package, $title).': '.$size.' bytes, above the 16 MB cap';
+            if ('' !== $read['reason']) {
+                $skipped[] = ['package' => $package, 'title' => $title, 'reason' => $read['reason']];
                 continue;
             }
-            $text = @\file_get_contents($full);
-            if (false === $text) {
-                continue;
-            }
-            // What the text costs once escaped, which is what the request
+            // What the texts cost once escaped, which is what the request
             // is measured in.
-            $cost = \strlen(\json_encode($text, \JSON_THROW_ON_ERROR));
+            $cost = 0;
+            foreach ($read['files'] as $body) {
+                $cost += \strlen(\json_encode($body, \JSON_THROW_ON_ERROR));
+            }
+            $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
             if ($spent + $cost > $textBudget) {
-                $unsent[] = self::names($package, $title).': no room left under the service body limit';
+                $unsent[] = self::withheld($package, $title, $source, 'no room left under the service body limit');
                 continue;
             }
             $spent += $cost;
-            $files[$source] = $text;
+            $files += $read['files'];
         }
 
         if (isset($extra['patches-search'])) {
@@ -200,23 +194,6 @@ class PatchConfig
     }
 
     /**
-     * Whether the service would fetch this URL.
-     */
-    public static function isFetchable(string $source): bool
-    {
-        $s = \trim($source);
-        if (\str_starts_with($s, 'https://www.drupal.org/files/issues/')) {
-            return true;
-        }
-
-        if (1 === \preg_match('#^https://git\\.drupalcode\\.org/project/[^/]+/-/merge_requests/\\d+\\.(patch|diff)$#', $s)) {
-            return true;
-        }
-
-        return 1 === \preg_match('#^https://git\\.drupalcode\\.org/project/[^/]+/-/commit/[0-9a-f]{7,40}\\.(patch|diff)$#', $s);
-    }
-
-    /**
      * Every declared patch as [package, title, source], from the external file when the site keeps one, otherwise from composer.json.
      *
      * @param array<string, mixed> $extra
@@ -228,7 +205,7 @@ class PatchConfig
     {
         $declared = $extra['patches-file'] ?? null;
         if (\is_string($declared) && '' !== $declared) {
-            $full = self::resolve($root, $declared);
+            $full = PatchText::under($root, $declared);
             if (null === $full || \filesize($full) > self::MAX_PATCHES_FILE_BYTES) {
                 $notes[] = 'extra.patches-file points at '.$declared.', which could not be read';
             } else {
@@ -296,23 +273,12 @@ class PatchConfig
     }
 
     /**
-     * How a patch is named in a line about it.
+     * One patch the run declined to send the text of.
+     *
+     * @return array{package: string, title: string, source: string, reason: string}
      */
-    private static function names(string $package, string $title): string
+    private static function withheld(string $package, string $title, string $source, string $reason): array
     {
-        return $package.' "'.$title.'"';
-    }
-
-    /**
-     * A declared path as a real file under the site root, or null.
-     */
-    private static function resolve(string $root, string $source): ?string
-    {
-        $path = \realpath($root.\DIRECTORY_SEPARATOR.\ltrim($source, '/\\'));
-        if (false === $path || !\is_file($path)) {
-            return null;
-        }
-
-        return \str_starts_with($path, $root.\DIRECTORY_SEPARATOR) ? $path : null;
+        return ['package' => $package, 'title' => $title, 'source' => $source, 'reason' => $reason];
     }
 }

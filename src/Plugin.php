@@ -70,7 +70,7 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
             return;
         }
         try {
-            $site = Site::atWorkingDirectory($this->composer);
+            $site = Site::atWorkingDirectory($this->composer, $this->io);
             foreach ($site->patches()->notes as $note) {
                 $this->io->write('<comment>drupatch: '.$note.'</comment>');
             }

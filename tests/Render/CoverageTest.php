@@ -9,17 +9,11 @@ use TresBienTech\Drupatch\Render\Coverage;
 
 final class CoverageTest extends TestCase
 {
-    private const FORK = 'not a drupal.org release';
+    private const FORK = 'not a drupal.org project';
 
     private const HOST = 'the service does not fetch from that host';
 
-    public function testARunSaysHowManyPatchesItChecked(): void
-    {
-        $coverage = $this->coverage(53);
-
-        self::assertSame(['drupatch: checked 53 patches'], $coverage->lines());
-        self::assertFalse($coverage->isVacuous());
-    }
+    private const CAP = 'above the 16 MB cap';
 
     // One package, one line. Six lines naming six patches on a package
     // the run never touched is detail nobody acts on.
@@ -31,10 +25,10 @@ final class CoverageTest extends TestCase
             $this->skip('acquia/cohesion', 'Tmgmt issue fix'),
         ]);
 
-        self::assertSame([
-            'drupatch: checked 53 patches; skipped 3 on 1 package',
-            '  skipped  acquia/cohesion, 3 patches (not a drupal.org release)',
-        ], $coverage->lines());
+        self::assertSame(
+            ['acquia/cohesion 7.6.1   3 patches skipped (not a drupal.org project)'],
+            $coverage->unjudged([]),
+        );
     }
 
     public function testTwoPackagesGetALineEach(): void
@@ -46,10 +40,9 @@ final class CoverageTest extends TestCase
         ]);
 
         self::assertSame([
-            'drupatch: checked 50 patches; skipped 3 on 2 packages',
-            '  skipped  acquia/cohesion, 2 patches (not a drupal.org release)',
-            '  skipped  drupal/nouislider_js, 1 patch (not a drupal.org release)',
-        ], $coverage->lines());
+            'acquia/cohesion 7.6.1   2 patches skipped (not a drupal.org project)',
+            'drupal/nouislider_js 1.0.0   1 patch skipped (not a drupal.org project)',
+        ], $coverage->unjudged([]));
     }
 
     // The reason is the patch's, not the package's, so one package can
@@ -63,58 +56,86 @@ final class CoverageTest extends TestCase
         ]);
 
         self::assertSame([
-            'drupatch: checked 50 patches; skipped 3 on 2 packages',
-            '  skipped  drupal/webform, 2 patches (the service does not fetch from that host)',
-            '  skipped  drupal/webform, 1 patch (not a drupal.org release)',
-        ], $coverage->lines());
+            'drupal/webform 6.2.9   2 patches skipped (the service does not fetch from that host)',
+            'drupal/webform 6.2.9   1 patch skipped (not a drupal.org project)',
+        ], $coverage->unjudged([]));
     }
 
-    // Two packages sharing a reason stay apart, so the key is not the
-    // reason alone.
-    public function testTwoPackagesSharingAReasonStayApart(): void
+    // A package the site declares a patch for but does not install has
+    // no release to name, so the line carries the name alone.
+    public function testAPackageTheSiteDoesNotInstallIsNamedWithoutAVersion(): void
     {
-        $coverage = $this->coverage(50, [
-            $this->skip('drupal/a', 'One'),
-            $this->skip('drupal/b', 'Two'),
+        $coverage = $this->coverage(50, [$this->skip('acme/gone', 'In-house fix')]);
+
+        self::assertSame(
+            ['acme/gone   1 patch skipped (not a drupal.org project)'],
+            $coverage->unjudged([]),
+        );
+    }
+
+    // A package already in the table says what it skipped inside its own
+    // block, so its name is printed once.
+    public function testAPackageTheTableAlreadyShowsGetsNoLineOfItsOwn(): void
+    {
+        $coverage = $this->coverage(50, [$this->skip('drupal/webform', 'From our gitlab', self::HOST)]);
+
+        self::assertSame([], $coverage->unjudged(['drupal/webform']));
+        self::assertSame(
+            ['1 patch skipped (the service does not fetch from that host)'],
+            $coverage->notesFor('drupal/webform'),
+        );
+    }
+
+    public function testAPackageWithNothingHeldBackHasNothingToSay(): void
+    {
+        self::assertSame([], $this->coverage(50)->notesFor('drupal/webform'));
+    }
+
+    // Skipped and withheld are different states: one was never sent, the
+    // other was sent without its text.
+    public function testWhatWasSkippedAndWhatWasSentWithoutItsTextBothShow(): void
+    {
+        $coverage = $this->coverage(
+            50,
+            [$this->skip('drupal/webform', 'From our gitlab', self::HOST)],
+            [$this->withhold('drupal/webform', 'Huge', 'patches/huge.patch')],
+        );
+
+        self::assertSame([
+            '1 patch skipped (the service does not fetch from that host)',
+            '1 patch text not sent (above the 16 MB cap)',
+        ], $coverage->notesFor('drupal/webform'));
+    }
+
+    public function testTwoWithheldTextsShareTheirLine(): void
+    {
+        $coverage = $this->coverage(50, [], [
+            $this->withhold('drupal/webform', 'Huge', 'patches/huge.patch'),
+            $this->withhold('drupal/webform', 'Also huge', 'patches/also.patch'),
         ]);
 
-        self::assertSame([
-            'drupatch: checked 50 patches; skipped 2 on 2 packages',
-            '  skipped  drupal/a, 1 patch (not a drupal.org release)',
-            '  skipped  drupal/b, 1 patch (not a drupal.org release)',
-        ], $coverage->lines());
+        self::assertSame(
+            ['2 patch texts not sent (above the 16 MB cap)'],
+            $coverage->notesFor('drupal/webform'),
+        );
     }
 
-    public function testASinglePatchReadsAsEnglish(): void
+    // The report tells a lost file from a withheld one by this list, so
+    // it carries the declared path rather than the title.
+    public function testTheWithheldSourcesAreNamedByTheirDeclaredPath(): void
     {
-        $coverage = $this->coverage(1, [$this->skip('acme/private', 'In-house fix')]);
+        $coverage = $this->coverage(50, [], [
+            $this->withhold('drupal/webform', 'Huge', 'patches/huge.patch'),
+        ]);
 
-        self::assertSame([
-            'drupatch: checked 1 patch; skipped 1 on 1 package',
-            '  skipped  acme/private, 1 patch (not a drupal.org release)',
-        ], $coverage->lines());
+        self::assertSame(['patches/huge.patch'], $coverage->withheld());
     }
 
     public function testNoPatchTitleReachesTheOutput(): void
     {
-        $lines = \implode("\n", $this->coverage(53, [$this->skip('acquia/cohesion', 'Page builder lock logic')])->lines());
+        $coverage = $this->coverage(53, [$this->skip('acquia/cohesion', 'Page builder lock logic')]);
 
-        self::assertStringNotContainsString('Page builder lock logic', $lines);
-    }
-
-    public function testASiteWhoseEveryPatchWasSkippedIsToldPlainly(): void
-    {
-        $coverage = $this->coverage(0, [$this->skip('drupal/webform', 'Style fix')]);
-
-        self::assertSame(
-            ['drupatch: no patch could be checked. Every declared patch is on a package the service has no release for.'],
-            $coverage->lines(),
-        );
-    }
-
-    public function testASiteDeclaringNoPatchesSaysSo(): void
-    {
-        self::assertSame(['drupatch: checked 0 patches'], $this->coverage(0)->lines());
+        self::assertStringNotContainsString('Page builder lock logic', \implode("\n", $coverage->unjudged([])));
     }
 
     public function testDeclaringPatchesAndCheckingNoneIsVacuous(): void
@@ -141,10 +162,24 @@ final class CoverageTest extends TestCase
     }
 
     /**
-     * @param list<array{package: string, title: string, reason: string}> $skipped
+     * @return array{package: string, title: string, source: string, reason: string}
      */
-    private function coverage(int $patches, array $skipped = []): Coverage
+    private function withhold(string $package, string $title, string $source, string $reason = self::CAP): array
     {
-        return new Coverage($patches, $skipped);
+        return ['package' => $package, 'title' => $title, 'source' => $source, 'reason' => $reason];
+    }
+
+    /**
+     * @param list<array{package: string, title: string, reason: string}>                 $skipped
+     * @param list<array{package: string, title: string, source: string, reason: string}> $unsent
+     */
+    private function coverage(int $patches, array $skipped = [], array $unsent = []): Coverage
+    {
+        return new Coverage($patches, $skipped, $unsent, [
+            'acquia/cohesion' => '7.6.1',
+            'drupal/nouislider_js' => '1.0.0',
+            'drupal/webform' => '6.2.9',
+            'drupal/a' => '1.0.0',
+        ]);
     }
 }

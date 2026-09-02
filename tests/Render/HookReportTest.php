@@ -105,7 +105,7 @@ class HookReportTest extends TestCase
             ],
         ]))[0];
 
-        self::assertSame('<info>drupatch</info>: 1 unknown, 2 merged after this update', $first);
+        self::assertSame('<info>Drupal Patch Check</info>: 1 unknown, 2 merged after this update', $first);
     }
 
     public function testTheHintIsPrintedWhole(): void

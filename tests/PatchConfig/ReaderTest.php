@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Tests\PatchConfig;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\PatchConfig;
+use TresBienTech\Drupatch\PatchText;
 
 final class ReaderTest extends TestCase
 {
@@ -58,9 +59,44 @@ final class ReaderTest extends TestCase
      * @param array<string, string> $checkable
      * @param list<string>          $installed
      */
-    private function read(array $extra, int $textBudget = self::AMPLE, array $checkable = self::CHECKABLE, array $installed = []): PatchConfig
+    /**
+     * @param array<string, mixed>                            $extra
+     * @param array<string, string>                           $checkable
+     * @param list<string>                                    $installed
+     * @param array<string, array{status: int, body: string}> $hosts
+     */
+    private function read(array $extra, int $textBudget = self::AMPLE, array $checkable = self::CHECKABLE, array $installed = [], array $hosts = []): PatchConfig
     {
-        return PatchConfig::read($this->root, $textBudget, $checkable, $extra, $installed);
+        return PatchConfig::read($this->root, $this->text($hosts), $textBudget, $checkable, $extra, $installed);
+    }
+
+    /**
+     * Puts a patch on disk at each of these paths, for a case about the declaration rather than the file.
+     *
+     * @param array<int|string, string> $paths
+     */
+    private function writePatches(array $paths): void
+    {
+        foreach ($paths as $path) {
+            $full = $this->root.'/'.$path;
+            if (!\is_dir(\dirname($full))) {
+                \mkdir(\dirname($full), 0o777, true);
+            }
+            \file_put_contents($full, "diff --git a/x b/x\n");
+        }
+    }
+
+    /**
+     * A reader whose hosts answer what a case says, and a patch for any URL a case does not name.
+     *
+     * @param array<string, array{status: int, body: string}> $hosts
+     */
+    private function text(array $hosts = []): PatchText
+    {
+        return new PatchText($this->root, static fn (string $url): array => $hosts[$url] ?? [
+            'status' => 200,
+            'body' => "diff --git a/u b/u\n--- a/u\n+++ b/u\n@@ -1 +1 @@\n-a\n+b\n",
+        ], '');
     }
 
     public function testReadsTheInlineMapEveryDrupalSiteUses(): void
@@ -164,7 +200,10 @@ final class ReaderTest extends TestCase
 
         self::assertSame([], $resolution->files);
         self::assertCount(1, $resolution->patches, 'the patch keeps its row, so the report says it was not judged');
-        self::assertSame(['drupal/webform "Huge": 16777217 bytes, above the 16 MB cap'], $resolution->unsent);
+        self::assertSame(
+            [['package' => 'drupal/webform', 'title' => 'Huge', 'source' => 'patches/big.patch', 'reason' => 'above the 16 MB cap']],
+            $resolution->unsent,
+        );
     }
 
     public function testStopsSendingPatchTextWhenTheRequestIsFull(): void
@@ -181,7 +220,10 @@ final class ReaderTest extends TestCase
 
         self::assertSame(['patches/local.patch'], \array_keys($resolution->files));
         self::assertCount(2, $resolution->patches);
-        self::assertSame(['drupal/webform "Second": no room left under the service body limit'], $resolution->unsent);
+        self::assertSame(
+            [['package' => 'drupal/webform', 'title' => 'Second', 'source' => 'patches/second.patch', 'reason' => 'no room left under the service body limit']],
+            $resolution->unsent,
+        );
     }
 
     public function testLeavesAPatchOnAPackageTheServiceCannotJudgeAlone(): void
@@ -193,7 +235,7 @@ final class ReaderTest extends TestCase
         self::assertSame([], $resolution->patches);
         self::assertSame([], $resolution->files, 'the text of a patch that cannot be judged never leaves the site');
         self::assertSame(
-            [['package' => 'acme/private', 'title' => 'In-house fix', 'reason' => 'not a drupal.org release']],
+            [['package' => 'acme/private', 'title' => 'In-house fix', 'reason' => 'not a drupal.org project']],
             $resolution->skipped,
         );
         self::assertSame([], $resolution->notes, 'the hook stays quiet about a site that will always be this way');
@@ -209,12 +251,14 @@ final class ReaderTest extends TestCase
 
         self::assertSame([], $resolution->patches);
         self::assertSame(
-            [['package' => 'drupal/coder', 'title' => 'Internal sniff', 'reason' => 'not a drupal.org release']],
+            [['package' => 'drupal/coder', 'title' => 'Internal sniff', 'reason' => 'not a drupal.org project']],
             $resolution->skipped,
         );
     }
 
-    public function testHoldsBackAPatchTheServiceWouldRefuseToFetch(): void
+    // The site can reach its own hosts, so where a patch is kept stops
+    // deciding whether it is judged.
+    public function testFetchesAPatchFromAnyHostTheSiteNames(): void
     {
         $extra = ['patches' => ['drupal/webform' => [
             'From our gitlab' => 'https://git.acme-internal.com/drupal/webform/-/merge_requests/4.patch',
@@ -223,11 +267,40 @@ final class ReaderTest extends TestCase
 
         $resolution = $this->read($extra);
 
-        self::assertSame(['From drupal.org'], \array_column($resolution->patches, 'title'));
+        self::assertSame(['From our gitlab', 'From drupal.org'], \array_column($resolution->patches, 'title'));
+        self::assertSame([], $resolution->skipped);
+        self::assertSame([
+            'https://git.acme-internal.com/drupal/webform/-/merge_requests/4.patch',
+            'https://www.drupal.org/files/issues/a.patch',
+        ], \array_keys($resolution->files));
+    }
+
+    public function testAHostThatRefusesIsASkippedPatch(): void
+    {
+        $url = 'https://git.acme-internal.com/drupal/webform/-/merge_requests/4.patch';
+        $extra = ['patches' => ['drupal/webform' => ['Ours' => $url]]];
+
+        $resolution = $this->read($extra, self::AMPLE, self::CHECKABLE, [], [$url => ['status' => 401, 'body' => '']]);
+
+        self::assertSame([], $resolution->patches);
         self::assertSame(
-            [['package' => 'drupal/webform', 'title' => 'From our gitlab', 'reason' => 'the service does not fetch from that host']],
+            [['package' => 'drupal/webform', 'title' => 'Ours', 'reason' => 'the host answered 401']],
             $resolution->skipped,
         );
+    }
+
+    // A login page arrives with a 200, so the status alone does not say
+    // the run has a patch.
+    public function testALoginPageIsNotAPatch(): void
+    {
+        $url = 'https://git.acme-internal.com/drupal/webform/-/merge_requests/4.patch';
+        $extra = ['patches' => ['drupal/webform' => ['Ours' => $url]]];
+
+        $resolution = $this->read($extra, self::AMPLE, self::CHECKABLE, [], [
+            $url => ['status' => 200, 'body' => "<!DOCTYPE html>\n<title>Sign in</title>\n"],
+        ]);
+
+        self::assertSame('what came back is not a diff', $resolution->skipped[0]['reason']);
     }
 
     public function testKeepsAMergeRequestPatchOnDrupalcode(): void
@@ -247,18 +320,6 @@ final class ReaderTest extends TestCase
         ]]];
 
         self::assertCount(2, $this->read($extra)->patches);
-    }
-
-    public function testHoldsBackACommitUrlThatIsNotASha(): void
-    {
-        $extra = ['patches' => ['drupal/webform' => [
-            'Branch, not a commit' => 'https://git.drupalcode.org/project/webform/-/commit/8.x-1.x.diff',
-        ]]];
-
-        $resolution = $this->read($extra);
-
-        self::assertSame([], $resolution->patches);
-        self::assertSame('the service does not fetch from that host', $resolution->skipped[0]['reason']);
     }
 
     public function testKeepsTheCheckablePatchesOfAMixedSite(): void
@@ -302,24 +363,27 @@ final class ReaderTest extends TestCase
         self::assertStringNotContainsString('cweagans/composer-patches is installed', $notes);
     }
 
-    public function testLeavesURLPatchesToTheServer(): void
+    public function testAUrlPatchTravelsAsTextUnderItsUrl(): void
     {
-        $extra = ['patches' => ['drupal/webform' => ['Fix' => 'https://www.drupal.org/files/issues/a.patch']]];
+        $url = 'https://www.drupal.org/files/issues/a.patch';
+        $extra = ['patches' => ['drupal/webform' => ['Fix' => $url]]];
 
         $resolution = $this->read($extra);
 
-        self::assertSame([], $resolution->files);
-        self::assertFalse($resolution->isEmpty());
+        self::assertSame([$url], \array_keys($resolution->files));
+        self::assertStringStartsWith('diff --git', $resolution->files[$url]);
     }
 
-    public function testAPathThatDoesNotResolveIsStillDeclared(): void
+    // The reader knows the file is not there, so it says so rather than
+    // sending a patch with no text for the service to puzzle over.
+    public function testAPathThatDoesNotResolveIsASkippedPatch(): void
     {
         $extra = ['patches' => ['drupal/webform' => ['Fix' => 'patches/gone.patch']]];
 
         $resolution = $this->read($extra);
 
-        self::assertCount(1, $resolution->patches, 'the plan reports a missing file; the reader does not hide the patch');
-        self::assertSame([], $resolution->files);
+        self::assertSame([], $resolution->patches);
+        self::assertSame('no file at that path', $resolution->skipped[0]['reason']);
     }
 
     public function testRefusesAPathLeavingTheSiteRoot(): void
@@ -363,6 +427,7 @@ final class ReaderTest extends TestCase
         $sorted = \array_keys($declared);
         \sort($sorted);
         self::assertNotSame(\array_keys($declared), $sorted, 'this case must distinguish declared order from sorted');
+        $this->writePatches($declared);
 
         $resolution = $this->read(['patches' => ['drupal/domain' => $declared]]);
 
@@ -371,6 +436,8 @@ final class ReaderTest extends TestCase
 
     public function testKeepsTheOrderOfAListShapedDeclaration(): void
     {
+        $this->writePatches(['patchs/b.patch', 'patchs/a.patch', 'patchs/c.patch']);
+
         $resolution = $this->read(['patches' => ['drupal/domain' => [
             'patchs/b.patch',
             'patchs/a.patch',

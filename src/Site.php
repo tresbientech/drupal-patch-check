@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch;
 
 use Composer\Composer;
 use Composer\Factory;
+use Composer\IO\IOInterface;
 use RuntimeException;
 
 /**
@@ -21,6 +22,7 @@ class Site
 
     /**
      * @param array<string, string> $checkable   checkable package to its installed version
+     * @param array<string, string> $installed   every package the lock names, to its version, checkable or not
      * @param array<string, string> $constraints
      */
     private function __construct(
@@ -28,12 +30,13 @@ class Site
         private readonly string $composerJson,
         private readonly string $composerLock,
         private readonly array $checkable,
+        private readonly array $installed,
         private readonly PatchConfig $patches,
         private readonly array $constraints,
     ) {
     }
 
-    public static function atWorkingDirectory(Composer $composer): self
+    public static function atWorkingDirectory(Composer $composer, IOInterface $io): self
     {
         $jsonPath = Factory::getComposerFile();
         $real = \realpath($jsonPath);
@@ -51,9 +54,11 @@ class Site
             throw new RuntimeException('composer.lock is not readable; run composer update first');
         }
 
-        $installed = [];
+        // What the vendor directory holds, which is what says whether a
+        // patch manager this reader does not handle is in the site.
+        $vendor = [];
         foreach ($composer->getRepositoryManager()->getLocalRepository()->getPackages() as $package) {
-            $installed[] = $package->getName();
+            $vendor[] = $package->getName();
         }
 
         // What the site requires, so a candidate can be resolved inside
@@ -71,13 +76,21 @@ class Site
         $budget = \max(0, self::BODY_LIMIT - self::ENVELOPE_BYTES
             - \strlen(\json_encode($request['json'], \JSON_THROW_ON_ERROR))
             - \strlen(\json_encode($request['lock'], \JSON_THROW_ON_ERROR)));
-        $patches = PatchConfig::read($root, $budget, $request['packages'], $composer->getPackage()->getExtra(), $installed);
+        $patches = PatchConfig::read(
+            $root,
+            PatchText::fromComposer($composer, $io, $root),
+            $budget,
+            $request['packages'],
+            $composer->getPackage()->getExtra(),
+            $vendor,
+        );
 
         return new self(
             $root,
             $request['json'],
             $request['lock'],
             $request['packages'],
+            $request['locked'],
             $patches,
             \array_intersect_key($constraints, $request['packages']),
         );
@@ -115,6 +128,16 @@ class Site
     public function checkable(): array
     {
         return $this->checkable;
+    }
+
+    /**
+     * Every package the lock names, to the version it pins, so a package the service cannot judge can still be named with its release.
+     *
+     * @return array<string, string>
+     */
+    public function installed(): array
+    {
+        return $this->installed;
     }
 
     /**

@@ -43,7 +43,7 @@ class HookReport
             return [];
         }
 
-        $lines = ['<info>drupatch</info>: '.self::headline($rows)];
+        $lines = ['<info>'.Report::LABEL.'</info>: '.self::headline($rows)];
         foreach ($warnings as $warning) {
             $lines[] = '  <comment>! '.$warning.'</comment>';
         }

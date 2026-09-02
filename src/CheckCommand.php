@@ -248,6 +248,7 @@ class CheckCommand extends BaseCommand
         $fix = true === $input->getOption('fix');
         $resolve = true === $input->getOption('resolve');
         $reroll = true === $input->getOption('write') || $fix || $resolve;
+        $dryRun = true === $input->getOption('dry-run');
         // Resolved before anything is read or asked for, so a run asking
         // for an unknown shape stops without touching the site.
         $chosen = $input->getOption('format');
@@ -258,23 +259,19 @@ class CheckCommand extends BaseCommand
 
             return Plan::FAILED;
         }
-        // The json and github shapes are read by machines, so every line
-        // meant for a person goes to stderr and stdout stays parseable.
-        $notes = 'table' !== $format && $output instanceof ConsoleOutputInterface ? $output->getErrorOutput() : $output;
+        // The json and github shapes put a document on stdout, and so does
+        // --dry-run whatever shape was asked for. Every line meant for a
+        // person goes to stderr, so what a pipe reads stays parseable.
+        $parseable = 'table' !== $format || $dryRun;
+        $notes = $parseable && $output instanceof ConsoleOutputInterface ? $output->getErrorOutput() : $output;
 
         try {
             $composer = $this->requireComposer();
-            $site = Site::atWorkingDirectory($composer);
+            $site = Site::atWorkingDirectory($composer, $this->getIO());
             foreach ($site->patches()->notes as $note) {
                 $notes->writeln('<comment>drupatch: '.$note.'</comment>');
             }
-            foreach ($site->patches()->unsent as $line) {
-                $notes->writeln('<comment>drupatch: patch text not sent, '.$line.'</comment>');
-            }
             $coverage = Coverage::of($site, self::scope($input));
-            foreach ($coverage->lines() as $line) {
-                $notes->writeln('<comment>'.$line.'</comment>');
-            }
             // A bare run judges what the lock installs, so there is no
             // candidate to resolve and no repository to ask.
             $candidates = '' === $target ? [] : $this->candidates($composer, $site, $target, $notes);
@@ -289,7 +286,7 @@ class CheckCommand extends BaseCommand
 
                 return Plan::CLEAN;
             }
-            if (true === $input->getOption('dry-run')) {
+            if ($dryRun) {
                 $output->writeln((string) \json_encode(
                     Client::body($site->composerJson(), $site->composerLock(), $site->patches(), $target, $reroll, $candidates, $declared, $decided),
                     \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES,
@@ -347,7 +344,7 @@ class CheckCommand extends BaseCommand
             }
         } else {
             $scope = self::repeated($target, self::scope($input));
-            foreach (Report::report($plan, $outcomes, Report::clamp((new Terminal())->getWidth()), $scope) as $line) {
+            foreach (Report::report($plan, $coverage, $outcomes, Report::clamp((new Terminal())->getWidth()), $scope) as $line) {
                 $output->writeln($line);
             }
         }

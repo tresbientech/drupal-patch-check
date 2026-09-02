@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Render\Coverage;
 use TresBienTech\Drupatch\Render\Outcomes;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
@@ -14,6 +15,167 @@ use TresBienTech\Drupatch\Write\WorkingTree;
 class TableTest extends TestCase
 {
     use PlanFactory;
+
+    /**
+     * The table for a run that judged every patch the site declared.
+     *
+     * @return list<string>
+     */
+    private static function table(Plan $plan, int $width = 100, ?Outcomes $outcomes = null): array
+    {
+        return Report::lines($plan, self::covered($plan), $width, $outcomes);
+    }
+
+    /**
+     * The whole report for such a run.
+     *
+     * @return list<string>
+     */
+    private static function whole(Plan $plan, ?Outcomes $outcomes, int $width): array
+    {
+        return Report::report($plan, self::covered($plan), $outcomes, $width);
+    }
+
+    private static function covered(Plan $plan): Coverage
+    {
+        return new Coverage(\count($plan->patches), [], [], []);
+    }
+
+    /**
+     * The table for a run that left some of the site's patches alone.
+     *
+     * @param list<array{package: string, title: string, reason: string}>                 $skipped
+     * @param list<array{package: string, title: string, source: string, reason: string}> $unsent
+     *
+     * @return list<string>
+     */
+    private static function tableWith(Plan $plan, array $skipped = [], array $unsent = []): array
+    {
+        return Report::lines($plan, new Coverage(\count($plan->patches), $skipped, $unsent, [
+            'drupal/webform' => '6.2.9',
+            'acquia/cohesion' => '7.6.1',
+        ]));
+    }
+
+    // The package already has a heading, so what it skipped belongs
+    // under its rows rather than in a block naming it a second time.
+    public function testAPackageInTheTableSaysWhatItSkippedInsideItsOwnBlock(): void
+    {
+        $lines = self::tableWith($this->plan(), [[
+            'package' => 'drupal/webform', 'title' => 'From our gitlab',
+            'reason' => 'the service does not fetch from that host',
+        ]]);
+        $at = self::indexOf($lines, 'Fix b');
+
+        self::assertSame(
+            '    <comment>1 patch skipped (the service does not fetch from that host)</comment>',
+            $lines[$at + 1],
+        );
+    }
+
+    public function testAPackageWithNothingJudgedGetsALineOfItsOwnAfterTheGroups(): void
+    {
+        $lines = self::tableWith($this->plan(), [[
+            'package' => 'acquia/cohesion', 'title' => 'Page builder fix',
+            'reason' => 'not a drupal.org project',
+        ]]);
+        $at = self::indexOf($lines, 'acquia/cohesion');
+
+        self::assertSame(
+            '  <comment>acquia/cohesion 7.6.1   1 patch skipped (not a drupal.org project)</comment>',
+            $lines[$at],
+        );
+        self::assertSame('', $lines[$at - 1], 'a blank line keeps it apart from the package above');
+        self::assertStringContainsString('patches:', $lines[$at + 2], 'the tally still closes the table');
+    }
+
+    // Counting to zero says nothing a reader can act on; the reasons
+    // under it are the answer.
+    public function testARunThatJudgedNothingSaysSoInsteadOfCounting(): void
+    {
+        $plan = $this->planFrom(['counts' => [], 'patches' => []]);
+        $skipped = [['package' => 'acquia/cohesion', 'title' => 'Fix', 'reason' => 'not a drupal.org project']];
+
+        self::assertSame(
+            '<comment>Drupal Patch Check: no patch could be checked; the reasons are below</comment>',
+            self::tableWith($plan, $skipped)[0],
+        );
+    }
+
+    // The run knows it held this text back and says why under the
+    // package, so the service reporting it missing adds nothing.
+    public function testAPatchTextTheRunHeldBackIsNotAlsoReportedAsLost(): void
+    {
+        $plan = $this->planFrom(['missing_files' => ['patches/huge.patch'], 'patches' => [$this->row()]]);
+        $unsent = [[
+            'package' => 'drupal/webform', 'title' => 'Huge',
+            'source' => 'patches/huge.patch', 'reason' => 'above the 16 MB cap',
+        ]];
+
+        $out = \implode("\n", self::tableWith($plan, [], $unsent));
+
+        self::assertStringContainsString('1 patch text not sent (above the 16 MB cap)', $out);
+        self::assertStringNotContainsString('patch text not sent for:', $out);
+    }
+
+    // Nothing held this one back, so the text was lost on the way and a
+    // reader has a real problem to look at.
+    public function testAPatchTextTheServiceNeverGotIsReportedAsLost(): void
+    {
+        $plan = $this->planFrom(['missing_files' => ['patches/webform.patch'], 'patches' => [$this->row()]]);
+
+        self::assertStringContainsString(
+            '  patch text not sent for: patches/webform.patch',
+            \implode("\n", self::tableWith($plan)),
+        );
+    }
+
+    // A patch taken from a merge request is shared work, so the re-roll
+    // belongs where the people who share it will get it.
+    public function testAConflictingMergeRequestPatchPointsAtTheRequest(): void
+    {
+        $out = \implode("\n", self::whole($this->fromMergeRequest('conflicts'), null, 100));
+
+        self::assertStringContainsString('drupal/webform takes this patch from a merge request', $out);
+        self::assertStringContainsString('https://git.drupalcode.org/project/webform/-/merge_requests/22', $out);
+    }
+
+    public function testAnApplyingMergeRequestPatchPointsNowhere(): void
+    {
+        self::assertStringNotContainsString(
+            'merge request',
+            \implode("\n", self::whole($this->fromMergeRequest('applies'), null, 100)),
+        );
+    }
+
+    public function testAConflictingLocalPatchPointsNowhere(): void
+    {
+        self::assertSame([], Report::upstream($this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [
+            $this->row(['verdict' => 'conflicts', 'source' => 'patches/webform/fix.patch']),
+        ]])));
+    }
+
+    private function fromMergeRequest(string $verdict): Plan
+    {
+        return $this->planFrom(['counts' => [$verdict => 1], 'patches' => [$this->row([
+            'verdict' => $verdict,
+            'source' => 'https://git.drupalcode.org/project/webform/-/merge_requests/22.patch',
+        ])]]);
+    }
+
+    /**
+     * @param list<string> $lines
+     */
+    private static function indexOf(array $lines, string $needle): int
+    {
+        foreach ($lines as $i => $line) {
+            if (\str_contains($line, $needle)) {
+                return $i;
+            }
+        }
+
+        self::fail($needle.' is not in the table');
+    }
 
     private function plan(): Plan
     {
@@ -32,14 +194,24 @@ class TableTest extends TestCase
         ]);
     }
 
+    // The command a reader just ran is what introduces its answer; the
+    // dataset behind it is not a fact about this site's patches.
+    public function testTheReportIsIntroducedByTheCommandThatWroteIt(): void
+    {
+        self::assertStringStartsWith(
+            '<info>Drupal Patch Check</info>: 3 patches ',
+            self::table($this->plan())[0],
+        );
+    }
+
     public function testNamesTheReleaseEachVerdictIsAbout(): void
     {
-        self::assertStringContainsString('drupal/webform 6.2.9 → 6.3.2', \implode("\n", Report::lines($this->plan())));
+        self::assertStringContainsString('drupal/webform 6.2.9 → 6.3.2', \implode("\n", self::table($this->plan())));
     }
 
     public function testGroupsPatchesUnderTheirPackage(): void
     {
-        $lines = Report::lines($this->plan());
+        $lines = self::table($this->plan());
         $webform = \array_search('  drupal/webform 6.2.9 → 6.3.2   1 conflicts, 1 applies', $lines, true);
 
         self::assertIsInt($webform);
@@ -49,7 +221,7 @@ class TableTest extends TestCase
 
     public function testSaysWhyABlockedPatchHasNoVerdict(): void
     {
-        $out = \implode("\n", Report::lines($this->plan()));
+        $out = \implode("\n", self::table($this->plan()));
 
         self::assertStringContainsString('drupal/domain has no release for 11.4.5', $out);
     }
@@ -64,7 +236,7 @@ class TableTest extends TestCase
             ]]],
         ])]]);
 
-        $out = \implode("\n", Report::lines($plan));
+        $out = \implode("\n", self::table($plan));
 
         self::assertStringContainsString('core moved: \\Drupal\\workspaces\\WorkspaceListBuilder', $out);
     }
@@ -83,7 +255,7 @@ class TableTest extends TestCase
 
     public function testSaysWhatChangedAndWhereItIsDocumented(): void
     {
-        $out = \implode("\n", Report::lines($this->withCoreReferences([
+        $out = \implode("\n", self::table($this->withCoreReferences([
             ['symbol' => '\\Drupal\\Core\\Gone', 'kind' => 'removed', 'issue' => '\\Drupal\\Core\\Gone was removed in 11.0.0; replacement: the new_thing service', 'change_record' => 3500000],
             ['symbol' => '\\Drupal\\Core\\Deep\\Base::__construct', 'kind' => 'signature', 'issue' => 'passes 3 argument(s); \\Drupal\\Core\\Deep\\Base declares 4 (4 required) since 10.2.0'],
         ])));
@@ -99,7 +271,7 @@ class TableTest extends TestCase
             $flagged[] = ['symbol' => '\\Drupal\\Core\\Gone'.$n, 'kind' => 'removed', 'issue' => '\\Drupal\\Core\\Gone'.$n.' was removed in 11.0.0'];
         }
 
-        $lines = Report::lines($this->withCoreReferences($flagged, ['flagged_more' => 4]));
+        $lines = self::table($this->withCoreReferences($flagged, ['flagged_more' => 4]));
         $core = \array_values(\array_filter($lines, static fn (string $l): bool => \str_contains($l, 'core removed:')));
 
         self::assertCount(3, $core);
@@ -108,7 +280,7 @@ class TableTest extends TestCase
 
     public function testCountsTheDeprecatedReferences(): void
     {
-        $out = \implode("\n", Report::lines($this->withCoreReferences([], ['deprecated' => [
+        $out = \implode("\n", self::table($this->withCoreReferences([], ['deprecated' => [
             ['fqn' => '\\Drupal\\Core\\OldThing', 'deprecated_in' => '11.2.0', 'removal_in' => '12.0.0'],
             ['fqn' => '\\Drupal\\Core\\OtherThing', 'deprecated_in' => '11.3.0', 'removal_in' => '12.0.0'],
         ]])));
@@ -118,7 +290,7 @@ class TableTest extends TestCase
 
     public function testPrintsTheNoteWhenTheReferencesWentUnchecked(): void
     {
-        $out = \implode("\n", Report::lines($this->withCoreReferences([], ['note' => 'references not extracted: the patch does not apply to the tag'])));
+        $out = \implode("\n", self::table($this->withCoreReferences([], ['note' => 'references not extracted: the patch does not apply to the tag'])));
 
         self::assertStringContainsString('references not extracted: the patch does not apply to the tag', $out);
         self::assertDoesNotMatchRegularExpression('/^\s+core (removed|moved|signature):/m', $out);
@@ -134,7 +306,7 @@ class TableTest extends TestCase
             ],
         ])]]);
 
-        $out = \implode("\n", Report::lines($plan));
+        $out = \implode("\n", self::table($plan));
 
         self::assertStringContainsString('memcache.services.yml: patch failed', $out);
         self::assertStringNotContainsString('references not extracted', $out);
@@ -142,7 +314,7 @@ class TableTest extends TestCase
 
     public function testARowWithoutCoreReferencesPrintsNoCoreLine(): void
     {
-        self::assertDoesNotMatchRegularExpression('/^\s+core (removed|moved|signature):/m', \implode("\n", Report::lines($this->plan())));
+        self::assertDoesNotMatchRegularExpression('/^\s+core (removed|moved|signature):/m', \implode("\n", self::table($this->plan())));
     }
 
     public function testNamesTheFileARerollWillHaveToFix(): void
@@ -155,7 +327,7 @@ class TableTest extends TestCase
             ]],
         ])]]);
 
-        $out = \implode("\n", Report::lines($plan));
+        $out = \implode("\n", self::table($plan));
 
         self::assertStringContainsString('tests/src/Functional/SimplesitemapTest.php: does not exist in index', $out);
         // One line is the size of the hint; the rest is in the patch.
@@ -169,7 +341,7 @@ class TableTest extends TestCase
             'result' => ['hunks_failed' => [['file' => 'src/Manager.php', 'reason' => 'patch does not apply']]],
         ])]]);
 
-        self::assertStringNotContainsString('src/Manager.php', \implode("\n", Report::lines($plan)));
+        self::assertStringNotContainsString('src/Manager.php', \implode("\n", self::table($plan)));
     }
 
     public function testRendersARerollWithoutFailedHunksAsBefore(): void
@@ -177,7 +349,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [
             $this->row(['verdict' => 'conflicts', 'title' => 'Fix a']),
         ]]);
-        $lines = Report::lines($plan);
+        $lines = self::table($plan);
         $at = \array_search('  drupal/webform 6.2.9   1 conflicts', $lines, true);
 
         self::assertIsInt($at);
@@ -193,14 +365,14 @@ class TableTest extends TestCase
             'result' => ['error' => 'local patch file not supplied: send its text under patch_files'],
         ])]]);
 
-        self::assertStringContainsString('local patch file not supplied', \implode("\n", Report::lines($plan)));
+        self::assertStringContainsString('local patch file not supplied', \implode("\n", self::table($plan)));
     }
 
     public function testNamesTheLocalPatchesWhoseTextWasNotSent(): void
     {
         $plan = $this->planFrom(['missing_files' => ['patchs/webform.patch']]);
 
-        self::assertStringContainsString('patchs/webform.patch', \implode("\n", Report::lines($plan)));
+        self::assertStringContainsString('patchs/webform.patch', \implode("\n", self::table($plan)));
     }
 
     public function testLeadsWithAWarningTheCountsDependOn(): void
@@ -210,7 +382,7 @@ class TableTest extends TestCase
             'patches' => [$this->row()],
         ]);
 
-        $lines = Report::lines($plan);
+        $lines = self::table($plan);
 
         self::assertSame('  <comment>! 9 core patch(es) were not judged: 11.4 does not name a core release.</comment>', $lines[2], 'the warning belongs above the rows, marked and whole');
         self::assertSame('', $lines[3], 'a blank line separates the warnings from the packages');
@@ -225,7 +397,7 @@ class TableTest extends TestCase
             'result' => ['strict_refused' => 'the patch carries the packaging block as context'],
         ])]]);
 
-        $lines = Report::lines($plan);
+        $lines = self::table($plan);
         $row = self::rowWith($lines, '· applies   Fix the alter hook');
 
         self::assertSame(
@@ -244,7 +416,7 @@ class TableTest extends TestCase
             'result' => ['judged_without' => 'Domain content translations permissions_files'],
         ])]]);
 
-        $lines = Report::lines($plan);
+        $lines = self::table($plan);
         $row = self::rowWith($lines, '<error>!</error> conflicts Fix the alter hook');
 
         self::assertSame(
@@ -265,7 +437,7 @@ class TableTest extends TestCase
 
         self::assertSame(
             ['drupal/zzz', 'drupal/aaa'],
-            self::packagesInOrder(Report::lines($plan)),
+            self::packagesInOrder(self::table($plan)),
         );
     }
 
@@ -277,7 +449,7 @@ class TableTest extends TestCase
             $this->row(['title' => 'Yak', 'verdict' => 'conflicts']),
         ]]);
 
-        self::assertSame(['Zebra', 'Alpha', 'Yak'], self::titlesInOrder(Report::lines($plan)));
+        self::assertSame(['Zebra', 'Alpha', 'Yak'], self::titlesInOrder(self::table($plan)));
     }
 
     // A package interleaved with others in composer.json still prints
@@ -290,8 +462,8 @@ class TableTest extends TestCase
             $this->row(['package' => 'drupal/aaa', 'title' => 'Third']),
         ]]);
 
-        self::assertSame(['drupal/aaa', 'drupal/zzz'], self::packagesInOrder(Report::lines($plan)));
-        self::assertSame(['First', 'Third', 'Second'], self::titlesInOrder(Report::lines($plan)));
+        self::assertSame(['drupal/aaa', 'drupal/zzz'], self::packagesInOrder(self::table($plan)));
+        self::assertSame(['First', 'Third', 'Second'], self::titlesInOrder(self::table($plan)));
     }
 
     // The cited patch is applied before the row citing it, so declaration
@@ -303,14 +475,14 @@ class TableTest extends TestCase
             $this->row(['title' => 'Later', 'verdict' => 'applies', 'result' => ['judged_without' => 'Earlier']]),
         ]]);
 
-        $titles = self::titlesInOrder(Report::lines($plan));
+        $titles = self::titlesInOrder(self::table($plan));
 
         self::assertSame(['Earlier', 'Later'], $titles);
     }
 
     public function testABlankLineSeparatesEachPackage(): void
     {
-        $lines = Report::lines($this->plan());
+        $lines = self::table($this->plan());
         $domain = \array_search('  drupal/domain 2.0.1   1 unknown', $lines, true);
 
         self::assertIsInt($domain);
@@ -320,7 +492,7 @@ class TableTest extends TestCase
     public function testOnePackageRendersWithoutADoubledBlankLine(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row()]]);
-        $lines = Report::lines($plan);
+        $lines = self::table($plan);
 
         foreach ($lines as $i => $line) {
             if ('' === $line && '' === ($lines[$i + 1] ?? 'x')) {
@@ -334,7 +506,7 @@ class TableTest extends TestCase
     {
         $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'merged'])]]);
 
-        self::assertStringContainsString('drupal/webform 6.2.9   1 merged', \implode("\n", Report::lines($plan)));
+        self::assertStringContainsString('drupal/webform 6.2.9   1 merged', \implode("\n", self::table($plan)));
     }
 
     public function testTheTallyIsWorstVerdictFirst(): void
@@ -347,7 +519,7 @@ class TableTest extends TestCase
 
         self::assertStringContainsString(
             '1 conflicts, 1 unknown, 1 merged',
-            \implode("\n", Report::lines($plan)),
+            \implode("\n", self::table($plan)),
         );
     }
 
@@ -355,7 +527,7 @@ class TableTest extends TestCase
     {
         $plan = $this->plan();
 
-        self::assertSame(Report::lines($plan), Report::lines($plan));
+        self::assertSame(self::table($plan), self::table($plan));
     }
 
     /**
@@ -413,7 +585,7 @@ class TableTest extends TestCase
             $this->row(['source' => 'patchs/webform-3401234.patch']),
         ]]);
 
-        self::assertStringEndsWith('webform-3401234.patch', Report::lines($plan)[3]);
+        self::assertStringEndsWith('webform-3401234.patch', self::table($plan)[3]);
     }
 
     public function testAUrlPatchShowsItsLastSegment(): void
@@ -422,7 +594,7 @@ class TableTest extends TestCase
             $this->row(['source' => 'https://www.drupal.org/files/issues/2025-01-02/webform-3399999-12.patch']),
         ]]);
 
-        self::assertStringEndsWith('webform-3399999-12.patch', Report::lines($plan)[3]);
+        self::assertStringEndsWith('webform-3399999-12.patch', self::table($plan)[3]);
     }
 
     public function testAQueryStringIsNotPartOfTheFilename(): void
@@ -431,7 +603,7 @@ class TableTest extends TestCase
             $this->row(['source' => 'https://example.test/p/fix.patch?token=abc']),
         ]]);
 
-        self::assertStringEndsWith('fix.patch', Report::lines($plan)[3]);
+        self::assertStringEndsWith('fix.patch', self::table($plan)[3]);
     }
 
     // The label already is the source, so a column repeating it would
@@ -441,14 +613,14 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['patches' => [
             $this->row(['title' => '', 'source' => 'patchs/webform.patch']),
         ]]);
-        $row = Report::lines($plan)[3];
+        $row = self::table($plan)[3];
 
         self::assertSame(1, \substr_count($row, 'patchs/webform.patch'));
     }
 
     public function testANarrowTerminalStillPrintsOneRowPerPatch(): void
     {
-        $lines = Report::lines($this->plan(), 80);
+        $lines = self::table($this->plan(), 80);
         $rows = \array_filter($lines, static fn (string $l): bool => 1 === \preg_match('/^    \S/u', $l));
 
         self::assertCount(3, $rows);
@@ -462,7 +634,7 @@ class TableTest extends TestCase
         $title = 'Allow numeric machine names in webform handler configuration';
         $plan = $this->planFrom(['patches' => [$this->row(['title' => $title])]]);
 
-        self::assertStringContainsString($title, \implode("\n", Report::lines($plan, 120)));
+        self::assertStringContainsString($title, \implode("\n", self::table($plan, 120)));
     }
 
     public function testANarrowTerminalShortensTheTitle(): void
@@ -470,7 +642,7 @@ class TableTest extends TestCase
         $title = 'Allow numeric machine names in webform handler configuration forms';
         $plan = $this->planFrom(['patches' => [$this->row(['title' => $title])]]);
 
-        $out = \implode("\n", Report::lines($plan, 80));
+        $out = \implode("\n", self::table($plan, 80));
         self::assertStringNotContainsString($title, $out);
         self::assertStringContainsString('…', $out);
     }
@@ -480,7 +652,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['patches' => [$this->row([
             'title' => \str_repeat('long title ', 40),
         ])]]);
-        $lines = Report::lines($plan, 80);
+        $lines = self::table($plan, 80);
 
         self::assertCount(1, \array_filter($lines, static fn (string $l): bool => \str_contains($l, 'long title')));
     }
@@ -492,7 +664,7 @@ class TableTest extends TestCase
             $this->row(['title' => 'A considerably longer patch title', 'source' => 'patchs/b.patch']),
         ]]);
         $rows = \array_values(\array_filter(
-            Report::lines($plan, 100),
+            self::table($plan, 100),
             static fn (string $l): bool => 1 === \preg_match('/^    \S/u', $l),
         ));
 
@@ -506,14 +678,14 @@ class TableTest extends TestCase
 
     public function testARowNeverEndsInWhitespace(): void
     {
-        foreach (Report::lines($this->plan(), 100) as $line) {
+        foreach (self::table($this->plan(), 100) as $line) {
             self::assertSame(\rtrim($line), $line, 'a line ends in padding: '.$line);
         }
     }
 
     public function testContinuationLinesSitUnderTheTitle(): void
     {
-        $lines = Report::lines($this->plan(), 100);
+        $lines = self::table($this->plan(), 100);
         $row = self::rowWith($lines, '<comment>?</comment> unknown');
         $detail = $lines[$row + 1];
 
@@ -526,7 +698,7 @@ class TableTest extends TestCase
 
     public function testAWriteRunLeavesOutAnAppliesRowWithNothingUnderIt(): void
     {
-        $lines = Report::report($this->plan(), Outcomes::fromWrite(['written' => [], 'refused' => []]), 100);
+        $lines = self::whole($this->plan(), Outcomes::fromWrite(['written' => [], 'refused' => []]), 100);
         $out = \implode("\n", $lines);
 
         self::assertStringNotContainsString('Fix b', $out);
@@ -537,7 +709,7 @@ class TableTest extends TestCase
 
     public function testABareRunPrintsEveryRow(): void
     {
-        self::assertStringContainsString('Fix b', \implode("\n", Report::report($this->plan(), null, 100)));
+        self::assertStringContainsString('Fix b', \implode("\n", self::whole($this->plan(), null, 100)));
     }
 
     public function testAWriteRunKeepsAnAppliesRowThatHasANoteUnderIt(): void
@@ -545,7 +717,7 @@ class TableTest extends TestCase
         $plan = $this->withCoreReferences([
             ['symbol' => '\\Drupal\\workspaces\\WorkspaceListBuilder', 'kind' => 'moved', 'file' => 'src/X.php', 'line' => 9, 'reference' => 'new', 'issue' => 'moved in 11.4.0'],
         ]);
-        $out = \implode("\n", Report::report($plan, Outcomes::fromWrite(['written' => [], 'refused' => []]), 100));
+        $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [], 'refused' => []]), 100));
 
         self::assertStringContainsString('applies', $out);
         self::assertStringContainsString('core moved:', $out);
@@ -553,7 +725,7 @@ class TableTest extends TestCase
 
     public function testTheFooterIsTheLastThingTheReportPrints(): void
     {
-        $lines = Report::report($this->plan(), null, 100);
+        $lines = self::whole($this->plan(), null, 100);
         $last = $lines[\count($lines) - 1];
 
         self::assertStringContainsString('--write', $last);
@@ -562,7 +734,7 @@ class TableTest extends TestCase
     public function testTheWrittenFilesPrintAboveTheFooter(): void
     {
         $result = ['written' => [$this->writtenFile('patchs/webform.patch')], 'refused' => [['package' => 'drupal/core', 'title' => 'Fix a', 'path' => 'patches/core/a.patch', 'reason' => WorkingTree::UNCOMMITTED, 'lifts' => '--force']]];
-        $lines = Report::report($this->plan(), Outcomes::fromWrite($result), 100);
+        $lines = self::whole($this->plan(), Outcomes::fromWrite($result), 100);
 
         $wrote = self::indexOfLineContaining($lines, 'wrote patchs/webform.patch');
         $footer = self::indexOfLineContaining($lines, '--force');
@@ -573,7 +745,7 @@ class TableTest extends TestCase
     public function testAReportWithNothingToRunHasNoFooter(): void
     {
         $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row()]]);
-        $lines = Report::report($plan, null, 100);
+        $lines = self::whole($plan, null, 100);
 
         self::assertSame([], Report::footer($plan));
         self::assertStringNotContainsString('Next:', \implode("\n", $lines));
@@ -586,13 +758,13 @@ class TableTest extends TestCase
 
         self::assertSame(
             \array_merge(
-                Report::lines($plan, 100, Outcomes::fromWrite($result)),
+                self::table($plan, 100, Outcomes::fromWrite($result)),
                 Report::written(Outcomes::fromWrite($result)),
                 Report::refused(Outcomes::fromWrite($result)),
                 Report::rewrite(Outcomes::fromWrite($result)),
                 Report::footer($plan, Outcomes::fromWrite($result)),
             ),
-            Report::report($plan, Outcomes::fromWrite($result), 100),
+            self::whole($plan, Outcomes::fromWrite($result), 100),
         );
     }
 
@@ -611,7 +783,7 @@ class TableTest extends TestCase
 
     public function testEveryRowOpensWithItsMark(): void
     {
-        $lines = Report::lines($this->plan());
+        $lines = self::table($this->plan());
         $rows = \array_values(\array_filter(
             $lines,
             static fn (string $line): bool => 1 === \preg_match('/^    \S/', $line),
@@ -635,13 +807,13 @@ class TableTest extends TestCase
 
         self::assertStringContainsString(
             'needs-a-human',
-            \implode("\n", Report::lines($plan)),
+            \implode("\n", self::table($plan)),
         );
     }
 
     public function testABlockedPackageHeadingNamesAReleaseAndCarriesNoArrow(): void
     {
-        $lines = Report::lines($this->plan());
+        $lines = self::table($this->plan());
 
         self::assertContains('  drupal/domain 2.0.1   1 unknown', $lines);
         self::assertStringNotContainsString('→ no release for the target', \implode("\n", $lines));
@@ -653,7 +825,7 @@ class TableTest extends TestCase
             'package' => 'drupal/select2', 'project' => 'select2', 'installed' => 'dev-2.x', 'version' => '2.x-dev',
         ])]]);
 
-        self::assertContains('  drupal/select2 dev-2.x   1 applies', Report::lines($plan));
+        self::assertContains('  drupal/select2 dev-2.x   1 applies', self::table($plan));
     }
 
     public function testEitherSpellingOfOneBranchReadsAsOne(): void
@@ -662,7 +834,7 @@ class TableTest extends TestCase
             'package' => 'drupal/select2', 'project' => 'select2', 'installed' => '2.x-dev', 'version' => 'dev-2.x',
         ])]]);
 
-        self::assertContains('  drupal/select2 2.x-dev   1 applies', Report::lines($plan));
+        self::assertContains('  drupal/select2 2.x-dev   1 applies', self::table($plan));
     }
 
     public function testTwoDifferentBranchesAreStillAMove(): void
@@ -671,7 +843,7 @@ class TableTest extends TestCase
             'package' => 'drupal/select2', 'project' => 'select2', 'installed' => 'dev-1.x', 'version' => '2.x-dev',
         ])]]);
 
-        self::assertContains('  drupal/select2 dev-1.x → 2.x-dev   1 applies', Report::lines($plan));
+        self::assertContains('  drupal/select2 dev-1.x → 2.x-dev   1 applies', self::table($plan));
     }
 
     public function testAReleaseUpgradeIsStillAMove(): void
@@ -680,7 +852,7 @@ class TableTest extends TestCase
             'installed' => '6.2.9', 'version' => '6.3.2',
         ])]]);
 
-        self::assertContains('  drupal/webform 6.2.9 → 6.3.2   1 applies', Report::lines($plan));
+        self::assertContains('  drupal/webform 6.2.9 → 6.3.2   1 applies', self::table($plan));
     }
 
     public function testAWarningSitsAboveThePackageItNames(): void
@@ -691,7 +863,7 @@ class TableTest extends TestCase
             'patches' => [$this->row()],
         ]);
 
-        $lines = Report::lines($plan);
+        $lines = self::table($plan);
         $heading = \array_search('  drupal/webform 6.2.9   1 applies', $lines, true);
 
         self::assertIsInt($heading);
@@ -712,7 +884,7 @@ class TableTest extends TestCase
             ],
         ]);
 
-        $lines = Report::lines($plan);
+        $lines = self::table($plan);
         $warning = \array_search('  <comment>! drupal/domain 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.</comment>', $lines, true);
 
         self::assertIsInt($warning);
@@ -732,7 +904,7 @@ class TableTest extends TestCase
             'patches' => [$this->row()],
         ]);
 
-        self::assertStringNotContainsString('drupal/domain', \implode("\n", Report::lines($plan)));
+        self::assertStringNotContainsString('drupal/domain', \implode("\n", self::table($plan)));
     }
 
     public function testABlockedPackageCarryingPatchesKeepsItsWarning(): void
@@ -744,7 +916,7 @@ class TableTest extends TestCase
             'patches' => [$this->row()],
         ]);
 
-        $lines = Report::lines($plan);
+        $lines = self::table($plan);
         $heading = \array_search('  drupal/webform 6.2.9   1 applies', $lines, true);
 
         self::assertIsInt($heading);
@@ -761,7 +933,7 @@ class TableTest extends TestCase
             'patches' => [$this->row()],
         ]);
 
-        $lines = Report::lines($plan);
+        $lines = self::table($plan);
 
         self::assertSame('  <comment>! 9 core patch(es) were not judged: 11.4 does not name a core release.</comment>', $lines[2]);
         self::assertSame('', $lines[3]);
@@ -775,26 +947,26 @@ class TableTest extends TestCase
             'patches' => [$this->row()],
         ]);
 
-        $marked = \array_filter(Report::lines($plan), static fn (string $line): bool => \str_contains($line, '! drupal/webform 6.3.2'));
+        $marked = \array_filter(self::table($plan), static fn (string $line): bool => \str_contains($line, '! drupal/webform 6.3.2'));
 
         self::assertCount(1, $marked);
     }
 
     public function testEndsOnThePatchTally(): void
     {
-        $out = \implode("\n", Report::lines($this->plan()));
+        $out = \implode("\n", self::table($this->plan()));
 
         self::assertStringContainsString('  patches: 1 conflicts, 1 applies, 1 unknown', $out);
     }
 
     public function testTheFooterCarriesNoPackageTally(): void
     {
-        self::assertStringNotContainsString('packages:', \implode("\n", Report::lines($this->plan())));
+        self::assertStringNotContainsString('packages:', \implode("\n", self::table($this->plan())));
     }
 
     public function testTheFooterDoesNotListTheBlockedPackages(): void
     {
-        self::assertNotContains('  no release for 11.4.5: drupal/domain', Report::lines($this->plan()));
+        self::assertNotContains('  no release for 11.4.5: drupal/domain', self::table($this->plan()));
     }
 
     public function testTheFooterStillNamesPatchTextThatWasNotSent(): void
@@ -805,20 +977,20 @@ class TableTest extends TestCase
             'missing_files' => ['drupal/webform "Fix a"'],
         ]);
 
-        self::assertStringContainsString('patch text not sent for: drupal/webform "Fix a"', \implode("\n", Report::lines($plan)));
+        self::assertStringContainsString('patch text not sent for: drupal/webform "Fix a"', \implode("\n", self::table($plan)));
     }
 
     public function testSaysWhenThePlanRanAgainstTheInstalledCore(): void
     {
         $plan = $this->planFrom(['target_is_installed' => true, 'patches' => [$this->row()]]);
 
-        self::assertStringContainsString('against the releases this site installs', Report::lines($plan)[0]);
+        self::assertStringContainsString('against the releases this site installs', self::table($plan)[0]);
     }
 
     public function testAVerifiedRerollIsListedWithItsStatusBelowTheTally(): void
     {
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'verified' => true], ['title' => 'Fix a'])]]);
-        $lines = Report::report($plan, Outcomes::fromWrite(['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []]), 100);
+        $lines = self::whole($plan, Outcomes::fromWrite(['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []]), 100);
 
         $wrote = self::indexOfLineContaining($lines, 'wrote ');
         self::assertSame('  wrote patches/webform/fix.patch  (clean, verified against the release by the server)', $lines[$wrote]);
@@ -829,7 +1001,7 @@ class TableTest extends TestCase
     {
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'conflicts'], ['title' => 'Fix a'])]]);
         $written = $this->writtenFile('patches/webform/fix.conflict.patch', 'conflicts', 'drupal/webform', 'Fix a', false, 3);
-        $out = \implode("\n", Report::report($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
+        $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
 
         self::assertStringContainsString('  wrote patches/webform/fix.conflict.patch  (conflicts, 3 regions to decide)', $out);
         self::assertStringContainsString('1 conflict file has regions to decide; it is not a usable patch until you resolve it', $out);
@@ -846,7 +1018,7 @@ class TableTest extends TestCase
     public function testNothingPrintsUnderARowForTheWriteItself(): void
     {
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'verified' => true], ['title' => 'Fix a'])]]);
-        $lines = Report::report($plan, Outcomes::fromWrite(['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []]), 100);
+        $lines = self::whole($plan, Outcomes::fromWrite(['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []]), 100);
 
         $row = self::indexOfLineContaining($lines, 'Fix a');
         self::assertSame('', $lines[$row + 1]);
@@ -866,7 +1038,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean'], ['title' => 'Fix a'])]]);
         $refusal = ['package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patches/webform/fix.patch', 'reason' => $reason, 'lifts' => $lifts];
 
-        return Report::report($plan, Outcomes::fromWrite(['written' => [], 'refused' => [$refusal]]), 100);
+        return self::whole($plan, Outcomes::fromWrite(['written' => [], 'refused' => [$refusal]]), 100);
     }
 
     public function testARefusalIsListedWithItsReasonBelowTheTally(): void
@@ -909,7 +1081,7 @@ class TableTest extends TestCase
         $outcomes = Outcomes::fromWrite(['written' => $written, 'refused' => []]);
         $outcomes->recordFix($changes, $declaration);
 
-        return Report::report($plan, $outcomes, 100);
+        return self::whole($plan, $outcomes, 100);
     }
 
     public function testADroppedEntryIsListedUnderTheFileItLeft(): void
@@ -973,7 +1145,7 @@ class TableTest extends TestCase
             'counts' => ['conflicts' => 1],
             'patches' => [$this->row(['verdict' => 'conflicts'])],
         ]);
-        $lines = Report::report($plan, null, 100);
+        $lines = self::whole($plan, null, 100);
 
         self::assertStringContainsString('1 patch for a move from core 11.3.12 to 11.4.5', $lines[0]);
         self::assertStringNotContainsString('judged against', \implode("\n", $lines));
@@ -988,7 +1160,7 @@ class TableTest extends TestCase
             'counts' => ['conflicts' => 1],
             'patches' => [$this->row(['verdict' => 'conflicts'])],
         ]);
-        $lines = Report::report($plan, null, 100);
+        $lines = self::whole($plan, null, 100);
         $tally = self::indexOfLineContaining($lines, 'patches: ');
 
         self::assertSame('', $lines[$tally + 1]);
@@ -1003,7 +1175,7 @@ class TableTest extends TestCase
         ]);
         $wrote = ['written' => [$this->writtenFile('patches/a.patch')], 'refused' => []];
 
-        self::assertStringNotContainsString('--write', \implode("\n", Report::report($plan, Outcomes::fromWrite($wrote), 100)));
+        self::assertStringNotContainsString('--write', \implode("\n", self::whole($plan, Outcomes::fromWrite($wrote), 100)));
     }
 
     public function testAReportOfARunThatDidNotWriteStillSuggestsTheFlag(): void
@@ -1013,7 +1185,7 @@ class TableTest extends TestCase
             'patches' => [$this->row(['verdict' => 'conflicts'])],
         ]);
 
-        self::assertStringContainsString('--write', \implode("\n", Report::report($plan, null, 100)));
+        self::assertStringContainsString('--write', \implode("\n", self::whole($plan, null, 100)));
     }
 
     public function testTheReportIsByteIdenticalAcrossTwoRuns(): void
@@ -1027,7 +1199,7 @@ class TableTest extends TestCase
             ['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'patches/a.patch', 'reason' => WorkingTree::NOT_A_CHECKOUT, 'lifts' => '--force'],
         ]];
 
-        self::assertSame(Report::report($plan, Outcomes::fromWrite($wrote), 100), Report::report($plan, Outcomes::fromWrite($wrote), 100));
+        self::assertSame(self::whole($plan, Outcomes::fromWrite($wrote), 100), self::whole($plan, Outcomes::fromWrite($wrote), 100));
     }
 
     public function testSaysHowManyRegionsTheMergeDecidedOnItsOwn(): void
@@ -1043,7 +1215,7 @@ class TableTest extends TestCase
 
         self::assertStringContainsString(
             'the release and the patch both added lines in 2 regions; the merge kept both additions, check them',
-            \implode("\n", Report::lines($plan))
+            \implode("\n", self::table($plan))
         );
     }
 
@@ -1054,7 +1226,7 @@ class TableTest extends TestCase
             ['title' => 'Fix a']
         )]]);
 
-        self::assertStringNotContainsString('kept both additions', \implode("\n", Report::lines($plan)));
+        self::assertStringNotContainsString('kept both additions', \implode("\n", self::table($plan)));
     }
 
     public function testNamesTheRegionsTheMergeDecidedBesideTheFileItWrote(): void
@@ -1078,7 +1250,7 @@ class TableTest extends TestCase
 
         self::assertStringContainsString(
             're-rolled from merge_requests/45.diff, the merge request\'s own diff, not the file declared',
-            \implode("\n", Report::lines($plan))
+            \implode("\n", self::table($plan))
         );
     }
 
@@ -1089,6 +1261,6 @@ class TableTest extends TestCase
             ['title' => 'Fix a']
         )]]);
 
-        self::assertStringNotContainsString('merged from', \implode("\n", Report::lines($plan)));
+        self::assertStringNotContainsString('merged from', \implode("\n", self::table($plan)));
     }
 }

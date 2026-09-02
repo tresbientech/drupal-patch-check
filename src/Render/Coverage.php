@@ -7,17 +7,34 @@ namespace TresBienTech\Drupatch\Render;
 use TresBienTech\Drupatch\Site;
 
 /**
- * What a run actually checked, and which packages it skipped.
+ * What a run did not judge: the patches it never sent, and the ones it sent without their text.
  */
 class Coverage
 {
+    /** @var array<string, array<string, int>> patches never sent, by package and reason */
+    private readonly array $skippedGroups;
+
+    /** @var array<string, array<string, int>> patches sent without their text, by package and reason */
+    private readonly array $unsentGroups;
+
+    /** @var list<string> */
+    private readonly array $withheld;
+
     /**
-     * @param list<array{package: string, title: string, reason: string}> $skipped
+     * @param int                                                                         $checked  patches the run asked for a verdict on
+     * @param list<array{package: string, title: string, reason: string}>                 $skipped  narrowed to the packages asked for, since a package outside the scope is not the run's business
+     * @param list<array{package: string, title: string, source: string, reason: string}> $unsent   every package: a note prints under the block of the package it names, and the transport check reads them all
+     * @param array<string, string>                                                       $versions the version the lock pins, per package
      */
     public function __construct(
-        public readonly int $patches,
-        public readonly array $skipped,
+        private readonly int $checked,
+        array $skipped,
+        array $unsent,
+        private readonly array $versions,
     ) {
+        $this->skippedGroups = self::grouped($skipped);
+        $this->unsentGroups = self::grouped($unsent);
+        $this->withheld = \array_column($unsent, 'source');
     }
 
     /**
@@ -29,17 +46,17 @@ class Coverage
     {
         $config = $site->patches();
         if ([] === $packages) {
-            return new self(\count($config->patches), $config->skipped);
+            return new self(\count($config->patches), $config->skipped, $config->unsent, $site->installed());
         }
 
         $wanted = [];
         foreach ($packages as $name) {
             $wanted[self::shortName($name)] = true;
         }
-        $patches = 0;
+        $checked = 0;
         foreach ($config->patches as $patch) {
             if (isset($wanted[self::shortName($patch['package'])])) {
-                ++$patches;
+                ++$checked;
             }
         }
         $skipped = [];
@@ -49,7 +66,7 @@ class Coverage
             }
         }
 
-        return new self($patches, $skipped);
+        return new self($checked, $skipped, $config->unsent, $site->installed());
     }
 
     /**
@@ -67,69 +84,86 @@ class Coverage
      */
     public function isVacuous(): bool
     {
-        return 0 === $this->patches && [] !== $this->skipped;
+        return 0 === $this->checked && [] !== $this->skippedGroups;
     }
 
     /**
-     * The lines a person reads before the table: what was covered, then one line per package the run left alone.
+     * What one package's patches came to short of a verdict, one line per reason.
      *
      * @return list<string>
      */
-    public function lines(): array
+    public function notesFor(string $package): array
     {
-        if ($this->isVacuous()) {
-            return ['drupatch: no patch could be checked. Every declared patch is on a package the service has no release for.'];
+        $out = [];
+        foreach ($this->skippedGroups[$package] ?? [] as $reason => $count) {
+            $out[] = self::count($count, 'patch', 'patches').' skipped ('.$reason.')';
         }
-
-        $groups = self::grouped($this->skipped);
-        $line = \sprintf('drupatch: checked %d patch%s', $this->patches, 1 === $this->patches ? '' : 'es');
-        if ([] !== $groups) {
-            $line .= \sprintf(
-                '; skipped %d on %d package%s',
-                \count($this->skipped),
-                \count($groups),
-                1 === \count($groups) ? '' : 's',
-            );
-        }
-
-        $out = [$line];
-        foreach ($groups as $group) {
-            $out[] = \sprintf(
-                '  skipped  %s, %d patch%s (%s)',
-                $group['package'],
-                $group['count'],
-                1 === $group['count'] ? '' : 'es',
-                $group['reason'],
-            );
+        foreach ($this->unsentGroups[$package] ?? [] as $reason => $count) {
+            $out[] = self::count($count, 'patch text', 'patch texts').' not sent ('.$reason.')';
         }
 
         return $out;
     }
 
     /**
-     * The skipped patches as one entry per package and reason, in the order they were declared.
+     * The packages nothing was judged on, each said the way a package heading is said.
      *
-     * @param list<array{package: string, title: string, reason: string}> $skipped
+     * @param list<string> $judged the packages the table has a block for
      *
-     * @return list<array{package: string, reason: string, count: int}>
+     * @return list<string>
      */
-    private static function grouped(array $skipped): array
+    public function unjudged(array $judged): array
     {
-        $groups = [];
-        foreach ($skipped as $entry) {
-            $seen = false;
-            foreach ($groups as $i => $group) {
-                if ($group['package'] === $entry['package'] && $group['reason'] === $entry['reason']) {
-                    $groups[$i] = ['package' => $group['package'], 'reason' => $group['reason'], 'count' => $group['count'] + 1];
-                    $seen = true;
-                    break;
-                }
+        $seen = \array_flip($judged);
+        $out = [];
+        foreach ($this->skippedGroups as $package => $groups) {
+            if (isset($seen[$package])) {
+                continue;
             }
-            if (!$seen) {
-                $groups[] = ['package' => $entry['package'], 'reason' => $entry['reason'], 'count' => 1];
+            // A site can declare a patch for a package it does not
+            // install, and then there is no release to name.
+            $version = $this->versions[$package] ?? '';
+            $head = $package.('' === $version ? '' : ' '.$version).'   ';
+            foreach ($groups as $reason => $count) {
+                $out[] = $head.self::count($count, 'patch', 'patches').' skipped ('.$reason.')';
             }
         }
 
-        return $groups;
+        return $out;
+    }
+
+    /**
+     * The declared sources whose text the run held back, so a file the service missed anyway can be told apart from one kept back on purpose.
+     *
+     * @return list<string>
+     */
+    public function withheld(): array
+    {
+        return $this->withheld;
+    }
+
+    /**
+     * A count with the noun it counts.
+     */
+    private static function count(int $count, string $one, string $many): string
+    {
+        return $count.' '.(1 === $count ? $one : $many);
+    }
+
+    /**
+     * The entries counted per reason, under the package they are about, in the order they were declared.
+     *
+     * @param list<array{package: string, reason: string}> $entries
+     *
+     * @return array<string, array<string, int>>
+     */
+    private static function grouped(array $entries): array
+    {
+        $out = [];
+        foreach ($entries as $entry) {
+            $out[$entry['package']][$entry['reason']] = ($out[$entry['package']][$entry['reason']] ?? 0) + 1;
+        }
+
+        return $out;
     }
 }

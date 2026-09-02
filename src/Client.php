@@ -17,6 +17,15 @@ use TresBienTech\Drupatch\Plan\Plan;
  */
 class Client
 {
+    /**
+     * What the request says it is. The service reads it to tell a request
+     * shaped by an older release apart from a current one.
+     */
+    public const AGENT = 'drupal-patch-check/'.self::VERSION;
+
+    /** Bumped with each release. */
+    public const VERSION = '0.9.0';
+
     public const DEFAULT_ENDPOINT = 'https://api.tresbien.tech/v1/composer/scan';
 
     /** Whole-request budget. */
@@ -59,9 +68,9 @@ class Client
     }
 
     /**
-     * The two composer documents as the service receives them: the keys it reads, narrowed to what it can judge.
+     * The two composer documents as the service receives them: the keys it reads, narrowed to what it can judge, and every package the lock names.
      *
-     * @return array{json: string, lock: string, packages: array<string, string>}
+     * @return array{json: string, lock: string, packages: array<string, string>, locked: array<string, string>}
      */
     public static function filter(string $composerJson, string $composerLock): array
     {
@@ -69,6 +78,7 @@ class Client
         $json = self::decode($composerJson);
 
         $packages = [];
+        $locked = [];
         $slim = [];
         foreach (['packages', 'packages-dev'] as $section) {
             $entries = $lock[$section] ?? null;
@@ -81,7 +91,13 @@ class Client
                 }
                 $name = $entry['name'] ?? '';
                 $version = $entry['version'] ?? '';
-                if (!\is_string($name) || '' === $name || !\is_string($version) || '' === $version || !self::isCheckable($name, $entry)) {
+                if (!\is_string($name) || '' === $name || !\is_string($version) || '' === $version) {
+                    continue;
+                }
+                // Recorded before the test, so a package the service
+                // cannot judge can still be named with its release.
+                $locked[$name] = $version;
+                if (!self::isCheckable($name, $entry)) {
                     continue;
                 }
                 $packages[$name] = $version;
@@ -93,6 +109,7 @@ class Client
             'json' => self::encode(self::filterJson($json, $packages)),
             'lock' => self::encode($slim),
             'packages' => $packages,
+            'locked' => $locked,
         ];
     }
 
@@ -154,6 +171,7 @@ class Client
         return [
             'composer_json' => $composerJson,
             'composer_lock' => $composerLock,
+            'client' => self::AGENT,
             'patches' => true,
             'patch_files' => (object) $patches->files,
             'patch_config' => $config,

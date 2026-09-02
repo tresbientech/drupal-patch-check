@@ -69,6 +69,22 @@ final class FilteredTest extends TestCase
         $request = $this->of([], [['name' => 'symfony/console', 'version' => '6.4.0', 'notification-url' => self::PACKAGIST]]);
 
         self::assertSame([], $request['packages']);
+        self::assertStringNotContainsString('symfony/console', $request['lock'], 'the document the service receives');
+    }
+
+    // The report names a package the service cannot judge with the
+    // release the site runs, so the reading keeps every locked version.
+    // That map stays on the site: only `lock` is sent.
+    public function testEveryLockedVersionIsReadButOnlyTheJudgeableOnesAreSent(): void
+    {
+        $request = $this->of([], [
+            ['name' => 'symfony/console', 'version' => '6.4.0', 'notification-url' => self::PACKAGIST],
+            ['name' => 'acquia/cohesion', 'version' => '8.2.5', 'notification-url' => self::PACKAGIST],
+        ]);
+
+        self::assertSame(['symfony/console' => '6.4.0', 'acquia/cohesion' => '8.2.5'], $request['locked']);
+        self::assertStringNotContainsString('acquia/cohesion', $request['lock']);
+        self::assertStringNotContainsString('acquia/cohesion', $request['json']);
     }
 
     public function testTheRequestCarriesFiveKeysAndNoOthers(): void
@@ -158,7 +174,7 @@ final class FilteredTest extends TestCase
      * @param list<array<string, mixed>> $packages
      * @param list<array<string, mixed>> $dev
      *
-     * @return array{json: string, lock: string, packages: array<string, string>}
+     * @return array{json: string, lock: string, packages: array<string, string>, locked: array<string, string>}
      */
     private function of(array $json, array $packages, array $dev = []): array
     {

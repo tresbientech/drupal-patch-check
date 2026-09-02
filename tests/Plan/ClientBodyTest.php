@@ -40,6 +40,16 @@ final class ClientBodyTest extends TestCase
         self::assertSame([], (array) $body['candidates']);
     }
 
+    // The service tells a request shaped by an older release apart by
+    // this, so it travels with every call.
+    public function testTheBodyNamesTheClientAndItsVersion(): void
+    {
+        $body = Client::body('{}', '{}', $this->resolution());
+
+        self::assertSame(Client::AGENT, $body['client']);
+        self::assertStringStartsWith('drupal-patch-check/', (string) $body['client']);
+    }
+
     public function testATargetedRunCarriesWhatComposerPicked(): void
     {
         $body = Client::body('{}', '{}', $this->resolution(), '11.4.5', true, ['drupal/webform' => '6.3.1']);

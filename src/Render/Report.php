@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Render;
 
+use TresBienTech\Drupatch\PatchText;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
 
@@ -36,8 +37,14 @@ class Report
     /** What a shortened string ends with. */
     private const ELLIPSIS = '…';
 
+    /** What the report is introduced by, and what the update hook calls itself. */
+    public const LABEL = 'Drupal Patch Check';
+
+    /** The header a run that judged nothing carries instead of a count. */
+    private const NOTHING_CHECKED = self::LABEL.': no patch could be checked; the reasons are below';
+
     /** What the footer is introduced by. */
-    private const LABEL = 'Next:';
+    private const NEXT = 'Next:';
 
     /** Flagged core references printed under a row before the rest is counted. */
     private const CORE_LINES = 3;
@@ -159,13 +166,14 @@ class Report
      *
      * @return list<string>
      */
-    public static function report(Plan $plan, ?Outcomes $outcomes, int $width = 100, array $scope = []): array
+    public static function report(Plan $plan, Coverage $coverage, ?Outcomes $outcomes, int $width = 100, array $scope = []): array
     {
         return \array_merge(
-            self::lines($plan, $width, $outcomes),
+            self::lines($plan, $coverage, $width, $outcomes),
             self::written($outcomes),
             self::refused($outcomes),
             self::rewrite($outcomes),
+            self::upstream($plan),
             self::footer($plan, $outcomes, $scope),
         );
     }
@@ -177,7 +185,7 @@ class Report
      *
      * @return list<string>
      */
-    public static function lines(Plan $plan, int $width = 100, ?Outcomes $outcomes = null): array
+    public static function lines(Plan $plan, Coverage $coverage, int $width = 100, ?Outcomes $outcomes = null): array
     {
         $detail = self::detailIndent();
         $trailing = 0;
@@ -186,8 +194,9 @@ class Report
         }
         $titleWidth = self::title($width, $trailing);
         $total = \count($plan->patches);
-        $lines = [\sprintf(
-            '<info>Drupal Code Query</info>: %d patch%s %s',
+        $lines = [$coverage->isVacuous() ? self::caveat(self::NOTHING_CHECKED) : \sprintf(
+            '<info>%s</info>: %d patch%s %s',
+            self::LABEL,
             $total,
             1 === $total ? '' : 'es',
             $plan->scenario()
@@ -233,13 +242,27 @@ class Report
                     $lines[] = $detail.$line;
                 }
             }
+            foreach ($coverage->notesFor($package) as $note) {
+                $lines[] = '    '.self::caveat($note);
+            }
+        }
+
+        foreach ($coverage->unjudged(\array_keys($grouped)) as $line) {
+            if (!$first) {
+                $lines[] = '';
+            }
+            $first = false;
+            $lines[] = '  '.self::caveat($line);
         }
 
         $lines[] = '';
         $lines[] = '  patches: '.self::tally($plan->counts);
 
-        if ([] !== $plan->missingFiles) {
-            $lines[] = '  patch text not sent for: '.\implode(', ', $plan->missingFiles);
+        // A path the service says it never received that the run did not
+        // hold back: the text was lost rather than kept back on purpose.
+        $lost = \array_values(\array_diff($plan->missingFiles, $coverage->withheld()));
+        if ([] !== $lost) {
+            $lines[] = '  patch text not sent for: '.\implode(', ', $lost);
         }
 
         return $lines;
@@ -452,6 +475,32 @@ class Report
     }
 
     /**
+     * Where the re-roll of a conflicting patch belongs when the site took that patch from a merge request.
+     *
+     * @return list<string>
+     */
+    public static function upstream(Plan $plan): array
+    {
+        $requests = [];
+        foreach ($plan->patches as $row) {
+            $request = PatchText::mergeRequest($row->source);
+            if ($row->conflicts() && '' !== $request) {
+                $requests[$request] = $row->package;
+            }
+        }
+        if ([] === $requests) {
+            return [];
+        }
+        $lines = [''];
+        foreach ($requests as $request => $package) {
+            $lines[] = '  '.$package.' takes this patch from a merge request. Send the re-roll there and';
+            $lines[] = '  every site using it is fixed: '.$request;
+        }
+
+        return $lines;
+    }
+
+    /**
      * What to run next, empty when there is nothing to run.
      *
      * @param list<string> $scope
@@ -538,7 +587,7 @@ class Report
         $lines = [];
         foreach ($steps as $i => $step) {
             $lines[] = $indent
-                .(0 === $i ? self::LABEL.'  ' : \str_repeat(' ', \strlen(self::LABEL) + 2))
+                .(0 === $i ? self::NEXT.'  ' : \str_repeat(' ', \strlen(self::NEXT) + 2))
                 .self::pad($commands[$i], $widest)
                 .'   '.$step['effect'];
         }
@@ -683,7 +732,15 @@ class Report
      */
     private static function warning(string $warning): string
     {
-        return '  <comment>! '.$warning.'</comment>';
+        return '  '.self::caveat('! '.$warning);
+    }
+
+    /**
+     * A line the colour alone marks as a caveat.
+     */
+    private static function caveat(string $text): string
+    {
+        return '<comment>'.$text.'</comment>';
     }
 
     /**
