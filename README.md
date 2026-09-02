@@ -1,4 +1,4 @@
-# Drupatch
+# Drupal Patch Check
 
 A composer plugin that checks the patches a Drupal site declares. For each
 patch it says whether the fix is already in the installed release, whether
