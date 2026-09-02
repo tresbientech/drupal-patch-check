@@ -89,8 +89,8 @@ class HookReportTest extends TestCase
     {
         $first = HookReport::lines($this->plan())[0];
 
-        self::assertStringContainsString('1 need a re-roll', $first);
-        self::assertStringContainsString('1 can go', $first);
+        self::assertStringContainsString('1 conflicts', $first);
+        self::assertStringContainsString('1 merged', $first);
         self::assertStringNotContainsString('applies', $first, 'composer already applied those');
     }
 
@@ -105,7 +105,7 @@ class HookReportTest extends TestCase
             ],
         ]))[0];
 
-        self::assertSame('<info>drupatch</info>: 1 unclear, 2 can go after this update', $first);
+        self::assertSame('<info>drupatch</info>: 1 unknown, 2 merged after this update', $first);
     }
 
     public function testTheHintIsPrintedWhole(): void
@@ -303,7 +303,7 @@ class HookReportTest extends TestCase
             'patches' => [$this->row(['verdict' => 'merged'])],
         ]));
 
-        self::assertStringContainsString('1 can go after this update', $lines[0]);
+        self::assertStringContainsString('1 merged after this update', $lines[0]);
         self::assertStringContainsString('Widen it to ^6.3.', $lines[1]);
     }
 

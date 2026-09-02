@@ -242,7 +242,7 @@ class PatchFiles
         $file = (string) ($conflict['file'] ?? '');
         $lines = [
             '# drupatch: '.(int) ($conflict['regions'] ?? 0).' unresolved region(s) in '.$file,
-            '# drupatch: keep the region and end lines; replace what sits between them.',
+            '# drupatch: keep the region and end lines; replace the text between them.',
             '# drupatch: then run '.Report::COMMAND.' --resolve',
         ];
         foreach ((array) ($conflict['hunks'] ?? []) as $index => $hunk) {

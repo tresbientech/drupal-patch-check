@@ -226,7 +226,7 @@ class PatchConfig
         if (\is_string($declared) && '' !== $declared) {
             $full = self::resolve($root, $declared);
             if (null === $full || \filesize($full) > self::MAX_PATCHES_FILE_BYTES) {
-                $notes[] = 'extra.patches-file names '.$declared.', which could not be read';
+                $notes[] = 'extra.patches-file points at '.$declared.', which could not be read';
             } else {
                 $decoded = \json_decode((string) \file_get_contents($full), true);
                 if (!\is_array($decoded)) {

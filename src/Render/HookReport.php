@@ -22,13 +22,9 @@ class HookReport
     private const MAX_ROWS = 20;
 
     /**
-     * What each verdict means to a person reading the hook, worst first.
+     * The verdicts the headline counts, worst first, in the words the report's tally uses.
      */
-    private const MENTION_ORDER = [
-        'conflicts' => 'need a re-roll',
-        'unknown' => 'unclear',
-        'merged' => 'can go',
-    ];
+    private const MENTION_ORDER = ['conflicts', 'unknown', 'merged'];
 
     /**
      * @return list<string>
@@ -132,9 +128,9 @@ class HookReport
             $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) + 1;
         }
         $parts = [];
-        foreach (self::MENTION_ORDER as $verdict => $phrase) {
+        foreach (self::MENTION_ORDER as $verdict) {
             if (($counts[$verdict] ?? 0) > 0) {
-                $parts[] = $counts[$verdict].' '.$phrase;
+                $parts[] = $counts[$verdict].' '.$verdict;
                 unset($counts[$verdict]);
             }
         }

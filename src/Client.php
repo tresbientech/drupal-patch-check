@@ -300,7 +300,7 @@ class Client
             }
         }
 
-        return \sprintf('%s not reached (%s), patches not checked', $host, self::clip($e->getMessage()));
+        return \sprintf('%s did not answer (%s), patches not checked', $host, self::clip($e->getMessage()));
     }
 
     /**

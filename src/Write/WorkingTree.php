@@ -13,7 +13,7 @@ class WorkingTree
 {
     public const NOT_A_CHECKOUT = 'the site is not a git checkout, so the text it replaces could not be recovered';
 
-    public const UNCOMMITTED = 'it carries changes nobody has committed';
+    public const UNCOMMITTED = 'it has uncommitted changes';
 
     public const UNTRACKED = 'it has never been committed';
 

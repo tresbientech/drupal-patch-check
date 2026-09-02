@@ -1,15 +1,15 @@
 # Drupatch
 
-Composer plugin for Drupal sites that carry patches.
+A composer plugin that checks the patches a Drupal site declares. For each
+patch it says whether the fix is already in the installed release, whether
+the patch still applies, or whether it no longer applies and needs a re-roll.
+Run it as a command in CI. It also runs after every `composer update` and
+prints one line per patch that needs attention.
 
-A command to add to your CI that checks if your patches are still needed and 
-apply. The check also run after every `composer update` and prints one line per 
-patch that needs attention: patch is not necessary anymore or no longer applies.
+## What it answers, and what it does not
 
-## What this answers, and what it does not
-
-One question: what happens to your patches. For each one, whether it
-already shipped upstream, still applies and is still needed, or no longer
+One question: what happens to your patches. For each one, whether it is
+already in the release, still applies and is still needed, or no longer
 applies and has to be re-rolled.
 
 It does not scan your code for deprecated API use. [Upgrade
@@ -19,8 +19,8 @@ what it finds. It does not tell you which packages block a core upgrade;
 `composer why-not drupal/core 11.4.5` answers that, and core's Update
 Status lists what has a newer release.
 
-Those tools say nothing about your patches, which is the gap this fills.
-It reads the site and writes nothing unless you ask it to.
+Those tools say nothing about your patches. This one reads the site and
+writes nothing unless you ask it to.
 
 ## Install
 
@@ -30,36 +30,35 @@ composer require --dev tresbientech/drupatch
 
 ## Composer update hook
 
-On `post-update-cmd` it show patches whose fix is already in the release and are safe
-to delete, or patches on modules that are not required anymore.
+After `composer update`, the hook lists the patches whose fix is already in
+the release, and the patches with no release to judge them against.
 
 ```
-drupatch: 1 unclear, 1 can go after this update
+drupatch: 1 unknown, 1 merged after this update
   ? unknown       drupal/domain   Domain content translations permissions
                   the lock does not install drupal/domain, so there is no release to judge this patch against
   ✓ merged        drupal/token 1.15.0  Cache tag on token replacement
   run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade
   Next:  composer drupal-patch-check --fix   drops the merged entry from composer.json
 ```
+
 When every patch applies it prints nothing. An applying patch whose added
 lines reference a core symbol the target removed, moved or re-signed still
 gets a row, with one `core` line under it. The `Next:` line appears only
 when a flag would clear something.
 
-A package with no release for the target is left out. Composer refused to
-move it during the update this hook reports on, so it has been said
-already. A `!` line naming a requirement you could widen prints beside a
-patch that needs a decision, never on its own: nothing about that
-constraint changed because of the update.
+A package with no release for the target is left out; composer already
+refused to move it during the update. A `!` line about a requirement you
+could widen prints beside a patch that needs a decision, never on its own.
 
-Enabled by default, to turn the hook off add to your composer.json:
+The hook is on by default. To turn it off, add this to your composer.json:
 
 ```json
 { "extra": { "drupatch": { "hook": false } } }
 ```
 
-The command is unaffected, so `composer drupal-patch-check` still works.
-`composer update --no-plugins` skips it for one run without any config.
+The command still works with the hook off. `composer update --no-plugins`
+skips the hook for one run.
 
 ## The command
 
@@ -68,8 +67,8 @@ composer drupal-patch-check
 ```
 
 Patches are grouped under their package, worst package first, so whatever
-needs a person is at the top. Each row carries a mark, the verdict, the
-patch title and the file it came from.
+needs a person is at the top. Each row has a mark, the verdict, the patch
+title and the file it came from.
 
 ```
 Drupal Code Query: 5 patches against 11.4.5
@@ -95,32 +94,37 @@ Drupal Code Query: 5 patches against 11.4.5
          composer drupal-patch-check --fix     drops the merged entry from composer.json
 ```
 
-The report is laid out for the terminal it is printed to, between 80 and
-120 columns. Titles are shortened to fit; nothing is wrapped, so one patch
-is always one row.
+The report fits the terminal it prints to, between 80 and 120 columns.
+Titles are shortened to fit; nothing wraps, so one patch is always one row.
+
+Options that change what is judged, and how the answer is printed:
 
 | Option | What it does |
 | --- | --- |
-| `--target=11.4.5` | Judge the patches against the releases that core version would bring in, before you move to it. |
-| `--target=latest` | The same, against the newest core release your own constraint allows. Nothing to type, so a scheduled job stays correct. |
-| `--strict` | Also fail on a patch that could not be judged, and on a run that judged none. |
-| `--write` | Replace each patch file whose patch no longer applies with its re-roll. A merge that did not come out clean is written beside it as `<name>.conflict.patch`, which no patch manager reads. |
-| `--fix` | Rewrite the patch declarations: drop what shipped, adopt the ones declared as a URL. Implies `--write`. |
-| `--resolve` | Re-read the `.conflict.patch` files, send the regions you decided, and write back what the service verified. Implies `--write`. |
-| `--force` | Replace a patch file git reports as changed, untracked, or that it cannot speak for. Also lets `--fix` rewrite a declaration file with uncommitted changes. |
-| `--package=drupal/webform` | Only this package. Repeatable, and `webform` works too. Narrows the report, `--write`, `--fix` and the exit code. |
-| `--format=json` | Print the plan as one JSON object. `--json` does the same. |
-| `--format=github` | Print each verdict as a workflow command, so GitHub Actions shows it as an annotation on the line declaring the patch. |
-| `--dry-run` | Print the request that would be sent and stop. Nothing is asked of the service, nothing is written. |
+| `--target=11.4.5` | Judges the patches against the releases that core version would bring in. |
+| `--target=latest` | The same, against the newest core release your own constraint allows. |
+| `--strict` | Also fails on a patch that could not be judged, and on a run that judged none. |
+| `--package=drupal/webform` | Narrows the report, `--write`, `--fix` and the exit code to this package; repeatable, and `webform` works too. |
+| `--format=json` | Prints the plan as one JSON object; `--json` does the same. |
+| `--format=github` | Prints each verdict as a workflow command, so GitHub Actions shows it as an annotation on the declaring line. |
+| `--dry-run` | Prints the request that would be sent and stops, without asking the service or writing anything. |
 
-With `--target`, the plugin asks composer itself which release each patched
-package would move to, using the site's own repositories, stability rules and
-platform. That answer is sent with the request, and every row says whether it
-was decided by `composer` or by the service's daily copy of drupal.org. A bare
-run judges the releases the lock installs, so it resolves nothing and makes no
-repository request.
+Options that write to the site:
 
-Exit code 0 means nothing needs work, 1 means a patch or a package does,
+| Option | What it does |
+| --- | --- |
+| `--write` | Replaces each patch file whose patch no longer applies with its re-roll, and writes a conflicted merge beside it as `<name>.conflict.patch`. |
+| `--fix` | Rewrites the patch declarations: drops what is already in the release, adopts the ones declared as a URL, and implies `--write`. |
+| `--resolve` | Re-reads the `.conflict.patch` files, sends the regions you decided, writes back what the service verified, and implies `--write`. |
+| `--force` | Lets `--write` replace a patch file git reports as changed or untracked, and lets `--fix` rewrite a declaration file with uncommitted changes. |
+
+With `--target`, the plugin asks composer which release each patched package
+would move to, using the site's own repositories, stability rules and
+platform. That answer goes with the request. Every row says whether
+`composer` or the service's daily copy of drupal.org decided it. A bare run
+judges the releases the lock installs, so it resolves nothing.
+
+Exit code 0 means nothing needs work. 1 means a patch or a package does.
 2 means the plan could not be fetched.
 
 `drupatch-check` is an alias of the command.
@@ -129,8 +133,8 @@ Exit code 0 means nothing needs work, 1 means a patch or a package does,
 
 The useful run is scheduled and forward-looking: do the patches still work
 against the releases this site could install today? `--target latest` asks
-for the newest core your own constraint allows, and every package follows
-its own constraint against it, so nothing needs a version typed into it.
+for the newest core your own constraint allows. Every package follows its
+own constraint against it, so nothing needs a version typed in.
 
 ```yaml
 # weekly
@@ -143,25 +147,26 @@ its own constraint against it, so nothing needs a version typed into it.
 ```
 
 `--format github` writes one `::error`, `::warning` or `::notice` line per
-patch needing a decision, anchored to the line of `composer.json` (or your
-patches file) that declares it. A patch that still applies writes nothing.
-Gitea Actions accepts the same commands and does not render them yet.
+patch that needs a decision, anchored to the line of `composer.json` (or
+your patches file) that declares it. A patch that still applies writes
+nothing. Gitea Actions accepts the same commands and does not render them
+yet.
 
-| exit | meaning |
+| Exit | Meaning |
 | --- | --- |
-| 0 | Nothing needs a person. Patches that shipped upstream and ones that could not be judged are reported and do not fail. |
-| 1 | A patch will not apply against the release it was judged against, or carries a verdict this plugin does not know. |
-| 2 | The plan could not be fetched. A service outage, not a finding. The line names the reason the service gave when its answer carried one. |
+| 0 | Nothing needs a person. Patches already in the release, and patches that could not be judged, are reported and do not fail. |
+| 1 | A patch will not apply against the release it was judged against, or has a verdict this plugin does not know. |
+| 2 | The plan could not be fetched. A service outage, not a finding. The line gives the reason the service sent, when it sent one. |
 
-`--strict` also fails on a patch that could not be judged and on a run that
-declared patches and checked none. Without it a lagging mirror will not turn
+`--strict` also fails on a patch that could not be judged, and on a run that
+declared patches and checked none. Without it, a lagging mirror does not turn
 a nightly job red.
 
 A package with no release for the target never fails a run on its own. It
-carries no patch, or its patches were judged against the branch the site
+has no patch, or its patches were judged against the branch the site
 installs and their verdicts already said so.
 
-The `--json` output carries a `summary` object for a notification step:
+The `--json` output has a `summary` object for a notification step:
 
 ```json
 {
@@ -177,7 +182,7 @@ The `--json` output carries a `summary` object for a notification step:
 }
 ```
 
-`next` lists the commands the table footer would print, and is absent when
+`next` lists the commands the table footer would print. It is absent when
 there is nothing to run.
 
 ## Verdicts
@@ -185,9 +190,9 @@ there is nothing to run.
 | Verdict | Meaning |
 | --- | --- |
 | `applies` | The patch applies to the release and its fix is not upstream. Keep it. |
-| `merged` | The release already carries the fix. Drop the entry. |
+| `merged` | The fix is already in the release. Drop the entry. |
 | `conflicts` | The patch does not apply and its fix is not upstream. |
-| `unknown` | No verdict could be reached, and the row says why. Some reasons are yours: the lock does not install the package, it has no release for the target, the patch file could not be read, or the patch is malformed. Some are not: the patch URL could not be fetched, or the release tag has not reached the service's mirror yet. |
+| `unknown` | No verdict, and the row says why. Some reasons are yours. The lock does not install the package, or it has no release for the target. The patch file could not be read, or the patch is malformed. Some are not yours: the patch URL could not be fetched, or the release tag is not on the service's mirror yet. |
 
 A re-roll that merges cleanly is written as `.patch`. One that leaves
 conflict markers is written as `.conflict.patch` and is never referenced
@@ -195,9 +200,9 @@ from the patch declarations.
 
 ## Conflict files
 
-A conflict file holds the hunks that merged, then each open region between
-a `# drupatch region N file` line and a `# drupatch end N file` line. Inside
-sit the release side and the patch side as merge markers. Replace what sits
+A conflict file holds the hunks that merged, then each open region between a
+`# drupatch region N file` line and a `# drupatch end N file` line. Inside
+are the release side and the patch side as merge markers. Replace the text
 between the two sentinel lines with the code you want. Leave it empty to
 drop the region. Then run `composer drupal-patch-check --resolve`. The
 decided regions are sent, the service merges with them and apply-checks the
@@ -206,22 +211,20 @@ left undecided comes back in a new conflict file.
 
 ## Core references
 
-A row can carry `core` lines under it. The patch applies, and the lines it
-adds reference something the target release changed. That is a removed
-class, a class now under another name, or a call whose argument count no
-longer fits. Each line says what changed and names the change record
-documenting it. Three lines are printed per patch; the rest are counted.
-`core deprecated` counts references that still work at the target and are
-scheduled for removal. A note replaces the lines when the references could
-not be checked, such as for a patch that does not apply. These lines never
-change the exit code.
+A row can have `core` lines under it. The patch applies, and the lines it
+adds reference something the target release changed: a removed class, a
+class now under another name, or a call whose argument count no longer fits.
+Each line says what changed and gives the change record that documents it.
+Three lines print per patch; the rest are counted. `core deprecated` counts
+references that still work at the target and are scheduled for removal. A
+note replaces the lines when the references could not be checked, such as
+for a patch that does not apply. These lines never change the exit code.
 
 In `--format=json` the same data is `plan.patches[].result.core_references`.
 
 ## Patch managers
 
-drupatch reads the declaration and applies nothing. These shapes are
-covered:
+drupatch reads the declaration and applies nothing. These shapes are read:
 
 - `extra.patches`, entries written as an object or as a list
 - `extra.patches-file`, an external file
@@ -274,21 +277,21 @@ it is given.
 }
 ```
 
-The three lock fields beyond name and version are there to identify a
-sub-module. drupal.org holds no project for one: it packages a sub-module as
-a `metapackage` built from its project's release, so there is nothing to
-look up under its own name. `type` says which packages are which, `require`
-and `datestamp` say which project provides it, and the service pairs them.
-Only a metapackage carries `require`, and only its `drupal/` requirements.
+The three lock fields beyond name and version identify a sub-module.
+drupal.org holds no project for one: it packages a sub-module as a
+`metapackage` built from its project's release, so there is nothing to look
+up under its own name. `type` says which packages are which. `require` and
+`datestamp` say which project provides it, and the service pairs them. Only
+a metapackage has `require`, and only its `drupal/` requirements.
 
 `installed_core` is what each installed release requires of core, read from
 your own vendor directory. The service's copy of drupal.org's release data
-can be months behind a project; your site cannot, so this is what decides
+can be months behind a project; your site cannot be. So this is what decides
 whether the release you run supports the core you are moving to.
 
 The two composer fields travel as JSON strings; they are shown expanded
 here. Run `composer drupal-patch-check --dry-run` to print the real one for
-your site and read it before you install this anywhere.
+your site, and read it before you install this anywhere.
 
 ### What is never sent
 
@@ -308,10 +311,10 @@ A package is sent when `composer.lock` records its `notification-url` as
 packages. That is the set the service has a release for.
 
 A `drupal/` name is not enough. A fork of `drupal/webform` kept in a company
-repository carries that name, and so does a private `drupal/acme_sso`.
-Neither has a drupal.org release, so neither is sent, and neither could have
-been judged. Each run names the packages it skipped and how many of their
-patches went with them:
+repository has that name, and so does a private `drupal/acme_sso`. Neither
+has a drupal.org release, so neither is sent, and neither could have been
+judged. Each run lists the packages it skipped and how many of their patches
+went with them:
 
 ```
 drupatch: checked 53 patches; skipped 7 on 2 packages
@@ -322,13 +325,13 @@ drupatch: checked 53 patches; skipped 7 on 2 packages
 A patch is skipped with its package, text included, and its title is never
 printed: a package the run never touched is one decision. A patch whose
 source URL is not one the service fetches from is skipped too, so an
-internal host is never named. A package carrying no patch is not named at
+internal host is never printed. A package with no patch is not listed at
 all: this report is about patches.
 
 If your site installs from a repository that rewrites `notification-url`,
-such as some Satis or Private Packagist setups, nothing will be checked and
-the run will say so. Call `/v1/composer/scan` directly with your whole files
-if you want an answer for that site.
+such as some Satis or Private Packagist setups, nothing is checked and the
+run says so. Call `/v1/composer/scan` directly with your whole files for an
+answer on that site.
 
 A patch source that is a URL is sent as the URL, and the service fetches it.
 Local patch files are read up to 16 MB each, 100 files per run, and only

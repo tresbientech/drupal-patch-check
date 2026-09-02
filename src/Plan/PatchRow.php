@@ -76,7 +76,7 @@ class PatchRow
     {
         $package = (string) ($data['package'] ?? '');
         if ('' === $package) {
-            throw new RuntimeException('a patch row names no package');
+            throw new RuntimeException('a patch row has no package');
         }
         $result = (array) ($data['result'] ?? []);
         $failed = (array) ($result['hunks_failed'] ?? []);

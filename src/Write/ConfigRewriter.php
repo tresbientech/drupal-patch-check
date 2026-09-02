@@ -59,11 +59,11 @@ class ConfigRewriter
             return \sprintf('    ~ %s: %s → %s', $change['package'], $change['title'], $change['path']);
         }
         if ('' === $change['path']) {
-            return \sprintf('    - %s: %s (the release carries it)', $change['package'], $change['title']);
+            return \sprintf('    - %s: %s (already in the release)', $change['package'], $change['title']);
         }
 
         return \sprintf(
-            '    - %s: %s (the release carries it; %s is now unreferenced and was kept)',
+            '    - %s: %s (already in the release; %s is now unreferenced and was kept)',
             $change['package'],
             $change['title'],
             $change['path'],

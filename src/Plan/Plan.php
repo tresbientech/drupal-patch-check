@@ -47,7 +47,7 @@ class Plan
     {
         $data = $decoded;
         if (!\array_key_exists('plan', $data)) {
-            throw new RuntimeException('the answer carries no plan, so the patches were not judged');
+            throw new RuntimeException('the answer has no plan, so the patches were not judged');
         }
         if (!\is_array($data['plan'])) {
             throw new RuntimeException('the answer\'s plan is not an object');

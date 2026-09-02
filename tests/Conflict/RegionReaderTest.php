@@ -16,7 +16,7 @@ final class RegionReaderTest extends TestCase
     {
         $text = <<<'TXT'
             # drupatch: 2 unresolved region(s) in src/Form.php
-            # drupatch: keep the region and end lines; replace what sits between them.
+            # drupatch: keep the region and end lines; replace the text between them.
             # drupatch region 0 src/Form.php
                 $decided = TRUE;
             # drupatch end 0 src/Form.php
