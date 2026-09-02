@@ -96,6 +96,8 @@ Drupal Code Query: 5 patches against 11.4.5
 
 The report fits the terminal it prints to, between 80 and 120 columns.
 Titles are shortened to fit; nothing wraps, so one patch is always one row.
+The `Next:` lines repeat the `--target` and `--package` options of the run,
+so the suggested command acts on what the report showed.
 
 Options that change what is judged, and how the answer is printed:
 
@@ -117,6 +119,10 @@ Options that write to the site:
 | `--fix` | Rewrites the patch declarations: drops what is already in the release, adopts the ones declared as a URL, and implies `--write`. |
 | `--resolve` | Re-reads the `.conflict.patch` files, sends the regions you decided, writes back what the service verified, and implies `--write`. |
 | `--force` | Lets `--write` replace a patch file git reports as changed or untracked, and lets `--fix` rewrite a declaration file with uncommitted changes. |
+
+A run that writes prints only the rows a person still has to look at. An
+`applies` row with nothing under it is left out; the package line keeps its
+tally, and so does the `patches:` line.
 
 With `--target`, the plugin asks composer which release each patched package
 would move to, using the site's own repositories, stability rules and

@@ -523,6 +523,33 @@ class TableTest extends TestCase
         );
     }
 
+    public function testAWriteRunLeavesOutAnAppliesRowWithNothingUnderIt(): void
+    {
+        $lines = Report::report($this->plan(), ['written' => [], 'refused' => []], 100);
+        $out = \implode("\n", $lines);
+
+        self::assertStringNotContainsString('Fix b', $out);
+        self::assertStringContainsString('Fix a', $out);
+        self::assertStringContainsString('drupal/webform 6.2.9 → 6.3.2   1 conflicts, 1 applies', $out, 'the package line keeps its tally');
+        self::assertStringContainsString('patches: 1 conflicts, 1 applies, 1 unknown', $out);
+    }
+
+    public function testABareRunPrintsEveryRow(): void
+    {
+        self::assertStringContainsString('Fix b', \implode("\n", Report::report($this->plan(), null, 100)));
+    }
+
+    public function testAWriteRunKeepsAnAppliesRowThatHasANoteUnderIt(): void
+    {
+        $plan = $this->withCoreReferences([
+            ['symbol' => '\\Drupal\\workspaces\\WorkspaceListBuilder', 'kind' => 'moved', 'file' => 'src/X.php', 'line' => 9, 'reference' => 'new', 'issue' => 'moved in 11.4.0'],
+        ]);
+        $out = \implode("\n", Report::report($plan, ['written' => [], 'refused' => []], 100));
+
+        self::assertStringContainsString('applies', $out);
+        self::assertStringContainsString('core moved:', $out);
+    }
+
     public function testTheFooterIsTheLastThingTheReportPrints(): void
     {
         $lines = Report::report($this->plan(), null, 100);
@@ -558,7 +585,7 @@ class TableTest extends TestCase
 
         self::assertSame(
             \array_merge(
-                Report::lines($plan, 100),
+                Report::lines($plan, 100, true),
                 Report::judged($plan),
                 Report::written($result['written']),
                 Report::refused($result['refused']),

@@ -82,6 +82,22 @@ class NextStepsTest extends TestCase
         self::assertStringNotContainsString('Next:', $lines[1]);
     }
 
+    public function testTheScopeOfTheRunSitsBetweenTheCommandAndTheFlag(): void
+    {
+        $lines = Report::nextStepLines(['conflicts' => 1], '  ', null, ['--target 11.4.5', '--package webform']);
+
+        self::assertStringContainsString('composer drupal-patch-check --target 11.4.5 --package webform --write', $lines[0]);
+    }
+
+    public function testEveryStepRepeatsTheScopeAndTheEffectsStillLineUp(): void
+    {
+        $lines = Report::nextStepLines(['conflicts' => 4, 'merged' => 3], '  ', null, ['--target 11.4.5']);
+
+        self::assertStringContainsString('--target 11.4.5 --write', $lines[0]);
+        self::assertStringContainsString('--target 11.4.5 --fix', $lines[1]);
+        self::assertSame(\strpos($lines[0], 'writes'), \strpos($lines[1], 'drops'));
+    }
+
     public function testTheCommandsLineUp(): void
     {
         $lines = Report::nextStepLines(['conflicts' => 4, 'merged' => 3]);

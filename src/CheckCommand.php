@@ -139,6 +139,23 @@ class CheckCommand extends BaseCommand
     }
 
     /**
+     * The options a next run repeats, so the suggested command acts on what this run showed.
+     *
+     * @param list<string> $packages
+     *
+     * @return list<string>
+     */
+    public static function repeated(string $target, array $packages): array
+    {
+        $out = '' === $target ? [] : ['--target '.$target];
+        foreach ($packages as $package) {
+            $out[] = '--package '.$package;
+        }
+
+        return $out;
+    }
+
+    /**
      * The plan narrowed to the packages --package named.
      *
      * @throws RuntimeException when a named package declares no patch
@@ -318,7 +335,8 @@ class CheckCommand extends BaseCommand
                 $output->writeln($line);
             }
         } else {
-            foreach (Report::report($plan, $reroll ? $result : null, Report::clamp((new Terminal())->getWidth())) as $line) {
+            $scope = self::repeated($target, self::scope($input));
+            foreach (Report::report($plan, $reroll ? $result : null, Report::clamp((new Terminal())->getWidth()), $scope) as $line) {
                 $output->writeln($line);
             }
         }

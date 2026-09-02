@@ -157,26 +157,29 @@ class Report
      *
      * @param array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>}>,
      *              refused: list<array{package: string, title: string, path: string, reason: string, lifts: string}>}|null $wrote
+     * @param list<string> $scope the options a next run repeats, `--target 11.4.5` and each `--package`
      *
      * @return list<string>
      */
-    public static function report(Plan $plan, ?array $wrote, int $width = 100): array
+    public static function report(Plan $plan, ?array $wrote, int $width = 100, array $scope = []): array
     {
         return \array_merge(
-            self::lines($plan, $width),
+            self::lines($plan, $width, null !== $wrote),
             self::judged($plan),
             self::written(null === $wrote ? [] : $wrote['written']),
             self::refused(null === $wrote ? [] : $wrote['refused']),
-            self::footer($plan, $wrote),
+            self::footer($plan, $wrote, $scope),
         );
     }
 
     /**
      * The table a person reads: patches grouped under their package, the release each verdict is about, and the tallies underneath.
      *
+     * @param bool $writing the run wrote files, so an applies row with nothing under it is left out
+     *
      * @return list<string>
      */
-    public static function lines(Plan $plan, int $width = 100): array
+    public static function lines(Plan $plan, int $width = 100, bool $writing = false): array
     {
         $detail = self::detailIndent();
         $trailing = 0;
@@ -217,6 +220,10 @@ class Report
             }
             $lines[] = '  '.self::heading($rows[0]).'   '.self::packageTally($rows);
             foreach ($rows as $row) {
+                $details = self::details($row);
+                if ($writing && PatchRow::APPLIES === $row->verdict && [] === $details) {
+                    continue;
+                }
                 $lines[] = \rtrim(\sprintf(
                     '    %s %-9s %s  %s',
                     self::marked($row->verdict),
@@ -224,43 +231,7 @@ class Report
                     self::pad(self::fit($row->label(), $titleWidth), $titleWidth),
                     self::fileName($row),
                 ));
-                if ('' !== $row->reason()) {
-                    $lines[] = $detail.$row->reason();
-                }
-                // What a re-roll is up against, so the size of the work
-                // is readable without opening the patch.
-                if ('' !== $row->firstFailure()) {
-                    $lines[] = $detail.$row->firstFailure();
-                }
-                // Part of the patch is already in the release, so the
-                // fix reached it in another form: the question is whether
-                // the rest is still needed, not how to re-roll it.
-                foreach ($row->hunksShipped as $shipped) {
-                    $lines[] = $detail.'already in the release: '.$shipped;
-                }
-                // The merge ran on a different file from the one the
-                // site declares, so say which.
-                if ('' !== $row->mergedFrom()) {
-                    $lines[] = $detail.self::mergedFromNote($row->mergedFrom());
-                }
-                // The merge answered these itself, so the patch a
-                // person is about to use carries a decision nobody made.
-                if ([] !== $row->unioned()) {
-                    $lines[] = $detail.self::unionNote(\count($row->unioned()));
-                }
-                // The verdict stands; this says the patch needed a
-                // looser reading than git apply gives.
-                if ('' !== $row->strictRefused) {
-                    $lines[] = $detail.$row->strictRefused;
-                }
-                // The row may be a consequence of the named patch, so
-                // that one is the thing to fix first.
-                if ('' !== $row->judgedWithout) {
-                    $lines[] = $detail.'judged without "'.$row->judgedWithout.'", which did not apply';
-                }
-                // Core symbols the added lines reference that the target
-                // removed, moved or re-signed: the patch applies and still breaks.
-                foreach (self::coreReferenceLines($row) as $line) {
+                foreach ($details as $line) {
                     $lines[] = $detail.$line;
                 }
             }
@@ -274,6 +245,39 @@ class Report
         }
 
         return $lines;
+    }
+
+    /**
+     * What is printed under a row, in order: why it has no verdict, what a re-roll is up against, the hunks already in the release, the file the merge ran on, the regions the merge decided, a strict apply that refused, the earlier patch it was judged without, and the core symbols the target changed.
+     *
+     * @return list<string>
+     */
+    private static function details(PatchRow $row): array
+    {
+        $out = [];
+        if ('' !== $row->reason()) {
+            $out[] = $row->reason();
+        }
+        if ('' !== $row->firstFailure()) {
+            $out[] = $row->firstFailure();
+        }
+        foreach ($row->hunksShipped as $shipped) {
+            $out[] = 'already in the release: '.$shipped;
+        }
+        if ('' !== $row->mergedFrom()) {
+            $out[] = self::mergedFromNote($row->mergedFrom());
+        }
+        if ([] !== $row->unioned()) {
+            $out[] = self::unionNote(\count($row->unioned()));
+        }
+        if ('' !== $row->strictRefused) {
+            $out[] = $row->strictRefused;
+        }
+        if ('' !== $row->judgedWithout) {
+            $out[] = 'judged without "'.$row->judgedWithout.'", which did not apply';
+        }
+
+        return \array_merge($out, self::coreReferenceLines($row));
     }
 
     /**
@@ -428,12 +432,13 @@ class Report
      * What to run next, empty when there is nothing to run.
      *
      * @param array{written: list<array<string, mixed>>, refused: list<array{lifts: string}>}|null $wrote
+     * @param list<string>                                                                         $scope
      *
      * @return list<string>
      */
-    public static function footer(Plan $plan, ?array $wrote = null): array
+    public static function footer(Plan $plan, ?array $wrote = null, array $scope = []): array
     {
-        $lines = self::nextStepLines($plan->counts, '  ', $wrote);
+        $lines = self::nextStepLines($plan->counts, '  ', $wrote, $scope);
 
         return [] === $lines ? [] : \array_merge([''], $lines);
     }
@@ -496,24 +501,26 @@ class Report
      *
      * @param array<string, int>                                                                   $counts patches per verdict
      * @param array{written: list<array<string, mixed>>, refused: list<array{lifts: string}>}|null $wrote
+     * @param list<string>                                                                         $scope  the options a next run repeats, between the command and the flag
      *
      * @return list<string>
      */
-    public static function nextStepLines(array $counts, string $indent = '  ', ?array $wrote = null): array
+    public static function nextStepLines(array $counts, string $indent = '  ', ?array $wrote = null, array $scope = []): array
     {
         $steps = self::nextSteps($counts, $wrote);
         if ([] === $steps) {
             return [];
         }
-        $widest = 0;
+        $commands = [];
         foreach ($steps as $step) {
-            $widest = \max($widest, \strlen(self::COMMAND.' '.$step['flag']));
+            $commands[] = \implode(' ', [self::COMMAND, ...$scope, $step['flag']]);
         }
+        $widest = \max(\array_map(\strlen(...), $commands));
         $lines = [];
         foreach ($steps as $i => $step) {
             $lines[] = $indent
                 .(0 === $i ? self::LABEL.'  ' : \str_repeat(' ', \strlen(self::LABEL) + 2))
-                .self::pad(self::COMMAND.' '.$step['flag'], $widest)
+                .self::pad($commands[$i], $widest)
                 .'   '.$step['effect'];
         }
 
