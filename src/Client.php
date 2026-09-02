@@ -116,6 +116,9 @@ class Client
                     'timeout' => self::TIMEOUT_SECONDS,
                 ],
                 'max_file_size' => self::MAX_RESPONSE_BYTES,
+                // A 401 or 403 is reported like any other status; composer
+                // does not ask for credentials.
+                'retry-auth-failure' => false,
             ]);
         } catch (Throwable $e) {
             throw new RuntimeException($this->reason($e), 0, $e);
