@@ -122,21 +122,22 @@ Options that write to the site:
 
 A run that writes prints only the rows a person still has to look at. An
 `applies` row with nothing under it is left out; the package line keeps its
-tally, and so does the `patches:` line. What the run did to a patch prints
-under its row:
+tally, and so does the `patches:` line. Below the tally, the run lists what
+it wrote and what it would not, then what `--fix` rewrote:
 
 ```
-    ! conflicts Fix the alter hook                                   fix.patch
-                src/WebformSubmissionForm.php: patch failed
-                wrote patches/webform/fix.patch (verified against 6.3.2)
-    ! conflicts Transaction-aware backend                            tx.patch
-                core/lib/Drupal/Core/Cache/DatabaseBackend.php: patch failed
-                wrote patches/core/tx.conflict.patch, 2 regions to decide
-```
+  wrote patches/webform/fix.patch  (clean, verified against the release by the server)
+  wrote patches/core/tx.conflict.patch  (conflicts, 2 regions to decide)
+  1 re-roll left regions to decide; those files are not usable as patches
 
-A `--fix` run prints its rewrite the same way, under the entry it changed:
-`dropped from composer.json (already in the release)`, or `composer.json now
-points at patches/webform/fix.patch`.
+  not written:
+    drupal/token: Cache tag on token replacement
+      it has uncommitted changes
+
+  composer.json:
+    - drupal/pathauto: Menu cache (already in the release)
+    ~ drupal/webform: Fix the alter hook → patches/webform/fix.patch
+```
 
 With `--target`, the plugin asks composer which release each patched package
 would move to, using the site's own repositories, stability rules and

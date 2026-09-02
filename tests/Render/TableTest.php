@@ -9,7 +9,6 @@ use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Render\Outcomes;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
-use TresBienTech\Drupatch\Write\PatchFiles;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
 class TableTest extends TestCase
@@ -588,7 +587,9 @@ class TableTest extends TestCase
         self::assertSame(
             \array_merge(
                 Report::lines($plan, 100, Outcomes::fromWrite($result)),
-                Report::open(Outcomes::fromWrite($result)),
+                Report::written(Outcomes::fromWrite($result)),
+                Report::refused(Outcomes::fromWrite($result)),
+                Report::rewrite(Outcomes::fromWrite($result)),
                 Report::footer($plan, Outcomes::fromWrite($result)),
             ),
             Report::report($plan, Outcomes::fromWrite($result), 100),
@@ -814,54 +815,47 @@ class TableTest extends TestCase
         self::assertStringContainsString('against the releases this site installs', Report::lines($plan)[0]);
     }
 
-    public function testAVerifiedRerollSaysSoUnderItsRow(): void
-    {
-        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'verified' => true], ['title' => 'Fix a', 'version' => '6.3.2'])]]);
-        $lines = Report::report($plan, Outcomes::fromWrite(['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []]), 100);
-
-        $row = self::indexOfLineContaining($lines, 'Fix a');
-        self::assertSame(Report::detailIndent().'wrote patches/webform/fix.patch (verified against 6.3.2)', $lines[$row + 1]);
-    }
-
-    public function testAConflictFileCountsItsOpenRegionsUnderItsRow(): void
-    {
-        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(
-            ['status' => 'conflicts', 'conflicts' => [['file' => 'src/A.php', 'regions' => 2], ['file' => 'src/B.php', 'regions' => 1]]],
-            ['title' => 'Fix a'],
-        )]]);
-        $written = $this->writtenFile('patches/webform/fix.conflict.patch', 'conflicts', 'drupal/webform', 'Fix a', false);
-        $lines = Report::report($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100);
-
-        $row = self::indexOfLineContaining($lines, 'Fix a');
-        self::assertSame(Report::detailIndent().'wrote patches/webform/fix.conflict.patch, 3 regions to decide', $lines[$row + 1]);
-        self::assertStringContainsString('1 re-roll left regions to decide; those files are not usable as patches', \implode("\n", $lines));
-    }
-
-    public function testOneOpenRegionIsSingular(): void
-    {
-        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(
-            ['status' => 'conflicts', 'conflicts' => [['file' => 'src/A.php', 'regions' => 1]]],
-            ['title' => 'Fix a'],
-        )]]);
-        $written = $this->writtenFile('patches/webform/fix.conflict.patch', 'conflicts', 'drupal/webform', 'Fix a', false);
-        $out = \implode("\n", Report::report($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
-
-        self::assertStringContainsString('fix.conflict.patch, 1 region to decide', $out);
-    }
-
-    public function testTheReportHasNoWroteSection(): void
+    public function testAVerifiedRerollIsListedWithItsStatusBelowTheTally(): void
     {
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'verified' => true], ['title' => 'Fix a'])]]);
         $lines = Report::report($plan, Outcomes::fromWrite(['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []]), 100);
 
-        self::assertCount(1, \array_filter($lines, static fn (string $line): bool => \str_contains($line, 'wrote ')));
-        self::assertStringNotContainsString('verified against the release by the server', \implode("\n", $lines));
+        $wrote = self::indexOfLineContaining($lines, 'wrote ');
+        self::assertSame('  wrote patches/webform/fix.patch  (clean, verified against the release by the server)', $lines[$wrote]);
+        self::assertGreaterThan(self::indexOfLineContaining($lines, 'patches: '), $wrote);
     }
 
-    public function testARunThatWroteNothingHasNoOutcomeLine(): void
+    public function testAConflictFileIsListedWithItsOpenRegions(): void
     {
-        self::assertSame([], Report::open(null));
-        self::assertSame([], Report::open(Outcomes::fromWrite(['written' => [], 'refused' => []])));
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'conflicts'], ['title' => 'Fix a'])]]);
+        $written = $this->writtenFile('patches/webform/fix.conflict.patch', 'conflicts', 'drupal/webform', 'Fix a', false, 3);
+        $out = \implode("\n", Report::report($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
+
+        self::assertStringContainsString('  wrote patches/webform/fix.conflict.patch  (conflicts, 3 regions to decide)', $out);
+        self::assertStringContainsString('1 re-roll left regions to decide; those files are not usable as patches', $out);
+    }
+
+    public function testOneOpenRegionIsSingular(): void
+    {
+        $written = $this->writtenFile('patches/webform/fix.conflict.patch', 'conflicts', 'drupal/webform', 'Fix a', false, 1);
+        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+
+        self::assertStringContainsString('(conflicts, 1 region to decide)', $out);
+    }
+
+    public function testNothingPrintsUnderARowForTheWriteItself(): void
+    {
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'verified' => true], ['title' => 'Fix a'])]]);
+        $lines = Report::report($plan, Outcomes::fromWrite(['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []]), 100);
+
+        $row = self::indexOfLineContaining($lines, 'Fix a');
+        self::assertSame('', $lines[$row + 1]);
+    }
+
+    public function testARunThatWroteNothingListsNothing(): void
+    {
+        self::assertSame([], Report::written(null));
+        self::assertSame([], Report::written(Outcomes::fromWrite(['written' => [], 'refused' => []])));
     }
 
     /**
@@ -875,41 +869,38 @@ class TableTest extends TestCase
         return Report::report($plan, Outcomes::fromWrite(['written' => [], 'refused' => [$refusal]]), 100);
     }
 
-    public function testAFileWithUncommittedChangesSaysWhatLiftsThatUnderItsRow(): void
+    public function testARefusalIsListedWithItsReasonBelowTheTally(): void
     {
         $lines = $this->refusedRun(WorkingTree::UNCOMMITTED, '--force');
 
-        $row = self::indexOfLineContaining($lines, 'Fix a');
-        self::assertSame(Report::detailIndent().'not written: it has uncommitted changes, --force replaces it', $lines[$row + 1]);
+        $header = self::indexOfLineContaining($lines, 'not written:');
+        self::assertGreaterThan(self::indexOfLineContaining($lines, 'patches: '), $header);
+        self::assertSame('    drupal/webform: Fix a', $lines[$header + 1]);
+        self::assertSame('      it has uncommitted changes', $lines[$header + 2]);
+        self::assertStringContainsString('--force   replaces the file this run would not overwrite', \implode("\n", $lines));
     }
 
-    public function testAUrlDeclaredPatchSaysWhatAdoptsItUnderItsRow(): void
+    public function testRefusalsSharingAReasonPrintItOnce(): void
     {
-        $lines = $this->refusedRun(PatchFiles::URL_DECLARED, '--fix');
+        $lines = \implode("\n", Report::refused(Outcomes::fromWrite(['written' => [], 'refused' => [
+            ['package' => 'drupal/core', 'title' => 'Fix a', 'path' => 'patches/core/a.patch', 'reason' => WorkingTree::NOT_A_CHECKOUT, 'lifts' => '--force'],
+            ['package' => 'drupal/pathauto', 'title' => 'Fix b', 'path' => 'patches/pathauto/b.patch', 'reason' => WorkingTree::NOT_A_CHECKOUT, 'lifts' => '--force'],
+        ]])));
 
-        $row = self::indexOfLineContaining($lines, 'Fix a');
-        self::assertSame(Report::detailIndent().'not written: '.PatchFiles::URL_DECLARED.', --fix adopts it', $lines[$row + 1]);
+        self::assertSame(1, \substr_count($lines, WorkingTree::NOT_A_CHECKOUT));
+        self::assertStringContainsString('drupal/core', $lines);
+        self::assertStringContainsString('drupal/pathauto', $lines);
     }
 
-    public function testARefusalNothingLiftsPrintsItsReasonAlone(): void
+    public function testNothingRefusedPrintsNothing(): void
     {
-        $lines = $this->refusedRun('the repository lacks the necessary blob', '');
-
-        $row = self::indexOfLineContaining($lines, 'Fix a');
-        self::assertSame(Report::detailIndent().'not written: the repository lacks the necessary blob', $lines[$row + 1]);
-    }
-
-    public function testTheReportHasNoNotWrittenSection(): void
-    {
-        $out = \implode("\n", $this->refusedRun(WorkingTree::UNCOMMITTED, '--force'));
-
-        self::assertSame(1, \substr_count($out, 'not written'));
-        self::assertStringContainsString('--force   replaces the file this run would not overwrite', $out);
+        self::assertSame([], Report::refused(null));
+        self::assertSame([], Report::refused(Outcomes::fromWrite(['written' => [], 'refused' => []])));
     }
 
     /**
-     * @param list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}>                                                 $changes
-     * @param list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>}> $written
+     * @param list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}>                                                               $changes
+     * @param list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}> $written
      *
      * @return list<string>
      */
@@ -921,33 +912,31 @@ class TableTest extends TestCase
         return Report::report($plan, $outcomes, 100);
     }
 
-    public function testADroppedEntryPrintsUnderItsRow(): void
+    public function testADroppedEntryIsListedUnderTheFileItLeft(): void
     {
         $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row(['title' => 'Menu cache', 'source' => 'https://example.test/a.patch', 'verdict' => 'merged'])]]);
         $lines = $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '']]);
 
-        $row = self::indexOfLineContaining($lines, 'Menu cache');
-        self::assertSame(Report::detailIndent().'dropped from composer.json (already in the release)', $lines[$row + 1]);
+        $file = self::indexOfLineContaining($lines, 'composer.json:');
+        self::assertGreaterThan(self::indexOfLineContaining($lines, 'patches: '), $file);
+        self::assertSame('    - drupal/webform: Menu cache (already in the release)', $lines[$file + 1]);
     }
 
     public function testADroppedEntryNamesTheFileItLeavesBehind(): void
     {
         $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row(['title' => 'Menu cache', 'source' => 'patches/menu.patch', 'verdict' => 'merged'])]]);
-        $lines = $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => 'patches/menu.patch']]);
+        $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => 'patches/menu.patch']]));
 
-        $row = self::indexOfLineContaining($lines, 'Menu cache');
-        self::assertSame(Report::detailIndent().'dropped from composer.json (already in the release; patches/menu.patch is now unreferenced and was kept)', $lines[$row + 1]);
+        self::assertStringContainsString('    - drupal/webform: Menu cache (already in the release; patches/menu.patch is now unreferenced and was kept)', $out);
     }
 
-    public function testARepointedEntryPrintsItsNewPathAfterTheFileWritten(): void
+    public function testARepointedEntryShowsItsNewPath(): void
     {
-        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'verified' => true], ['title' => 'Fix a', 'source' => 'https://example.test/a.patch', 'version' => '6.3.2'])]]);
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'verified' => true], ['title' => 'Fix a', 'source' => 'https://example.test/a.patch'])]]);
         $written = [$this->writtenFile('patches/webform/fix-a.patch')];
-        $lines = $this->fixRun($plan, [['action' => 'repointed', 'package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patches/webform/fix-a.patch']], 'composer.json', $written);
+        $out = \implode("\n", $this->fixRun($plan, [['action' => 'repointed', 'package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patches/webform/fix-a.patch']], 'composer.json', $written));
 
-        $row = self::indexOfLineContaining($lines, 'Fix a');
-        self::assertSame(Report::detailIndent().'wrote patches/webform/fix-a.patch (verified against 6.3.2)', $lines[$row + 1]);
-        self::assertSame(Report::detailIndent().'composer.json now points at patches/webform/fix-a.patch', $lines[$row + 2]);
+        self::assertStringContainsString('    ~ drupal/webform: Fix a → patches/webform/fix-a.patch', $out);
     }
 
     public function testThePatchesFileIsNamedWhenItHoldsTheDeclarations(): void
@@ -955,7 +944,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row(['title' => 'Menu cache', 'source' => 'https://example.test/a.patch', 'verdict' => 'merged'])]]);
         $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '']], 'patches.json'));
 
-        self::assertStringContainsString('dropped from patches.json (already in the release)', $out);
+        self::assertStringContainsString('  patches.json:', $out);
     }
 
     public function testAFixThatChangedNothingSaysSoUnderTheTally(): void
@@ -966,7 +955,7 @@ class TableTest extends TestCase
         self::assertSame('  nothing to change: no patch is already in the release and none was re-rolled cleanly', $lines[\count($lines) - 1]);
     }
 
-    public function testAFixThatChangedEntriesHasNoNothingToChangeLine(): void
+    public function testAFixThatChangedEntriesIsNotOfferedAgain(): void
     {
         $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row(['title' => 'Menu cache', 'verdict' => 'merged'])]]);
         $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '']]));
@@ -1068,19 +1057,15 @@ class TableTest extends TestCase
         self::assertStringNotContainsString('kept both sides', \implode("\n", Report::lines($plan)));
     }
 
-    public function testNamesTheRegionsTheMergeDecidedUnderTheRowAfterTheFileItWrote(): void
+    public function testNamesTheRegionsTheMergeDecidedBesideTheFileItWrote(): void
     {
-        $unioned = [['file' => 'src/Form.php', 'line' => 12], ['file' => 'src/Batch.php', 'line' => 40]];
-        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [
-            $this->rerolledRow(['status' => 'clean', 'verified' => true, 'unioned' => $unioned], ['title' => 'Fix a']),
-        ]]);
-        $written = ['unioned' => $unioned] + $this->writtenFile('patches/webform-fix-a-1234abcd.patch');
-        $lines = Report::report($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100);
+        $written = ['unioned' => [['file' => 'src/Form.php', 'line' => 12], ['file' => 'src/Batch.php', 'line' => 40]]] + $this->writtenFile('patches/webform-fix-a-1234abcd.patch');
+        $lines = Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []]));
 
-        $wrote = self::indexOfLineContaining($lines, 'wrote patches/webform-fix-a-1234abcd.patch');
-        self::assertStringContainsString('kept both sides of 2 regions', $lines[$wrote - 1]);
-        self::assertSame(Report::detailIndent().'  src/Form.php:12', $lines[$wrote + 1]);
-        self::assertSame(Report::detailIndent().'  src/Batch.php:40', $lines[$wrote + 2]);
+        self::assertStringContainsString('wrote patches/webform-fix-a-1234abcd.patch', $lines[1]);
+        self::assertStringContainsString('kept both sides of 2 regions', $lines[2]);
+        self::assertSame('      src/Form.php:12', $lines[3]);
+        self::assertSame('      src/Batch.php:40', $lines[4]);
     }
 
     public function testSaysWhenTheMergeRanOnADifferentPatchThanDeclared(): void

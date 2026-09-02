@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 use TresBienTech\Drupatch\CheckCommand;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Write\WorkingTree;
 
 /**
  * What a --fix run prints, and where.
@@ -66,22 +67,18 @@ class FixCommandTest extends TestCase
         return $tester;
     }
 
-    public function testTheDroppedEntryPrintsUnderItsRowAndTheFooterComesLast(): void
+    public function testTheRewriteIsListedBeforeTheFooterAndNotOfferedAgain(): void
     {
-        $tester = $this->drive(['--fix' => true, '--force' => true]);
-        $lines = \array_values(\array_filter(\explode("\n", $tester->getDisplay()), static fn (string $l): bool => '' !== \trim($l)));
+        // Not a git checkout: the re-roll is refused and --force is offered,
+        // which gives the run a footer to order against.
+        $tester = $this->drive(['--fix' => true]);
+        $display = $tester->getDisplay();
 
-        $row = null;
-        foreach ($lines as $i => $line) {
-            if (\str_contains($line, 'Menu cache')) {
-                $row = $i;
-            }
-        }
-        self::assertNotNull($row);
-        self::assertStringContainsString('dropped from composer.json (already in the release; patches/webform/menu.patch is now unreferenced and was kept)', $lines[$row + 1]);
-        self::assertStringContainsString('wrote patches/webform/fix.patch (verified against 6.2.9)', $tester->getDisplay());
-        self::assertStringNotContainsString('--fix', $tester->getDisplay());
-        self::assertStringNotContainsString('composer.json:', $tester->getDisplay());
+        self::assertStringContainsString("  composer.json:\n    - drupal/webform: Menu cache (already in the release; patches/webform/menu.patch is now unreferenced and was kept)", $display);
+        self::assertStringContainsString("  not written:\n    drupal/webform: Fix\n      ".WorkingTree::NOT_A_CHECKOUT, $display);
+        self::assertLessThan(\strpos($display, 'Next:'), \strpos($display, 'composer.json:'));
+        self::assertStringContainsString('--force   replaces the file this run would not overwrite', $display);
+        self::assertStringNotContainsString('--fix', $display);
         $declared = \json_decode((string) $this->site?->read('composer.json'), true)['extra']['patches']['drupal/webform'] ?? [];
         self::assertSame(['Fix' => 'patches/webform/fix.patch'], $declared, 'the merged entry is gone, the re-rolled one stays');
     }

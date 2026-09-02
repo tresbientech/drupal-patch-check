@@ -84,10 +84,10 @@ trait PlanFactory
     }
 
     /**
-     * @return array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>}
+     * @return array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}
      */
-    private function writtenFile(string $path, string $status = 'clean', string $package = 'drupal/webform', string $title = 'Fix a', bool $verified = true): array
+    private function writtenFile(string $path, string $status = 'clean', string $package = 'drupal/webform', string $title = 'Fix a', bool $verified = true, int $regions = 0): array
     {
-        return ['path' => $path, 'status' => $status, 'package' => $package, 'title' => $title, 'verified' => $verified, 'unioned' => []];
+        return ['path' => $path, 'status' => $status, 'package' => $package, 'title' => $title, 'verified' => $verified, 'unioned' => [], 'regions' => $regions];
     }
 }

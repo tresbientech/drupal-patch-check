@@ -153,7 +153,7 @@ class Report
     }
 
     /**
-     * The whole report in printed order: the rows with what the run did to each, the conflict files left, a fix that changed nothing, then what to run next.
+     * The whole report in printed order: the rows, the files a re-roll wrote, what it would not write, what a fix rewrote, then what to run next.
      *
      * @param list<string> $scope the options a next run repeats, `--target 11.4.5` and each `--package`
      *
@@ -163,7 +163,8 @@ class Report
     {
         return \array_merge(
             self::lines($plan, $width, $outcomes),
-            self::open($outcomes),
+            self::written($outcomes),
+            self::refused($outcomes),
             self::rewrite($outcomes),
             self::footer($plan, $outcomes, $scope),
         );
@@ -172,7 +173,7 @@ class Report
     /**
      * The table a person reads: patches grouped under their package, the release each verdict is about, and the tallies underneath.
      *
-     * @param Outcomes|null $outcomes what the run did to each patch; set, an applies row with nothing under it is left out
+     * @param Outcomes|null $outcomes set for a run that wrote, so an applies row with nothing under it is left out
      *
      * @return list<string>
      */
@@ -217,7 +218,7 @@ class Report
             }
             $lines[] = '  '.self::heading($rows[0]).'   '.self::packageTally($rows);
             foreach ($rows as $row) {
-                $details = \array_merge(self::details($row), null === $outcomes ? [] : $outcomes->under($row));
+                $details = self::details($row);
                 if (null !== $outcomes && PatchRow::APPLIES === $row->verdict && [] === $details) {
                     continue;
                 }
@@ -278,36 +279,115 @@ class Report
     }
 
     /**
-     * The conflict files a run left, none of them usable as a patch.
+     * The files a re-roll wrote, each with its status, and what still needs a person.
      *
      * @return list<string>
      */
-    public static function open(?Outcomes $outcomes): array
+    public static function written(?Outcomes $outcomes): array
     {
-        $count = null === $outcomes ? 0 : $outcomes->openConflictFiles();
-        if (0 === $count) {
+        $files = null === $outcomes ? [] : $outcomes->written();
+        if ([] === $files) {
             return [];
         }
+        $lines = [''];
+        foreach ($files as $file) {
+            $lines[] = \sprintf('  wrote %s  (%s)', $file['path'], self::status($file));
+            if ([] !== $file['unioned']) {
+                $lines[] = '    '.self::unionNote(\count($file['unioned'])).':';
+                foreach ($file['unioned'] as $region) {
+                    $lines[] = '      '.$region['file'].':'.$region['line'];
+                }
+            }
+        }
+        $open = $outcomes->openConflictFiles();
+        if ($open > 0) {
+            $lines[] = \sprintf(
+                '  %d re-roll%s left regions to decide; those files are not usable as patches',
+                $open,
+                1 === $open ? '' : 's'
+            );
+        }
 
-        return ['', \sprintf(
-            '  %d re-roll%s left regions to decide; those files are not usable as patches',
-            $count,
-            1 === $count ? '' : 's'
-        )];
+        return $lines;
     }
 
     /**
-     * A fix that found nothing to rewrite says so; one that changed entries said so under their rows.
+     * A written file's status: usable and whether the server verified it, or how many regions a person has to decide.
+     *
+     * @param array{status: string, verified: bool, regions: int} $file
+     */
+    private static function status(array $file): string
+    {
+        if (PatchRow::CONFLICTS === $file['status']) {
+            return \sprintf('conflicts, %d region%s to decide', $file['regions'], 1 === $file['regions'] ? '' : 's');
+        }
+
+        return $file['verified'] ? 'clean, verified against the release by the server' : 'clean';
+    }
+
+    /**
+     * What a re-roll run would not write, grouped by reason.
+     *
+     * @return list<string>
+     */
+    public static function refused(?Outcomes $outcomes): array
+    {
+        $refused = null === $outcomes ? [] : $outcomes->refused();
+        if ([] === $refused) {
+            return [];
+        }
+        $groups = [];
+        foreach ($refused as $refusal) {
+            $groups[$refusal['reason']][] = $refusal;
+        }
+        \ksort($groups);
+        $lines = ['', '  not written:'];
+        foreach ($groups as $reason => $items) {
+            \usort($items, static fn (array $a, array $b): int => [$a['package'], $a['title']] <=> [$b['package'], $b['title']]);
+            foreach ($items as $item) {
+                $lines[] = \sprintf('    %s: %s', $item['package'], $item['title']);
+            }
+            $lines[] = '      '.$reason;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * What a fix rewrote, under the file it rewrote; a fix that found nothing says so.
      *
      * @return list<string>
      */
     public static function rewrite(?Outcomes $outcomes): array
     {
-        if (null === $outcomes || !$outcomes->fixed() || $outcomes->changed()) {
+        if (null === $outcomes || !$outcomes->fixed()) {
             return [];
         }
+        $changes = $outcomes->changes();
+        if ([] === $changes) {
+            return ['', '  nothing to change: no patch is already in the release and none was re-rolled cleanly'];
+        }
+        $lines = ['', '  '.$outcomes->declaration().':'];
+        foreach ($changes as $change) {
+            $lines[] = self::change($change);
+        }
 
-        return ['', '  nothing to change: no patch is already in the release and none was re-rolled cleanly'];
+        return $lines;
+    }
+
+    /**
+     * @param array{action: 'dropped'|'repointed', package: string, title: string, path: string} $change
+     */
+    private static function change(array $change): string
+    {
+        if ('repointed' === $change['action']) {
+            return \sprintf('    ~ %s: %s → %s', $change['package'], $change['title'], $change['path']);
+        }
+        if ('' === $change['path']) {
+            return \sprintf('    - %s: %s (already in the release)', $change['package'], $change['title']);
+        }
+
+        return \sprintf('    - %s: %s (already in the release; %s is now unreferenced and was kept)', $change['package'], $change['title'], $change['path']);
     }
 
     /**

@@ -72,7 +72,7 @@ class PatchFiles
     /**
      * Writes one file per re-rolled patch and reports what happened.
      *
-     * @return array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>}>,
+     * @return array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}>,
      *               refused: list<array{package: string, title: string, path: string, reason: string, lifts: string}>}
      */
     public function write(Plan $plan): array
@@ -129,6 +129,7 @@ class PatchFiles
                 'title' => $row->title,
                 'verified' => true === ($row->reroll['verified'] ?? null),
                 'unioned' => $row->unioned(),
+                'regions' => $row->openRegions(),
             ];
         }
 

@@ -63,7 +63,7 @@ class SummaryTest extends TestCase
 
     public function testNamesResolveAfterARunWroteAConflictFile(): void
     {
-        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => []]], 'refused' => []];
+        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => [], 'regions' => 0]], 'refused' => []];
 
         self::assertSame(['--resolve', '--fix'], \array_column(Report::summary($this->plan(), false, false, Outcomes::fromWrite($wrote))['next'], 'flag'));
     }
