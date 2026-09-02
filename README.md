@@ -217,8 +217,9 @@ class now under another name, or a call whose argument count no longer fits.
 Each line says what changed and gives the change record that documents it.
 Three lines print per patch; the rest are counted. `core deprecated` counts
 references that still work at the target and are scheduled for removal. A
-note replaces the lines when the references could not be checked, such as
-for a patch that does not apply. These lines never change the exit code.
+note replaces the lines when the references could not be checked. A
+`conflicts` row prints no such note; its verdict already says the patch
+does not apply. These lines never change the exit code.
 
 In `--format=json` the same data is `plan.patches[].result.core_references`.
 

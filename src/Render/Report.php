@@ -385,7 +385,7 @@ class Report
     }
 
     /**
-     * The core references under a row: one line per flagged finding up to the cap, the count left over, the deprecated count, then the server's note.
+     * The core references under a row: one line per flagged finding up to the cap, the count left over, the deprecated count, then the server's note unless the row conflicts.
      *
      * @return list<string>
      */
@@ -413,8 +413,11 @@ class Report
         if ($deprecated > 0) {
             $out[] = 'core deprecated: '.$deprecated.' reference'.(1 === $deprecated ? '' : 's').', still present at '.(string) ($block['target'] ?? '');
         }
+        // A conflicts row already says the patch does not apply, so the
+        // note that the references went unchecked for that reason is not
+        // repeated under it.
         $note = (string) ($block['note'] ?? '');
-        if ('' !== $note) {
+        if ('' !== $note && !$row->conflicts()) {
             $out[] = $note;
         }
 

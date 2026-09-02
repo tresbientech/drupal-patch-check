@@ -123,6 +123,22 @@ class TableTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/^\s+core (removed|moved|signature):/m', $out);
     }
 
+    public function testAConflictsRowDoesNotRepeatThatThePatchDoesNotApply(): void
+    {
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts',
+            'result' => [
+                'hunks_failed' => [['file' => 'memcache.services.yml', 'line' => 3, 'reason' => 'patch failed']],
+                'core_references' => ['target' => '11.4.5', 'checked' => 0, 'flagged' => [], 'note' => 'references not extracted: the patch does not apply to the tag'],
+            ],
+        ])]]);
+
+        $out = \implode("\n", Report::lines($plan));
+
+        self::assertStringContainsString('memcache.services.yml: patch failed', $out);
+        self::assertStringNotContainsString('references not extracted', $out);
+    }
+
     public function testARowWithoutCoreReferencesPrintsNoCoreLine(): void
     {
         self::assertDoesNotMatchRegularExpression('/^\s+core (removed|moved|signature):/m', \implode("\n", Report::lines($this->plan())));
