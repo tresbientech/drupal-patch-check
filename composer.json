@@ -1,6 +1,6 @@
 {
     "name": "tresbientech/drupatch",
-    "description": "Drupal Code Query Composer plugin: says which of a site's composer patches still apply after an update, and which are already fixed upstream.",
+    "description": "Checks whether a Drupal site's composer patches still apply, are already in the release, or need a re-roll.",
     "license": "MIT",
     "type": "composer-plugin",
     "keywords": [
