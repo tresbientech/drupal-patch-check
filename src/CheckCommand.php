@@ -16,6 +16,7 @@ use Symfony\Component\Console\Terminal;
 use Throwable;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Render\Coverage;
+use TresBienTech\Drupatch\Render\Outcomes;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Write\ConfigRewriter;
 use TresBienTech\Drupatch\Write\Decisions;
@@ -73,17 +74,17 @@ class CheckCommand extends BaseCommand
     }
 
     /**
-     * Rewrites the site's declarations and says what changed.
+     * Rewrites the site's declarations and returns what changed, empty when nothing did.
      *
      * @param list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>}> $written
      *
-     * @return list<string>
+     * @return list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}>
      */
     private function fix(Site $site, Plan $plan, array $written, bool $force): array
     {
         $changes = ConfigRewriter::changes($plan, $written);
         if ([] === $changes) {
-            return ['', '  nothing to change: no patch shipped upstream and none was re-rolled cleanly'];
+            return [];
         }
 
         $file = $site->patches()->file;
@@ -113,12 +114,7 @@ class CheckCommand extends BaseCommand
             throw new RuntimeException($path.' could not be written');
         }
 
-        $lines = ['', '  '.$path.':'];
-        foreach ($changes as $change) {
-            $lines[] = ConfigRewriter::line($change);
-        }
-
-        return $lines;
+        return $changes;
     }
 
     /**
@@ -318,10 +314,25 @@ class CheckCommand extends BaseCommand
             return Plan::FAILED;
         }
 
+        // The rewrite runs before anything prints, so what it did sits under
+        // the rows; a rewrite that fails still gets the report printed first.
+        $outcomes = null;
+        $fixError = '';
+        if ($reroll) {
+            $outcomes = Outcomes::fromWrite($result);
+            if ($fix) {
+                try {
+                    $outcomes->recordFix($this->fix($site, $plan, $written, true === $input->getOption('force')), self::declaration($site)[0]);
+                } catch (Throwable $e) {
+                    $fixError = $e->getMessage();
+                }
+            }
+        }
+
         $strict = true === $input->getOption('strict');
         if ('json' === $format) {
             $output->writeln((string) \json_encode($plan->raw + [
-                'summary' => Report::summary($plan, $strict, $coverage->isVacuous(), $reroll ? $result : null),
+                'summary' => Report::summary($plan, $strict, $coverage->isVacuous(), $outcomes),
             ] + ['written' => \array_map(
                 static fn (array $file): array => ['path' => $file['path'], 'status' => $file['status']],
                 $written
@@ -336,21 +347,15 @@ class CheckCommand extends BaseCommand
             }
         } else {
             $scope = self::repeated($target, self::scope($input));
-            foreach (Report::report($plan, $reroll ? $result : null, Report::clamp((new Terminal())->getWidth()), $scope) as $line) {
+            foreach (Report::report($plan, $outcomes, Report::clamp((new Terminal())->getWidth()), $scope) as $line) {
                 $output->writeln($line);
             }
         }
 
-        if ($fix) {
-            try {
-                foreach ($this->fix($site, $plan, $written, true === $input->getOption('force')) as $line) {
-                    $notes->writeln($line);
-                }
-            } catch (Throwable $e) {
-                $notes->writeln('<error>drupatch: '.$e->getMessage().'</error>');
+        if ('' !== $fixError) {
+            $notes->writeln('<error>drupatch: '.$fixError.'</error>');
 
-                return Plan::FAILED;
-            }
+            return Plan::FAILED;
         }
 
         return $plan->exitCode($strict, $coverage->isVacuous());

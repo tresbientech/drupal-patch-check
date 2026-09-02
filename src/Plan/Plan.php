@@ -212,14 +212,17 @@ class Plan
      */
     public function scenario(): string
     {
-        if ('' !== $this->targetFrom) {
-            return 'for a move to core '.$this->against().' (the newest '.$this->targetFrom.' allows)';
-        }
         if ($this->targetIsInstalled) {
             return 'against the releases this site installs';
         }
+        $move = '' === $this->coreInstalled
+            ? 'for a move to core '.$this->against()
+            : 'for a move from core '.$this->coreInstalled.' to '.$this->against();
+        if ('' !== $this->targetFrom) {
+            return $move.' (the newest '.$this->targetFrom.' allows)';
+        }
 
-        return 'for a move to core '.$this->against();
+        return $move;
     }
 
     public const CLEAN = 0;

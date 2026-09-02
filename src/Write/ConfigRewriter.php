@@ -7,6 +7,7 @@ namespace TresBienTech\Drupatch\Write;
 use Composer\Json\JsonManipulator;
 use RuntimeException;
 use TresBienTech\Drupatch\PatchConfig;
+use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
 
 /**
@@ -26,7 +27,7 @@ class ConfigRewriter
         $files = [];
         foreach ($written as $file) {
             if ('clean' === $file['status']) {
-                $files[$file['package']."\0".$file['title']] = $file['path'];
+                $files[PatchRow::keyOf($file['package'], $file['title'])] = $file['path'];
             }
         }
 
@@ -46,28 +47,6 @@ class ConfigRewriter
         }
 
         return $changes;
-    }
-
-    /**
-     * The line the report prints for one change.
-     *
-     * @param array{action: string, package: string, title: string, path: string} $change
-     */
-    public static function line(array $change): string
-    {
-        if ('dropped' !== $change['action']) {
-            return \sprintf('    ~ %s: %s → %s', $change['package'], $change['title'], $change['path']);
-        }
-        if ('' === $change['path']) {
-            return \sprintf('    - %s: %s (already in the release)', $change['package'], $change['title']);
-        }
-
-        return \sprintf(
-            '    - %s: %s (already in the release; %s is now unreferenced and was kept)',
-            $change['package'],
-            $change['title'],
-            $change['path'],
-        );
     }
 
     /**

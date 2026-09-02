@@ -37,6 +37,7 @@ class NextCommandTest extends TestCase
         $this->server = new PlanServer([
             'target_core' => '10.6.9',
             'core_installed' => '10.6.9',
+            'target_is_installed' => true,
             'counts' => [],
             'plan' => ['counts' => ['conflicts' => 1], 'patches' => [[
                 'package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9',

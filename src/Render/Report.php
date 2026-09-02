@@ -153,33 +153,30 @@ class Report
     }
 
     /**
-     * The whole report in printed order: the rows, the files a re-roll wrote, then what to run next.
+     * The whole report in printed order: the rows with what the run did to each, the conflict files left, a fix that changed nothing, then what to run next.
      *
-     * @param array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>}>,
-     *              refused: list<array{package: string, title: string, path: string, reason: string, lifts: string}>}|null $wrote
      * @param list<string> $scope the options a next run repeats, `--target 11.4.5` and each `--package`
      *
      * @return list<string>
      */
-    public static function report(Plan $plan, ?array $wrote, int $width = 100, array $scope = []): array
+    public static function report(Plan $plan, ?Outcomes $outcomes, int $width = 100, array $scope = []): array
     {
         return \array_merge(
-            self::lines($plan, $width, null !== $wrote),
-            self::judged($plan),
-            self::written(null === $wrote ? [] : $wrote['written']),
-            self::refused(null === $wrote ? [] : $wrote['refused']),
-            self::footer($plan, $wrote, $scope),
+            self::lines($plan, $width, $outcomes),
+            self::open($outcomes),
+            self::rewrite($outcomes),
+            self::footer($plan, $outcomes, $scope),
         );
     }
 
     /**
      * The table a person reads: patches grouped under their package, the release each verdict is about, and the tallies underneath.
      *
-     * @param bool $writing the run wrote files, so an applies row with nothing under it is left out
+     * @param Outcomes|null $outcomes what the run did to each patch; set, an applies row with nothing under it is left out
      *
      * @return list<string>
      */
-    public static function lines(Plan $plan, int $width = 100, bool $writing = false): array
+    public static function lines(Plan $plan, int $width = 100, ?Outcomes $outcomes = null): array
     {
         $detail = self::detailIndent();
         $trailing = 0;
@@ -220,8 +217,8 @@ class Report
             }
             $lines[] = '  '.self::heading($rows[0]).'   '.self::packageTally($rows);
             foreach ($rows as $row) {
-                $details = self::details($row);
-                if ($writing && PatchRow::APPLIES === $row->verdict && [] === $details) {
+                $details = \array_merge(self::details($row), null === $outcomes ? [] : $outcomes->under($row));
+                if (null !== $outcomes && PatchRow::APPLIES === $row->verdict && [] === $details) {
                     continue;
                 }
                 $lines[] = \rtrim(\sprintf(
@@ -281,60 +278,36 @@ class Report
     }
 
     /**
-     * The release the patches were judged against, when the site does not run it.
+     * The conflict files a run left, none of them usable as a patch.
      *
      * @return list<string>
      */
-    public static function judged(Plan $plan): array
+    public static function open(?Outcomes $outcomes): array
     {
-        if ($plan->targetIsInstalled || '' === $plan->targetCore || '' === $plan->coreInstalled) {
+        $count = null === $outcomes ? 0 : $outcomes->openConflictFiles();
+        if (0 === $count) {
             return [];
         }
 
-        return ['', \sprintf('  core %s installed, patches judged against %s', $plan->coreInstalled, $plan->targetCore)];
+        return ['', \sprintf(
+            '  %d re-roll%s left regions to decide; those files are not usable as patches',
+            $count,
+            1 === $count ? '' : 's'
+        )];
     }
 
     /**
-     * The files a re-roll wrote, and what still needs a person.
-     *
-     * @param list<array{path: string, status: string, verified: bool, unioned: list<array{file: string, line: int}>}> $written
+     * A fix that found nothing to rewrite says so; one that changed entries said so under their rows.
      *
      * @return list<string>
      */
-    public static function written(array $written): array
+    public static function rewrite(?Outcomes $outcomes): array
     {
-        if ([] === $written) {
+        if (null === $outcomes || !$outcomes->fixed() || $outcomes->changed()) {
             return [];
         }
-        $lines = [''];
-        $conflicts = 0;
-        foreach ($written as $file) {
-            $usable = 'clean' === $file['status'];
-            if (!$usable) {
-                ++$conflicts;
-            }
-            $lines[] = \sprintf(
-                '  wrote %s  (%s%s)',
-                $file['path'],
-                $file['status'],
-                $usable && $file['verified'] ? ', verified against the release by the server' : ''
-            );
-            if ([] !== $file['unioned']) {
-                $lines[] = '    '.self::unionNote(\count($file['unioned'])).':';
-                foreach ($file['unioned'] as $region) {
-                    $lines[] = '      '.$region['file'].':'.$region['line'];
-                }
-            }
-        }
-        if ($conflicts > 0) {
-            $lines[] = \sprintf(
-                '  %d re-roll%s left regions to decide; those files are not usable as patches',
-                $conflicts,
-                1 === $conflicts ? '' : 's'
-            );
-        }
 
-        return $lines;
+        return ['', '  nothing to change: no patch is already in the release and none was re-rolled cleanly'];
     }
 
     /**
@@ -360,35 +333,7 @@ class Report
     }
 
     /**
-     * The re-rolls that produced no file, grouped by why, one reason printed once.
-     *
-     * @param list<array{package: string, title: string, path: string, reason: string, lifts: string}> $refused
-     *
-     * @return list<string>
-     */
-    public static function refused(array $refused): array
-    {
-        if ([] === $refused) {
-            return [];
-        }
-        $groups = [];
-        foreach ($refused as $refusal) {
-            $groups[$refusal['reason']][] = $refusal;
-        }
-        \ksort($groups);
-        $lines = ['', '  not written:'];
-        foreach ($groups as $reason => $items) {
-            \usort($items, static fn (array $a, array $b): int => [$a['package'], $a['title']] <=> [$b['package'], $b['title']]);
-            foreach ($items as $item) {
-                $lines[] = \sprintf('    %s: %s', $item['package'], $item['title']);
-            }
-            $lines[] = '      '.$reason;
-        }
-
-        return $lines;
-    }
-
-    /**
+     * /**
      * The core references under a row: one line per flagged finding up to the cap, the count left over, the deprecated count, then the server's note unless the row conflicts.
      *
      * @return list<string>
@@ -431,14 +376,13 @@ class Report
     /**
      * What to run next, empty when there is nothing to run.
      *
-     * @param array{written: list<array<string, mixed>>, refused: list<array{lifts: string}>}|null $wrote
-     * @param list<string>                                                                         $scope
+     * @param list<string> $scope
      *
      * @return list<string>
      */
-    public static function footer(Plan $plan, ?array $wrote = null, array $scope = []): array
+    public static function footer(Plan $plan, ?Outcomes $outcomes = null, array $scope = []): array
     {
-        $lines = self::nextStepLines($plan->counts, '  ', $wrote, $scope);
+        $lines = self::nextStepLines($plan->counts, '  ', $outcomes, $scope);
 
         return [] === $lines ? [] : \array_merge([''], $lines);
     }
@@ -446,15 +390,15 @@ class Report
     /**
      * The commands worth running, worst finding first.
      *
-     * @param array<string, int>                                                                   $counts patches per verdict
-     * @param array{written: list<array<string, mixed>>, refused: list<array{lifts: string}>}|null $wrote
+     * @param array<string, int> $counts   patches per verdict
+     * @param Outcomes|null      $outcomes what the run did, null for a run that wrote nothing
      *
      * @return list<array{flag: string, effect: string}>
      */
-    public static function nextSteps(array $counts, ?array $wrote = null): array
+    public static function nextSteps(array $counts, ?Outcomes $outcomes = null): array
     {
         $out = [];
-        if (null === $wrote) {
+        if (null === $outcomes) {
             $reroll = $counts[PatchRow::CONFLICTS] ?? 0;
             if ($reroll > 0) {
                 $out[] = [
@@ -463,12 +407,7 @@ class Report
                 ];
             }
         } else {
-            $open = 0;
-            foreach ($wrote['written'] as $file) {
-                if (PatchRow::CONFLICTS === ($file['status'] ?? '')) {
-                    ++$open;
-                }
-            }
+            $open = $outcomes->openConflictFiles();
             if ($open > 0) {
                 $out[] = [
                     'flag' => '--resolve',
@@ -477,7 +416,7 @@ class Report
                         : 'sends the regions you decide in the '.$open.' conflict files',
                 ];
             }
-            $forcible = self::lifted($wrote['refused'], '--force');
+            $forcible = $outcomes->lifted('--force');
             if ($forcible > 0) {
                 $out[] = [
                     'flag' => '--force',
@@ -487,9 +426,12 @@ class Report
                 ];
             }
         }
-        $urls = null === $wrote ? 0 : self::lifted($wrote['refused'], '--fix');
+        // A fix run dropped what shipped and adopted the URLs; offering it
+        // again would repeat what just happened.
+        $fixed = null !== $outcomes && $outcomes->fixed();
+        $urls = null === $outcomes ? 0 : $outcomes->lifted('--fix');
         $shipped = $counts[PatchRow::MERGED] ?? 0;
-        if ($shipped > 0 || $urls > 0) {
+        if (!$fixed && ($shipped > 0 || $urls > 0)) {
             $out[] = ['flag' => '--fix', 'effect' => self::fixes($shipped, $urls)];
         }
 
@@ -499,15 +441,14 @@ class Report
     /**
      * The next-steps footer as printed, empty when there is nothing to run.
      *
-     * @param array<string, int>                                                                   $counts patches per verdict
-     * @param array{written: list<array<string, mixed>>, refused: list<array{lifts: string}>}|null $wrote
-     * @param list<string>                                                                         $scope  the options a next run repeats, between the command and the flag
+     * @param array<string, int> $counts patches per verdict
+     * @param list<string>       $scope  the options a next run repeats, between the command and the flag
      *
      * @return list<string>
      */
-    public static function nextStepLines(array $counts, string $indent = '  ', ?array $wrote = null, array $scope = []): array
+    public static function nextStepLines(array $counts, string $indent = '  ', ?Outcomes $outcomes = null, array $scope = []): array
     {
-        $steps = self::nextSteps($counts, $wrote);
+        $steps = self::nextSteps($counts, $outcomes);
         if ([] === $steps) {
             return [];
         }
@@ -530,11 +471,9 @@ class Report
     /**
      * The `--json` summary a scheduled job reads: what the run was about, what it found, which packages are behind each finding, and what to run next.
      *
-     * @param array{written: list<array<string, mixed>>, refused: list<array{lifts: string}>}|null $wrote
-     *
      * @return array<string, mixed>
      */
-    public static function summary(Plan $plan, bool $strict = false, bool $vacuous = false, ?array $wrote = null): array
+    public static function summary(Plan $plan, bool $strict = false, bool $vacuous = false, ?Outcomes $outcomes = null): array
     {
         $counts = [];
         foreach ($plan->patches as $row) {
@@ -564,7 +503,7 @@ class Report
         if ('' !== $plan->targetFrom) {
             $summary['target_from'] = $plan->targetFrom;
         }
-        $next = self::nextSteps($counts, $wrote);
+        $next = self::nextSteps($counts, $outcomes);
         if ([] !== $next) {
             $summary['next'] = $next;
         }
@@ -587,9 +526,11 @@ class Report
             if (null === $level) {
                 continue;
             }
-            $message = \sprintf('%s %s %s: %s', $row->verdict, $row->package, $row->version, $row->label());
-            if ('' !== $row->firstFailure()) {
-                $message .= '; '.$row->firstFailure();
+            $message = $row->verdict.' '.$row->package.('' === $row->version ? '' : ' '.$row->version).': '.$row->label();
+            // What a re-roll must fix, or why a row has no verdict.
+            $detail = '' !== $row->firstFailure() ? $row->firstFailure() : $row->reason();
+            if ('' !== $detail) {
+                $message .= '; '.$detail;
             }
             $out[] = \sprintf(
                 '::%s file=%s,line=%d::%s',
@@ -619,23 +560,6 @@ class Report
         }
 
         return 1;
-    }
-
-    /**
-     * How many refusals this flag would clear.
-     *
-     * @param list<array{lifts: string}> $refused
-     */
-    private static function lifted(array $refused, string $flag): int
-    {
-        $count = 0;
-        foreach ($refused as $refusal) {
-            if ($flag === $refusal['lifts']) {
-                ++$count;
-            }
-        }
-
-        return $count;
     }
 
     /**

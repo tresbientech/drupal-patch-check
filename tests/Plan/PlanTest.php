@@ -331,6 +331,20 @@ class PlanTest extends TestCase
         self::assertSame('for a move to core 11.4.5', $plan->scenario());
     }
 
+    public function testTheMoveStartsFromTheInstalledCoreWhenItIsKnown(): void
+    {
+        $plan = Plan::fromArray(['target_core' => '11.4.5', 'core_installed' => '11.3.12', 'plan' => ['patches' => []]]);
+
+        self::assertSame('for a move from core 11.3.12 to 11.4.5', $plan->scenario());
+    }
+
+    public function testAResolvedLatestKeepsItsConstraintAfterBothCores(): void
+    {
+        $plan = Plan::fromArray(['target_core' => '11.4.5', 'core_installed' => '11.3.12', 'target_from' => '^11.3', 'plan' => ['patches' => []]]);
+
+        self::assertSame('for a move from core 11.3.12 to 11.4.5 (the newest ^11.3 allows)', $plan->scenario());
+    }
+
     // A patch is judged against its own package's release. The core
     // version only decides which release that is.
     public function testTheHeadlineNamesTheMoveRatherThanWhatPatchesMeet(): void

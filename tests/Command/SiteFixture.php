@@ -64,6 +64,11 @@ final class SiteFixture
         return $this;
     }
 
+    public function root(): string
+    {
+        return $this->root;
+    }
+
     public function has(string $path): bool
     {
         return \is_file($this->root.'/'.$path);

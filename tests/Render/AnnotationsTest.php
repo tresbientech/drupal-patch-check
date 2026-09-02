@@ -49,6 +49,27 @@ final class AnnotationsTest extends TestCase
         self::assertStringStartsWith('::warning file=composer.json,line=5::unknown drupal/webform 6.2.9: Style fix', $this->lines($plan)[0]);
     }
 
+    public function testAnUnclearRowSaysWhyAfterItsTitle(): void
+    {
+        $plan = $this->planFrom(['counts' => ['unknown' => 1], 'patches' => [$this->row([
+            'verdict' => 'unknown', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch', 'note' => 'drupal/webform has no release for 11.4.5',
+        ])]]);
+
+        self::assertSame(
+            ['::warning file=composer.json,line=5::unknown drupal/webform 6.2.9: Style fix; drupal/webform has no release for 11.4.5'],
+            $this->lines($plan),
+        );
+    }
+
+    public function testAPackageWithNoReleaseLeavesNoStraySpace(): void
+    {
+        $plan = $this->planFrom(['counts' => ['unknown' => 1], 'patches' => [$this->row([
+            'verdict' => 'unknown', 'title' => 'Style fix', 'source' => 'patchs/webform-style.patch', 'version' => '', 'note' => 'no release for 11.4.5',
+        ])]]);
+
+        self::assertStringStartsWith('::warning file=composer.json,line=5::unknown drupal/webform: Style fix; no release', $this->lines($plan)[0]);
+    }
+
     public function testAShippedRowIsANotice(): void
     {
         $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row([

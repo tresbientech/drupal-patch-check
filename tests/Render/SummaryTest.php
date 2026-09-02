@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Render\Outcomes;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 
@@ -62,9 +63,9 @@ class SummaryTest extends TestCase
 
     public function testNamesResolveAfterARunWroteAConflictFile(): void
     {
-        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false]], 'refused' => []];
+        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => []]], 'refused' => []];
 
-        self::assertSame(['--resolve', '--fix'], \array_column(Report::summary($this->plan(), false, false, $wrote)['next'], 'flag'));
+        self::assertSame(['--resolve', '--fix'], \array_column(Report::summary($this->plan(), false, false, Outcomes::fromWrite($wrote))['next'], 'flag'));
     }
 
     public function testAPackageIsNamedOnceHoweverManyRowsItHas(): void

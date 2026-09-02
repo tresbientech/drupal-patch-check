@@ -204,28 +204,4 @@ final class ConfigRewriterTest extends TestCase
         self::assertSame('repointed', $changes[0]['action']);
         self::assertSame('patches/webform/a.patch', $changes[0]['path']);
     }
-
-    public function testADroppedEntryNamesTheFileItLeavesBehind(): void
-    {
-        $plan = $this->planFrom(['patches' => [
-            $this->row(['title' => 'Menu cache', 'source' => 'patches/menu.patch', 'verdict' => 'merged']),
-        ]]);
-
-        $line = ConfigRewriter::line(ConfigRewriter::changes($plan, [])[0]);
-
-        self::assertStringContainsString('patches/menu.patch', $line);
-        self::assertStringContainsString('kept', $line);
-    }
-
-    public function testADroppedUrlEntryLeavesNoFileToName(): void
-    {
-        $plan = $this->planFrom(['patches' => [
-            $this->row(['title' => 'Menu cache', 'source' => 'https://example.test/a.patch', 'verdict' => 'merged']),
-        ]]);
-
-        $line = ConfigRewriter::line(ConfigRewriter::changes($plan, [])[0]);
-
-        self::assertStringNotContainsString('https://', $line);
-        self::assertStringNotContainsString('kept', $line);
-    }
 }

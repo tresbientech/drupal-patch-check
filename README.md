@@ -71,7 +71,7 @@ needs a person is at the top. Each row has a mark, the verdict, the patch
 title and the file it came from.
 
 ```
-Drupal Code Query: 5 patches against 11.4.5
+Drupal Code Query: 5 patches for a move from core 11.3.2 to 11.4.5
 
   drupal/webform 6.2.9 → 6.3.2   1 conflicts, 1 applies
     ! conflicts  Allow numeric machine names in handlers      webform-numeric.patch
@@ -122,7 +122,21 @@ Options that write to the site:
 
 A run that writes prints only the rows a person still has to look at. An
 `applies` row with nothing under it is left out; the package line keeps its
-tally, and so does the `patches:` line.
+tally, and so does the `patches:` line. What the run did to a patch prints
+under its row:
+
+```
+    ! conflicts Fix the alter hook                                   fix.patch
+                src/WebformSubmissionForm.php: patch failed
+                wrote patches/webform/fix.patch (verified against 6.3.2)
+    ! conflicts Transaction-aware backend                            tx.patch
+                core/lib/Drupal/Core/Cache/DatabaseBackend.php: patch failed
+                wrote patches/core/tx.conflict.patch, 2 regions to decide
+```
+
+A `--fix` run prints its rewrite the same way, under the entry it changed:
+`dropped from composer.json (already in the release)`, or `composer.json now
+points at patches/webform/fix.patch`.
 
 With `--target`, the plugin asks composer which release each patched package
 would move to, using the site's own repositories, stability rules and

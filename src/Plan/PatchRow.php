@@ -127,6 +127,19 @@ class PatchRow
     }
 
     /**
+     * The regions a conflicted re-roll leaves for a person, summed over its files.
+     */
+    public function openRegions(): int
+    {
+        $count = 0;
+        foreach ((array) ($this->reroll['conflicts'] ?? []) as $conflict) {
+            $count += (int) (((array) $conflict)['regions'] ?? 0);
+        }
+
+        return $count;
+    }
+
+    /**
      * The regions the merge decided on its own by keeping both sides.
      *
      * @return list<array{file: string, line: int}>
@@ -249,6 +262,14 @@ class PatchRow
      */
     public function key(): string
     {
-        return $this->package."\0".$this->title;
+        return self::keyOf($this->package, $this->title);
+    }
+
+    /**
+     * The key a row is filed under, for anything that names a patch by package and title.
+     */
+    public static function keyOf(string $package, string $title): string
+    {
+        return $package."\0".$title;
     }
 }
