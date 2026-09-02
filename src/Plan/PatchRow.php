@@ -43,6 +43,15 @@ class PatchRow
         public readonly string $judgedWithout,
         /** The first file the patch failed on, and why. */
         private readonly string $failedHunk,
+        /**
+         * The hunks the release already carries verbatim, one line each.
+         *
+         * Every hunk, not just the first: a patch whose hunks the release
+         * mostly has is the evidence that its fix landed in another form.
+         *
+         * @var list<string>
+         */
+        public readonly array $hunksShipped,
         /** Where the release this row is about came from: composer, or the bundle. */
         public readonly string $decidedBy,
         /**
@@ -71,6 +80,7 @@ class PatchRow
         }
         $result = (array) ($data['result'] ?? []);
         $failed = (array) ($result['hunks_failed'] ?? []);
+        $shipped = (array) ($result['hunks_shipped'] ?? []);
 
         return new self(
             $package,
@@ -85,6 +95,7 @@ class PatchRow
             (string) ($result['strict_refused'] ?? ''),
             (string) ($result['judged_without'] ?? ''),
             [] === $failed ? '' : self::hunk($failed[0]),
+            \array_values(\array_map(self::hunk(...), $shipped)),
             (string) ($data['decided_by'] ?? ''),
             \is_array($result['reroll'] ?? null) ? $result['reroll'] : null,
             \is_array($result['core_references'] ?? null) ? $result['core_references'] : [],

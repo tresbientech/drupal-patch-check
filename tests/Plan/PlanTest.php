@@ -14,6 +14,34 @@ use TresBienTech\Drupatch\Plan\Plan;
  */
 class PlanTest extends TestCase
 {
+    public function testCarriesTheHunksTheReleaseAlreadyHas(): void
+    {
+        $row = PatchRow::fromArray([
+            'package' => 'drupal/imagemagick',
+            'verdict' => 'conflicts',
+            'result' => [
+                'hunks_failed' => [
+                    ['file' => 'src/Plugin/ImageToolkit/ImagemagickToolkit.php', 'line' => 766, 'reason' => 'patch failed'],
+                ],
+                'hunks_shipped' => [
+                    ['file' => 'src/Plugin/ImageToolkit/ImagemagickToolkit.php', 'line' => 369, 'reason' => 'the release already carries this hunk'],
+                ],
+            ],
+        ]);
+
+        $this->assertSame(
+            ['src/Plugin/ImageToolkit/ImagemagickToolkit.php: the release already carries this hunk'],
+            $row->hunksShipped,
+        );
+    }
+
+    public function testARowTheReleaseCarriesNothingOfHasNoShippedHunks(): void
+    {
+        $row = PatchRow::fromArray(['package' => 'drupal/webform', 'verdict' => 'applies']);
+
+        $this->assertSame([], $row->hunksShipped);
+    }
+
     public function testReadsThePlanTheApiSends(): void
     {
         $plan = Plan::fromArray([

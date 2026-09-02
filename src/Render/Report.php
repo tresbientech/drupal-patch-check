@@ -232,6 +232,12 @@ class Report
                 if ('' !== $row->firstFailure()) {
                     $lines[] = $detail.$row->firstFailure();
                 }
+                // Part of the patch is already in the release, so the
+                // fix reached it in another form: the question is whether
+                // the rest is still needed, not how to re-roll it.
+                foreach ($row->hunksShipped as $shipped) {
+                    $lines[] = $detail.'already in the release: '.$shipped;
+                }
                 // The merge ran on a different file from the one the
                 // site declares, so say which.
                 if ('' !== $row->mergedFrom()) {
