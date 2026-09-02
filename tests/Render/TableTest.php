@@ -68,12 +68,15 @@ class TableTest extends TestCase
         $at = self::indexOf($lines, 'Fix b');
 
         self::assertSame(
-            '    <comment>1 patch skipped (the service does not fetch from that host)</comment>',
+            '        <comment>1 patch skipped (the service does not fetch from that host)</comment>',
             $lines[$at + 1],
+            'the note starts at the mark column, like a warning under the heading',
         );
     }
 
-    public function testAPackageWithNothingJudgedGetsALineOfItsOwnAfterTheGroups(): void
+    // A package the run judged nothing on is said once, before the
+    // groups, so a reader sees what was left out before the verdicts.
+    public function testAPackageWithNothingJudgedGetsALineOfItsOwnBeforeTheGroups(): void
     {
         $lines = self::tableWith($this->plan(), [[
             'package' => 'acquia/cohesion', 'title' => 'Page builder fix',
@@ -81,12 +84,29 @@ class TableTest extends TestCase
         ]]);
         $at = self::indexOf($lines, 'acquia/cohesion');
 
+        self::assertSame(2, $at, 'right under the header');
         self::assertSame(
             '  <comment>acquia/cohesion 7.6.1   1 patch skipped (not a drupal.org project)</comment>',
             $lines[$at],
         );
-        self::assertSame('', $lines[$at - 1], 'a blank line keeps it apart from the package above');
-        self::assertStringContainsString('patches:', $lines[$at + 2], 'the tally still closes the table');
+        self::assertSame('', $lines[$at + 1], 'a blank line keeps it apart from the first package');
+        self::assertStringStartsWith('  drupal/webform', $lines[$at + 2]);
+    }
+
+    public function testARunLevelWarningStillComesBeforeTheSkippedPackages(): void
+    {
+        $plan = $this->planFrom([
+            'warnings' => ['9 core patch(es) were not judged: 11.4 does not name a core release.'],
+            'patches' => [$this->row()],
+        ]);
+        $lines = self::tableWith($plan, [[
+            'package' => 'acquia/cohesion', 'title' => 'Page builder fix',
+            'reason' => 'not a drupal.org project',
+        ]]);
+
+        self::assertStringContainsString('9 core patch(es)', $lines[2]);
+        self::assertSame('', $lines[3]);
+        self::assertStringContainsString('acquia/cohesion', $lines[4]);
     }
 
     // Counting to zero says nothing a reader can act on; the reasons
@@ -401,15 +421,34 @@ class TableTest extends TestCase
         $row = self::rowWith($lines, '· applies   Fix the alter hook');
 
         self::assertSame(
-            '                the patch carries the packaging block as context',
+            '                    <fg=cyan>the patch carries the packaging block as context</>',
             $lines[$row + 1],
-            'the note belongs under its row, indented and whole'
+            'the note belongs under its row, indented, whole and in the detail colour'
         );
     }
 
     // A row that only broke because of an earlier patch must say so, or
-    // the wrong patch gets re-rolled.
-    public function testNamesTheEarlierPatchARowWasJudgedWithout(): void
+    // the wrong patch gets re-rolled. The earlier patch is cited by its
+    // number, the way the rows above are numbered.
+    public function testCitesTheEarlierPatchARowWasJudgedWithoutByItsNumber(): void
+    {
+        $plan = $this->planFrom(['patches' => [
+            $this->row(['title' => 'Earlier', 'verdict' => 'conflicts']),
+            $this->row(['title' => 'Later', 'verdict' => 'conflicts', 'result' => ['judged_without' => 'Earlier']]),
+        ]]);
+
+        $lines = self::table($plan);
+        $row = self::rowWith($lines, '<error>!</error> conflicts Later');
+
+        self::assertSame(
+            '                    <fg=cyan>judged with only the part of #1 that applied</>',
+            $lines[$row + 1]
+        );
+    }
+
+    // The label came from the service; one no row carries is printed
+    // as it came rather than dropped.
+    public function testALabelNoRowCarriesIsCitedAsItCame(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row([
             'verdict' => 'conflicts',
@@ -420,9 +459,57 @@ class TableTest extends TestCase
         $row = self::rowWith($lines, '<error>!</error> conflicts Fix the alter hook');
 
         self::assertSame(
-            '                judged with only the part of "Domain content translations permissions_files" that applied',
+            '                    <fg=cyan>judged with only the part of "Domain content translations permissions_files" that applied</>',
             $lines[$row + 1]
         );
+    }
+
+    public function testRowsAreNumberedInTheOrderComposerAppliesThem(): void
+    {
+        $plan = $this->planFrom(['patches' => [
+            $this->row(['title' => 'Zebra']),
+            $this->row(['title' => 'Alpha']),
+        ]]);
+
+        $lines = self::table($plan);
+
+        self::assertStringStartsWith('     #1 ', $lines[self::indexOf($lines, 'Zebra')]);
+        self::assertStringStartsWith('     #2 ', $lines[self::indexOf($lines, 'Alpha')]);
+    }
+
+    public function testNumbersRestartUnderEachPackage(): void
+    {
+        $lines = self::table($this->plan());
+
+        self::assertStringStartsWith('     #1 ', $lines[self::indexOf($lines, 'Fix a')]);
+        self::assertStringStartsWith('     #2 ', $lines[self::indexOf($lines, 'Fix b')]);
+        self::assertStringStartsWith('     #1 ', $lines[self::indexOf($lines, 'Fix c')]);
+    }
+
+    public function testTheNumberColumnIsRightAligned(): void
+    {
+        $rows = [];
+        for ($i = 1; $i <= 10; ++$i) {
+            $rows[] = $this->row(['title' => 'Patch '.$i]);
+        }
+        $lines = self::table($this->planFrom(['patches' => $rows]));
+
+        self::assertStringStartsWith('     #9 ', $lines[self::indexOf($lines, 'Patch 9')]);
+        self::assertStringStartsWith('    #10 ', $lines[self::indexOf($lines, 'Patch 10')]);
+    }
+
+    // The number is the patch's place in the stack, so a row left out
+    // of a write run does not renumber the ones after it.
+    public function testAWriteRunKeepsTheNumbersOfTheRowsItPrints(): void
+    {
+        $plan = $this->planFrom(['patches' => [
+            $this->row(['title' => 'Quiet', 'verdict' => 'applies']),
+            $this->row(['title' => 'Broken', 'verdict' => 'conflicts']),
+        ]]);
+        $lines = self::table($plan, 100, Outcomes::fromWrite(['written' => [], 'refused' => []]));
+
+        self::assertStringNotContainsString('Quiet', \implode("\n", $lines));
+        self::assertStringStartsWith('     #2 ', $lines[self::indexOf($lines, 'Broken')]);
     }
 
     // composer.json order is the order composer applies them, so it is
@@ -538,7 +625,7 @@ class TableTest extends TestCase
     private static function rowWith(array $lines, string $opening): int
     {
         foreach ($lines as $i => $line) {
-            if (\str_starts_with($line, '    '.$opening)) {
+            if (1 === \preg_match('/^ {4,}#\d+ (.*)$/u', $line, $m) && \str_starts_with($m[1], $opening)) {
                 return $i;
             }
         }
@@ -571,7 +658,7 @@ class TableTest extends TestCase
     {
         $out = [];
         foreach ($lines as $line) {
-            if (1 === \preg_match('/^    \S+ +\S+ +(.+?)(?:  +\S+)?$/u', $line, $m)) {
+            if (1 === \preg_match('/^ {4,}#\d+ \S+ +\S+ +(.+?)(?:  +\S+)?$/u', $line, $m)) {
                 $out[] = \trim($m[1]);
             }
         }
@@ -621,7 +708,7 @@ class TableTest extends TestCase
     public function testANarrowTerminalStillPrintsOneRowPerPatch(): void
     {
         $lines = self::table($this->plan(), 80);
-        $rows = \array_filter($lines, static fn (string $l): bool => 1 === \preg_match('/^    \S/u', $l));
+        $rows = \array_filter($lines, static fn (string $l): bool => 1 === \preg_match('/^ {4,}#\d+ /u', $l));
 
         self::assertCount(3, $rows);
         foreach ($lines as $line) {
@@ -665,7 +752,7 @@ class TableTest extends TestCase
         ]]);
         $rows = \array_values(\array_filter(
             self::table($plan, 100),
-            static fn (string $l): bool => 1 === \preg_match('/^    \S/u', $l),
+            static fn (string $l): bool => 1 === \preg_match('/^ {4,}#\d+ /u', $l),
         ));
 
         self::assertCount(2, $rows);
@@ -786,15 +873,15 @@ class TableTest extends TestCase
         $lines = self::table($this->plan());
         $rows = \array_values(\array_filter(
             $lines,
-            static fn (string $line): bool => 1 === \preg_match('/^    \S/', $line),
+            static fn (string $line): bool => 1 === \preg_match('/^ {4,}#\d+ /', $line),
         ));
 
         self::assertCount(3, $rows);
         foreach ($rows as $line) {
             self::assertMatchesRegularExpression(
-                '/^    (<\w+>)?\S(<\/\w+>)? (conflicts|applies|merged|unknown) /u',
+                '/^ {4,}#\d+ (<\w+>)?\S(<\/\w+>)? (conflicts|applies|merged|unknown) /u',
                 $line,
-                'a row must open with its mark and still name its verdict',
+                'a row must open with its number, then its mark, and still name its verdict',
             );
         }
     }
@@ -855,7 +942,9 @@ class TableTest extends TestCase
         self::assertContains('  drupal/webform 6.2.9 → 6.3.2   1 applies', self::table($plan));
     }
 
-    public function testAWarningSitsAboveThePackageItNames(): void
+    // The line sits under its own heading, so it does not repeat the
+    // package name; it starts at the mark column, not the number column.
+    public function testAWarningSitsUnderThePackageItNames(): void
     {
         $plan = $this->planFrom([
             'counts' => ['applies' => 1],
@@ -868,12 +957,13 @@ class TableTest extends TestCase
 
         self::assertIsInt($heading);
         self::assertSame(
-            '  <comment>! drupal/webform 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.</comment>',
-            $lines[$heading - 1],
+            '        <comment>! 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.</comment>',
+            $lines[$heading + 1],
         );
+        self::assertStringStartsWith('     #1 ', $lines[$heading + 2], 'the first row follows the warning');
     }
 
-    public function testAWarningSitsBelowThePrecedingPackagesLastRow(): void
+    public function testAWarningSitsBetweenItsHeadingAndItsFirstRow(): void
     {
         $plan = $this->planFrom([
             'counts' => ['conflicts' => 1, 'applies' => 1],
@@ -885,12 +975,11 @@ class TableTest extends TestCase
         ]);
 
         $lines = self::table($plan);
-        $warning = \array_search('  <comment>! drupal/domain 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.</comment>', $lines, true);
+        $warning = \array_search('        <comment>! 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.</comment>', $lines, true);
 
         self::assertIsInt($warning);
-        self::assertStringContainsString('Alpha', $lines[$warning - 2], 'the previous package keeps its last row');
-        self::assertSame('', $lines[$warning - 1], 'a blank line separates the packages');
-        self::assertStringContainsString('drupal/domain 2.0.1', $lines[$warning + 1]);
+        self::assertStringContainsString('drupal/domain 2.0.1', $lines[$warning - 1]);
+        self::assertStringContainsString('Beta', $lines[$warning + 1]);
     }
 
     // The report is about patches. A warning naming a package that
@@ -920,7 +1009,7 @@ class TableTest extends TestCase
         $heading = \array_search('  drupal/webform 6.2.9   1 applies', $lines, true);
 
         self::assertIsInt($heading);
-        self::assertStringContainsString('Widen it to ^6.3.', $lines[$heading - 1]);
+        self::assertStringContainsString('Widen it to ^6.3.', $lines[$heading + 1]);
     }
 
     // A warning about the run rather than about a package still leads:
@@ -947,7 +1036,7 @@ class TableTest extends TestCase
             'patches' => [$this->row()],
         ]);
 
-        $marked = \array_filter(self::table($plan), static fn (string $line): bool => \str_contains($line, '! drupal/webform 6.3.2'));
+        $marked = \array_filter(self::table($plan), static fn (string $line): bool => \str_contains($line, 'Widen it to ^6.3.'));
 
         self::assertCount(1, $marked);
     }
@@ -1249,7 +1338,7 @@ class TableTest extends TestCase
         ], ['title' => 'Fix a'])]]);
 
         self::assertStringContainsString(
-            're-rolled from merge_requests/45.diff, the merge request\'s own diff, not the file declared',
+            're-rolled from merge_requests/45.diff, the merge request\'s own diff; the declared file decided the verdict',
             \implode("\n", self::table($plan))
         );
     }

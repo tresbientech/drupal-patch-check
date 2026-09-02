@@ -22,8 +22,14 @@ class Report
     /** Past this a wider terminal only strands the filename column. */
     public const MAX_WIDTH = 120;
 
-    /** Row indent, the mark and its space, the verdict column and its space. */
-    public const PREFIX = 16;
+    /** Row indent, the number column and its space, the mark and its space, the verdict column and its space. */
+    public const PREFIX = 20;
+
+    /** The number column, right-aligned: room for #99. */
+    private const NUMBER_WIDTH = 3;
+
+    /** Row indent, the number column and its space: where a package-level caveat starts, under the mark. */
+    private const MARK_INDENT = '        ';
 
     /** The longest filename column, so the narrowest row still fits. */
     public const TRAILING_MAX = 32;
@@ -179,7 +185,7 @@ class Report
     }
 
     /**
-     * The table a person reads: patches grouped under their package, the release each verdict is about, and the tallies underneath.
+     * The table a person reads: what the run held back, then patches grouped under their package with the release each verdict is about, and the tallies underneath.
      *
      * @param Outcomes|null $outcomes set for a run that wrote, so an applies row with nothing under it is left out
      *
@@ -187,7 +193,6 @@ class Report
      */
     public static function lines(Plan $plan, Coverage $coverage, int $width = 100, ?Outcomes $outcomes = null): array
     {
-        $detail = self::detailIndent();
         $trailing = 0;
         foreach ($plan->patches as $patch) {
             $trailing = \max($trailing, \mb_strlen(self::fileName($patch)));
@@ -207,52 +212,26 @@ class Report
             $grouped[$row->package][] = $row;
         }
         $placed = self::warningsByPackage($plan->warnings, \array_keys($grouped));
+
+        $blocks = [];
         $loose = self::aboutNoPackage($plan->warnings, \array_merge($plan->packages(), $plan->noRelease));
-
-        foreach ($loose as $warning) {
-            $lines[] = self::warning($warning);
-        }
         if ([] !== $loose) {
-            $lines[] = '';
+            $blocks[] = \array_map(self::warning(...), $loose);
         }
-
-        $first = true;
+        $unjudged = $coverage->unjudged(\array_keys($grouped));
+        if ([] !== $unjudged) {
+            $blocks[] = \array_map(static fn (string $line): string => '  '.self::caveat($line), $unjudged);
+        }
         foreach ($grouped as $package => $rows) {
-            if (!$first) {
-                $lines[] = '';
-            }
-            $first = false;
-            foreach ($placed[$package] ?? [] as $warning) {
-                $lines[] = self::warning($warning);
-            }
-            $lines[] = '  '.self::heading($rows[0]).'   '.self::packageTally($rows);
-            foreach ($rows as $row) {
-                $details = self::details($row);
-                if (null !== $outcomes && PatchRow::APPLIES === $row->verdict && [] === $details) {
-                    continue;
-                }
-                $lines[] = \rtrim(\sprintf(
-                    '    %s %-9s %s  %s',
-                    self::marked($row->verdict),
-                    $row->verdict,
-                    self::pad(self::fit($row->label(), $titleWidth), $titleWidth),
-                    self::fileName($row),
-                ));
-                foreach ($details as $line) {
-                    $lines[] = $detail.$line;
-                }
-            }
-            foreach ($coverage->notesFor($package) as $note) {
-                $lines[] = '    '.self::caveat($note);
-            }
+            $blocks[] = self::group($rows, $placed[$package] ?? [], $coverage->notesFor($package), $titleWidth, $outcomes);
         }
-
-        foreach ($coverage->unjudged(\array_keys($grouped)) as $line) {
-            if (!$first) {
+        foreach ($blocks as $i => $block) {
+            if ($i > 0) {
                 $lines[] = '';
             }
-            $first = false;
-            $lines[] = '  '.self::caveat($line);
+            foreach ($block as $line) {
+                $lines[] = $line;
+            }
         }
 
         $lines[] = '';
@@ -269,11 +248,56 @@ class Report
     }
 
     /**
-     * What is printed under a row, in order: why it has no verdict, what a re-roll is up against, the hunks already in the release, the file the merge ran on, the regions the merge decided, a strict apply that refused, the earlier patch it was judged without, and the core symbols the target changed.
+     * One package's block: the heading, what keeps its release back, the rows numbered in the order composer applies them, and what the run skipped.
+     *
+     * @param non-empty-list<PatchRow> $rows
+     * @param list<string>             $warnings
+     * @param list<string>             $notes
      *
      * @return list<string>
      */
-    private static function details(PatchRow $row): array
+    private static function group(array $rows, array $warnings, array $notes, int $titleWidth, ?Outcomes $outcomes): array
+    {
+        $lines = ['  '.self::heading($rows[0]).'   '.self::packageTally($rows)];
+        foreach ($warnings as $warning) {
+            $lines[] = self::MARK_INDENT.self::caveat('! '.$warning);
+        }
+        $numbers = [];
+        foreach ($rows as $i => $row) {
+            $numbers[$row->label()] = $i + 1;
+        }
+        foreach ($rows as $i => $row) {
+            $details = self::details($row, $numbers);
+            if (null !== $outcomes && PatchRow::APPLIES === $row->verdict && [] === $details) {
+                continue;
+            }
+            $lines[] = \rtrim(\sprintf(
+                '    %'.self::NUMBER_WIDTH.'s %s %-9s %s  %s',
+                '#'.($i + 1),
+                self::marked($row->verdict),
+                $row->verdict,
+                self::pad(self::fit($row->label(), $titleWidth), $titleWidth),
+                self::fileName($row),
+            ));
+            foreach ($details as $line) {
+                $lines[] = self::detailIndent().self::detail($line);
+            }
+        }
+        foreach ($notes as $note) {
+            $lines[] = self::MARK_INDENT.self::caveat($note);
+        }
+
+        return $lines;
+    }
+
+    /**
+     * What is printed under a row, in order: why it has no verdict, what a re-roll is up against, the hunks already in the release, the file the merge ran on, the regions the merge decided, a strict apply that refused, the earlier patch it was judged without, and the core symbols the target changed.
+     *
+     * @param array<string, int> $numbers the package's patches by label, in the order composer applies them
+     *
+     * @return list<string>
+     */
+    private static function details(PatchRow $row, array $numbers): array
     {
         $out = [];
         if ('' !== $row->reason()) {
@@ -295,10 +319,22 @@ class Report
             $out[] = $row->strictRefused;
         }
         if ('' !== $row->judgedWithout) {
-            $out[] = 'judged with only the part of "'.$row->judgedWithout.'" that applied';
+            $out[] = 'judged with only the part of '.self::cited($row->judgedWithout, $numbers).' that applied';
         }
 
         return \array_merge($out, self::coreReferenceLines($row));
+    }
+
+    /**
+     * An earlier patch as a row cites it: its number in the package.
+     *
+     * @param array<string, int> $numbers
+     */
+    private static function cited(string $label, array $numbers): string
+    {
+        // Server JSON is the boundary: a label no row carries is printed
+        // as it came.
+        return isset($numbers[$label]) ? '#'.$numbers[$label] : '"'.$label.'"';
     }
 
     /**
@@ -418,7 +454,7 @@ class Report
     {
         $tail = \substr($url, false === \strrpos($url, '/-/') ? 0 : \strrpos($url, '/-/') + 3);
 
-        return 're-rolled from '.('' === $tail ? $url : $tail).', the merge request\'s own diff, not the file declared';
+        return 're-rolled from '.('' === $tail ? $url : $tail).', the merge request\'s own diff; the declared file decided the verdict';
     }
 
     /**
@@ -736,6 +772,14 @@ class Report
     }
 
     /**
+     * A line under a row, in the colour that sets it apart from the row.
+     */
+    private static function detail(string $text): string
+    {
+        return '<fg=cyan>'.$text.'</>';
+    }
+
+    /**
      * A line the colour alone marks as a caveat.
      */
     private static function caveat(string $text): string
@@ -744,7 +788,7 @@ class Report
     }
 
     /**
-     * Warnings grouped under the package each one is about; a warning opens with the package it names.
+     * Warnings grouped under the package each one is about, the package name taken off; a warning opens with the package it names.
      *
      * @param list<string> $warnings
      * @param list<string> $packages
@@ -757,7 +801,7 @@ class Report
         foreach ($warnings as $warning) {
             foreach ($packages as $package) {
                 if (\str_starts_with($warning, $package.' ')) {
-                    $out[$package][] = $warning;
+                    $out[$package][] = \substr($warning, \strlen($package) + 1);
                     break;
                 }
             }

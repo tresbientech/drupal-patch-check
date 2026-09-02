@@ -67,26 +67,32 @@ composer drupal-patch-check
 ```
 
 Patches are grouped under their package, worst package first, so whatever
-needs a person is at the top. Each row has a mark, the verdict, the patch
-title and the file it came from.
+needs a person is at the top. Each row has the patch's number in its
+package, a mark, the verdict, the patch title and the file it came from.
+The number is the order composer applies the patches in, so a line about
+a patch judged on top of a broken one cites it as `#1`. Lines under a row
+print in cyan. A package the run skipped is listed before the groups.
 
 ```
 Drupal Patch Check: 5 patches for a move from core 11.3.2 to 11.4.5
 
-  drupal/webform 6.2.9 → 6.3.2   1 conflicts, 1 applies
-    ! conflicts  Allow numeric machine names in handlers      webform-numeric.patch
-    · applies  Fix the alter hook                           webform-alter.patch
+  acquia/cohesion 8.2.5   2 patches skipped (not a drupal.org project)
 
-  ! drupal/domain 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.
+  drupal/webform 6.2.9 → 6.3.2   1 conflicts, 1 applies
+     #1 ! conflicts  Allow numeric machine names in handlers      webform-numeric.patch
+     #2 · applies    Fix the alter hook                           webform-alter.patch
+                     judged with only the part of #1 that applied
+
   drupal/domain 2.0.1   1 unknown
-    ? unknown       Domain access on entity clone                domain-clone.patch
-                    drupal/domain has no release for 11.4.5
+        ! 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.
+     #1 ? unknown    Domain access on entity clone                domain-clone.patch
+                     drupal/domain has no release for 11.4.5
 
   drupal/paragraphs 1.17.0 → 1.19.0   1 applies
-    · applies  Drag handle keyboard access                  paragraphs-a11y.patch
+     #1 · applies    Drag handle keyboard access                  paragraphs-a11y.patch
 
   drupal/token 1.15.0   1 merged
-    ✓ merged        Cache tag on token replacement               token-cache.patch
+     #1 ✓ merged     Cache tag on token replacement               token-cache.patch
 
   patches: 1 conflicts, 2 applies, 1 merged, 1 unknown
 
