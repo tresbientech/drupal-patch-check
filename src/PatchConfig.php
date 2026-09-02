@@ -209,7 +209,11 @@ class PatchConfig
             return true;
         }
 
-        return 1 === \preg_match('#^https://git\\.drupalcode\\.org/project/[^/]+/-/merge_requests/\\d+\\.(patch|diff)$#', $s);
+        if (1 === \preg_match('#^https://git\\.drupalcode\\.org/project/[^/]+/-/merge_requests/\\d+\\.(patch|diff)$#', $s)) {
+            return true;
+        }
+
+        return 1 === \preg_match('#^https://git\\.drupalcode\\.org/project/[^/]+/-/commit/[0-9a-f]{7,40}\\.(patch|diff)$#', $s);
     }
 
     /**

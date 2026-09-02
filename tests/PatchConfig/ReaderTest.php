@@ -239,6 +239,28 @@ final class ReaderTest extends TestCase
         self::assertCount(1, $this->read($extra)->patches);
     }
 
+    public function testKeepsACommitPatchOnDrupalcode(): void
+    {
+        $extra = ['patches' => ['drupal/webform' => [
+            'Commit diff' => 'https://git.drupalcode.org/project/drupal/-/commit/01dcada9e2ea2c295d88a1b026b6f3be49b70e39.diff',
+            'Short sha' => 'https://git.drupalcode.org/project/webform/-/commit/01dcada.patch',
+        ]]];
+
+        self::assertCount(2, $this->read($extra)->patches);
+    }
+
+    public function testHoldsBackACommitUrlThatIsNotASha(): void
+    {
+        $extra = ['patches' => ['drupal/webform' => [
+            'Branch, not a commit' => 'https://git.drupalcode.org/project/webform/-/commit/8.x-1.x.diff',
+        ]]];
+
+        $resolution = $this->read($extra);
+
+        self::assertSame([], $resolution->patches);
+        self::assertSame('the service does not fetch from that host', $resolution->skipped[0]['reason']);
+    }
+
     public function testKeepsTheCheckablePatchesOfAMixedSite(): void
     {
         $extra = ['patches' => [

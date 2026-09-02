@@ -262,8 +262,8 @@ manager with the same shape works. One with its own shape prints a note.
 
 The plugin builds a request from your composer files rather than sending
 them. The service reads five keys of `composer.json` and, per lock entry, a
-name and a version plus three fields that identify a sub-module. That is all
-it is given.
+name, a version, the commit the release was cut from, and three fields that
+identify a sub-module. That is all it is given.
 
 ```json
 {
@@ -279,7 +279,10 @@ it is given.
   "composer_lock": {
     "packages": [
       { "name": "drupal/core", "version": "10.6.9" },
-      { "name": "drupal/webform", "version": "6.2.9" },
+      {
+        "name": "drupal/webform", "version": "6.2.9",
+        "source": { "reference": "3f2c1a9e7b0d4c6a8e1f2b3c4d5e6f7a8b9c0d1e" }
+      },
       {
         "name": "drupal/domain", "version": "3.0.1", "type": "drupal-module",
         "extra": { "drupal": { "datestamp": "1778231514" } }
@@ -299,7 +302,11 @@ it is given.
 }
 ```
 
-The three lock fields beyond name and version identify a sub-module.
+`source.reference` is the commit the installed release was cut from, as the
+lock records it. With `--target`, a re-roll tries that commit first as the
+release the patch was made for.
+
+The three lock fields beyond that identify a sub-module.
 drupal.org holds no project for one: it packages a sub-module as a
 `metapackage` built from its project's release, so there is nothing to look
 up under its own name. `type` says which packages are which. `require` and

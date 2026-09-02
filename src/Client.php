@@ -188,6 +188,12 @@ class Client
         if (\is_string($stamp) || \is_int($stamp)) {
             $out['extra'] = ['drupal' => ['datestamp' => (string) $stamp]];
         }
+        // The commit the installed release was cut from: the service tries
+        // it first as the base of a re-roll.
+        $reference = $entry['source']['reference'] ?? null;
+        if (\is_string($reference) && '' !== $reference) {
+            $out['source'] = ['reference' => $reference];
+        }
         if (self::METAPACKAGE === $type) {
             $requires = [];
             foreach ((array) ($entry['require'] ?? []) as $dep => $constraint) {

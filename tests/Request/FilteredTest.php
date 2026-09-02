@@ -107,16 +107,17 @@ final class FilteredTest extends TestCase
         self::assertStringNotContainsString('deploy.sh', $request['json']);
     }
 
-    public function testTheLockCarriesNamesAndVersionsOnly(): void
+    public function testTheLockCarriesNamesVersionsAndTheCommitOnly(): void
     {
         $request = $this->of([], [
-            ['name' => 'drupal/webform', 'version' => '6.2.9', 'notification-url' => self::DRUPAL, 'dist' => ['url' => 'https://ftp.drupal.org/x.zip']],
+            ['name' => 'drupal/webform', 'version' => '6.2.9', 'notification-url' => self::DRUPAL, 'dist' => ['url' => 'https://ftp.drupal.org/x.zip'],
+                'source' => ['type' => 'git', 'url' => 'https://git.drupalcode.org/project/webform.git', 'reference' => '0123456789abcdef0123456789abcdef01234567']],
         ], [
             ['name' => 'drupal/devel', 'version' => '5.3.2', 'notification-url' => self::DRUPAL],
         ]);
 
         self::assertSame([
-            'packages' => [['name' => 'drupal/webform', 'version' => '6.2.9']],
+            'packages' => [['name' => 'drupal/webform', 'version' => '6.2.9', 'source' => ['reference' => '0123456789abcdef0123456789abcdef01234567']]],
             'packages-dev' => [['name' => 'drupal/devel', 'version' => '5.3.2']],
         ], \json_decode($request['lock'], true));
     }
