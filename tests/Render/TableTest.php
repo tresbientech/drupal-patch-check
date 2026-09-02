@@ -248,7 +248,7 @@ class TableTest extends TestCase
         $row = self::rowWith($lines, '<error>!</error> conflicts Fix the alter hook');
 
         self::assertSame(
-            '                judged without "Domain content translations permissions_files", which did not apply',
+            '                judged with only the part of "Domain content translations permissions_files" that applied',
             $lines[$row + 1]
         );
     }

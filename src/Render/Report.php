@@ -272,7 +272,7 @@ class Report
             $out[] = $row->strictRefused;
         }
         if ('' !== $row->judgedWithout) {
-            $out[] = 'judged without "'.$row->judgedWithout.'", which did not apply';
+            $out[] = 'judged with only the part of "'.$row->judgedWithout.'" that applied';
         }
 
         return \array_merge($out, self::coreReferenceLines($row));
