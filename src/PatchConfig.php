@@ -15,7 +15,7 @@ class PatchConfig
     /** Largest external patches file read. */
     private const MAX_PATCHES_FILE_BYTES = 1024 * 1024;
 
-    /** Managers whose configuration the shapes below cover. */
+    /** Packages kept out of the unread-configuration note. */
     private const HANDLED = [
         'cweagans/composer-patches',
         'vaimo/composer-patches',

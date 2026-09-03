@@ -18,6 +18,9 @@ class PatchText
     /** Largest patch taken, from disk or from a host. */
     public const MAX_BYTES = 16 * 1024 * 1024;
 
+    /** This plugin's subdirectory of composer's cache, shared with the install notice marker. */
+    public const CACHE_DIR = 'drupatch';
+
     /** How long a fetched patch is reused. */
     private const CACHE_SECONDS = 86400;
 
@@ -51,7 +54,7 @@ class PatchText
             ]);
 
             return ['status' => $response->getStatusCode(), 'body' => (string) $response->getBody()];
-        }, '' === $cache ? '' : $cache.\DIRECTORY_SEPARATOR.'drupatch');
+        }, '' === $cache ? '' : $cache.\DIRECTORY_SEPARATOR.self::CACHE_DIR);
     }
 
     /**

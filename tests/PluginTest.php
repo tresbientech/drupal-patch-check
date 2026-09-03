@@ -9,32 +9,45 @@ use TresBienTech\Drupatch\Plugin;
 
 final class PluginTest extends TestCase
 {
-    public function testTheHookRunsWhenTheSiteSaysNothing(): void
+    public function testTheHookStaysOffWhenTheSiteSaysNothing(): void
     {
-        self::assertTrue(Plugin::hookEnabled([]));
-        self::assertTrue(Plugin::hookEnabled(['drupatch' => ['endpoint' => 'https://example.com']]));
+        self::assertFalse(Plugin::hookEnabled([]));
+        self::assertFalse(Plugin::hookEnabled(['drupal-patch-check' => ['endpoint' => 'https://example.com']]));
     }
 
-    public function testASiteCanTurnTheHookOff(): void
+    public function testASiteTurnsTheHookOnWithATrue(): void
     {
-        self::assertFalse(Plugin::hookEnabled(['drupatch' => ['hook' => false]]));
+        self::assertTrue(Plugin::hookEnabled(['drupal-patch-check' => ['hook' => true]]));
     }
 
-    public function testTurningItOnIsTheSameAsSayingNothing(): void
+    public function testFalseReadsTheSameAsSayingNothing(): void
     {
-        self::assertTrue(Plugin::hookEnabled(['drupatch' => ['hook' => true]]));
+        self::assertFalse(Plugin::hookEnabled(['drupal-patch-check' => ['hook' => false]]));
     }
 
-    // Only false turns it off. A string or a number is a value nobody
-    // meant, and silently losing the report would be worse than keeping it.
-    public function testAValueThatIsNotFalseLeavesTheHookAlone(): void
+    // Only true turns it on. A string or a number is a value nobody meant,
+    // and sending a site's patches on a guess would be worse than staying quiet.
+    public function testAValueThatIsNotTrueLeavesTheHookOff(): void
     {
-        self::assertTrue(Plugin::hookEnabled(['drupatch' => ['hook' => 'false']]));
-        self::assertTrue(Plugin::hookEnabled(['drupatch' => ['hook' => 0]]));
+        self::assertFalse(Plugin::hookEnabled(['drupal-patch-check' => ['hook' => 'true']]));
+        self::assertFalse(Plugin::hookEnabled(['drupal-patch-check' => ['hook' => 1]]));
     }
 
     public function testExtraThatIsNotAMapIsIgnored(): void
     {
-        self::assertTrue(Plugin::hookEnabled(['drupatch' => 'off']));
+        self::assertFalse(Plugin::hookEnabled(['drupal-patch-check' => 'on']));
+    }
+
+    public function testTheOldKeyNoLongerTurnsTheHookOn(): void
+    {
+        self::assertFalse(Plugin::hookEnabled(['drupatch' => ['hook' => true]]));
+    }
+
+    public function testTheInstallNoticeIsWiredToAPackageEvent(): void
+    {
+        self::assertSame([
+            'post-update-cmd' => 'onPostUpdate',
+            'post-package-install' => 'onPackageInstall',
+        ], Plugin::getSubscribedEvents());
     }
 }

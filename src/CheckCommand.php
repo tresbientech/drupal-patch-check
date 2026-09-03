@@ -42,17 +42,14 @@ class CheckCommand extends BaseCommand
     {
         $this
             ->setName('drupal-patch-check')
-            // The package is drupatch, so that spelling is what a person
-            // guesses from the install line. Both resolve.
-            ->setAliases(['drupatch-check'])
             ->setDescription("Check this site's composer patches against the releases it installs")
             ->addOption('target', null, InputOption::VALUE_REQUIRED, 'Core version to plan against, e.g. 11.4.5, or `latest` for the newest core your own constraint allows. Without it the installed releases are checked.')
             ->addOption('write', null, InputOption::VALUE_NONE, 'Replace every patch file whose patch no longer applies with its re-roll, and write a .conflict.patch beside the ones that did not merge')
             ->addOption('fix', null, InputOption::VALUE_NONE, 'Rewrite the patch declarations: drop the entries already in the release, adopt the ones declared as URLs. Implies --write.')
             ->addOption('resolve', null, InputOption::VALUE_NONE, 'Re-read the .conflict.patch files, send the regions you decided, and write back what the service verifies. Implies --write.')
-            ->addOption('force', null, InputOption::VALUE_NONE, 'Let --fix rewrite a file that already has uncommitted changes')
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Let --write replace a patch file git reports as changed or untracked, and --fix rewrite a declaration file with uncommitted changes')
             ->addOption('package', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only this package, repeatable: drupal/webform or webform. Narrows the report, --write and --fix, and the exit code with them.')
-            ->addOption('strict', null, InputOption::VALUE_NONE, 'Also fail on a patch that could not be judged, and on a package with no release')
+            ->addOption('strict', null, InputOption::VALUE_NONE, 'Also fail on a patch that could not be judged, and on a run that declared patches and judged none')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Print the plan as one JSON object. The same as --format=json.')
             ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output shape: '.\implode(', ', self::FORMATS).'. Defaults to table.')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print the request that would be sent and stop. Nothing is asked of the service and nothing is written.');

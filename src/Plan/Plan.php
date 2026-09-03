@@ -232,7 +232,9 @@ class Plan
     public const FAILED = 2;
 
     /**
-     * The exit code: fails on a patch that will not apply or an unknown verdict; strict adds the unjudged and a vacuous run.
+     * The exit code: fails on a patch whose verdict is none of merged,
+     * applies or unknown. Strict fails on any row needing action, and on
+     * a vacuous run.
      */
     public function exitCode(bool $strict = false, bool $vacuous = false): int
     {

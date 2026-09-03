@@ -222,8 +222,8 @@ class HookReportTest extends TestCase
         self::assertStringContainsString('composer drupal-patch-check', \implode("\n", HookReport::lines($this->plan())));
     }
 
-    // The hint used to name 11.4.5, which on a site running 11.4.5 read as
-    // advice to upgrade to where it already is.
+    // The hint prints the `--target <version>` placeholder, so a site
+    // already on 11.4.5 is not told to upgrade to where it is.
     public function testTheTargetHintNamesNoVersion(): void
     {
         $hint = \implode("\n", \array_filter(

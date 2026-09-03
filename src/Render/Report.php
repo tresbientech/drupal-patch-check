@@ -470,7 +470,6 @@ class Report
     }
 
     /**
-     * /**
      * The core references under a row: one line per flagged finding up to the cap, the count left over, the deprecated count, then the server's note unless the row conflicts.
      *
      * @return list<string>

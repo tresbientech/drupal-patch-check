@@ -46,7 +46,7 @@ final class ClientBodyTest extends TestCase
     {
         $body = Client::body('{}', '{}', $this->resolution());
 
-        self::assertSame(Client::AGENT, $body['client']);
+        self::assertSame(Client::agent(), $body['client']);
         self::assertStringStartsWith('drupal-patch-check/', (string) $body['client']);
     }
 

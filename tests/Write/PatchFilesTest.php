@@ -261,6 +261,21 @@ class PatchFilesTest extends TestCase
         self::assertSame('patches/menu_item_extras/a.patch', $this->adopter($plan)->write($plan)['written'][0]['path']);
     }
 
+    // The service names the project, so a separator in it would pick the
+    // directory the file lands in.
+    public function testAnAdoptedUrlWithASeparatorInTheProjectIsRefused(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->rerolledRow(
+            ['status' => 'clean', 'patch' => "diff\n"],
+            ['package' => 'drupal/webform', 'project' => '../web/sites/default', 'source' => 'https://example.test/a.patch']
+        )]]);
+
+        $result = $this->adopter($plan)->write($plan);
+
+        self::assertSame([], $result['written']);
+        self::assertSame(PatchFiles::NO_FILE_NAME, $result['refused'][0]['reason']);
+    }
+
     public function testAnAdoptedUrlWhoseRerollConflictsGetsAConflictFileBesideIt(): void
     {
         $plan = $this->plan([

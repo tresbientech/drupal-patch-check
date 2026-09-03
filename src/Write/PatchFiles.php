@@ -167,6 +167,11 @@ class PatchFiles
         if ('' === $name || '' === $project) {
             return '';
         }
+        // The service names the project, so it decides a directory here.
+        // A separator in it would place the file outside the project's own.
+        if (\str_contains($project, '/') || \str_contains($project, '\\')) {
+            return '';
+        }
 
         return self::ADOPTED_DIRECTORY.'/'.$project.'/'.$name;
     }

@@ -6,8 +6,10 @@ namespace TresBienTech\Drupatch;
 
 use Composer\Composer;
 use Composer\Downloader\TransportException;
+use Composer\InstalledVersions;
 use Composer\IO\IOInterface;
 use Composer\Util\HttpDownloader;
+use OutOfBoundsException;
 use RuntimeException;
 use Throwable;
 use TresBienTech\Drupatch\Plan\Plan;
@@ -17,14 +19,11 @@ use TresBienTech\Drupatch\Plan\Plan;
  */
 class Client
 {
-    /**
-     * What the request says it is. The service reads it to tell a request
-     * shaped by an older release apart from a current one.
-     */
-    public const AGENT = 'drupal-patch-check/'.self::VERSION;
+    /** The package name composer knows this plugin by. */
+    public const PACKAGE = 'tresbientech/drupal-patch-check';
 
-    /** Bumped with each release. */
-    public const VERSION = '0.9.0';
+    /** What agent() reports when composer has no release to name. */
+    public const VERSION = '0.10.0';
 
     public const DEFAULT_ENDPOINT = 'https://api.tresbien.tech/v1/composer/scan';
 
@@ -57,14 +56,38 @@ class Client
     ) {
     }
 
+    /**
+     * The endpoint comes from the environment, never from composer.json: a site's
+     * own config must not be able to redirect where its patches are sent.
+     */
     public static function fromComposer(Composer $composer, IOInterface $io): self
     {
-        $endpoint = $composer->getPackage()->getExtra()['drupatch']['endpoint'] ?? null;
+        $endpoint = \getenv('DRUPATCH_ENDPOINT');
         if (!\is_string($endpoint) || '' === $endpoint) {
             $endpoint = self::DEFAULT_ENDPOINT;
         }
 
         return new self(new HttpDownloader($io, $composer->getConfig()), $endpoint);
+    }
+
+    /**
+     * What the request says it is: this plugin's name and the release
+     * composer installed. The service reads it to tell a request shaped by
+     * an older release apart from a current one. A checkout reports its
+     * branch rather than a version, so a working copy is distinguishable
+     * from a release.
+     */
+    public static function agent(): string
+    {
+        try {
+            $version = InstalledVersions::getPrettyVersion(self::PACKAGE);
+        } catch (OutOfBoundsException) {
+            // Not registered: a path repository, or an install layout that
+            // never wrote the package into installed.php.
+            $version = null;
+        }
+
+        return 'drupal-patch-check/'.($version ?? self::VERSION);
     }
 
     /**
@@ -171,7 +194,7 @@ class Client
         return [
             'composer_json' => $composerJson,
             'composer_lock' => $composerLock,
-            'client' => self::AGENT,
+            'client' => self::agent(),
             'patches' => true,
             'patch_files' => (object) $patches->files,
             'patch_config' => $config,

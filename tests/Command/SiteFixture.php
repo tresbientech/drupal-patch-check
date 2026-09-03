@@ -24,6 +24,8 @@ final class SiteFixture
 
     private string|false $composerEnv = false;
 
+    private string|false $endpointEnv = false;
+
     /** @var list<array{string, string}> */
     private array $patches = [];
 
@@ -91,7 +93,6 @@ final class SiteFixture
             'require' => ['drupal/webform' => '^6.2'],
             'extra' => $this->extra + [
                 'patches' => ['drupal/webform' => $map],
-                'drupatch' => ['endpoint' => $endpoint],
             ],
             // The plan server in the tests is plain HTTP on loopback.
             'config' => ['secure-http' => false],
@@ -112,8 +113,10 @@ final class SiteFixture
 
         $this->cwd = (string) \getcwd();
         $this->composerEnv = \getenv('COMPOSER');
+        $this->endpointEnv = \getenv('DRUPATCH_ENDPOINT');
         \chdir($this->root);
         \putenv('COMPOSER='.$this->root.'/composer.json');
+        \putenv('DRUPATCH_ENDPOINT='.$endpoint);
 
         return Factory::create(new NullIO(), $this->root.'/composer.json', true);
     }
@@ -127,6 +130,11 @@ final class SiteFixture
             \putenv('COMPOSER');
         } else {
             \putenv('COMPOSER='.$this->composerEnv);
+        }
+        if (false === $this->endpointEnv) {
+            \putenv('DRUPATCH_ENDPOINT');
+        } else {
+            \putenv('DRUPATCH_ENDPOINT='.$this->endpointEnv);
         }
         self::remove($this->root);
     }

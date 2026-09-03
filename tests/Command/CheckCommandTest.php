@@ -10,12 +10,12 @@ use TresBienTech\Drupatch\Render\HookReport;
 
 final class CheckCommandTest extends TestCase
 {
-    public function testTheNameSaysWhatItDoesAndThePackageSpellingStillWorks(): void
+    public function testTheNameSaysWhatItDoesAndIsTheOnlySpelling(): void
     {
         $command = new CheckCommand();
 
         self::assertSame('drupal-patch-check', $command->getName());
-        self::assertContains('drupatch-check', $command->getAliases());
+        self::assertSame([], $command->getAliases());
     }
 
     public function testTheHookPointsAtTheCommandThatExists(): void
