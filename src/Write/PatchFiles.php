@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Write;
 
 use RuntimeException;
 use TresBienTech\Drupatch\PatchConfig;
+use TresBienTech\Drupatch\PatchText;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Render\Report;
@@ -37,6 +38,8 @@ class PatchFiles
 
     public const NOT_DECLARED = 'the site declares no patch by that name';
 
+    public const NOTHING_MERGED = 'no hunk of its re-roll merged, so there is nothing to fetch';
+
     /** Where an adopted URL patch goes, under the project it is on. */
     private const ADOPTED_DIRECTORY = 'patches';
 
@@ -50,7 +53,7 @@ class PatchFiles
          * @var list<array{package: string, title: string, source: string}>
          */
         private readonly array $declared,
-        /** Whether a patch declared as a URL is written locally. `--fix`. */
+        /** Whether a patch declared as a URL is written locally. `--update`. */
         private readonly bool $adopt = false,
     ) {
     }
@@ -83,18 +86,26 @@ class PatchFiles
             if (null === $row->reroll) {
                 continue;
             }
+            $declaredSource = $this->declaredSource($row);
+            $fromUrl = null !== $declaredSource && PatchConfig::isUrl($declaredSource);
             $body = self::body($row);
             if (null === $body) {
-                $refused[] = self::refusal($row, $row->source, self::whyNoReroll($row));
+                $refused[] = self::refusal($row, $row->source, self::whyNoReroll($row).($fromUrl ? self::upstream($declaredSource) : ''));
                 continue;
             }
-            $declaredSource = $this->declaredSource($row);
             if (null === $declaredSource) {
                 $refused[] = self::refusal($row, $row->source, self::NOT_DECLARED);
                 continue;
             }
-            if (PatchConfig::isUrl($declaredSource) && !$this->adopt) {
-                $refused[] = self::refusal($row, $declaredSource, self::URL_DECLARED, '--fix');
+            if ($fromUrl && !$this->adopt) {
+                $refused[] = self::refusal($row, $declaredSource, self::URL_DECLARED, '--update');
+                continue;
+            }
+            // A URL patch reaches the site only when the re-roll gives it
+            // something to use. A conflicted merge that kept no hunk is
+            // the patch as it was, and the fix for that belongs upstream.
+            if ($fromUrl && !$row->rerollIsClean() && '' === ($row->reroll['patch'] ?? '')) {
+                $refused[] = self::refusal($row, $declaredSource, self::NOTHING_MERGED.self::upstream($declaredSource));
                 continue;
             }
             $target = PatchConfig::isUrl($declaredSource)
@@ -133,6 +144,16 @@ class PatchFiles
         }
 
         return ['written' => $written, 'refused' => $refused];
+    }
+
+    /**
+     * Where the fix belongs, to end a refusal of a URL patch with: its merge request, its issue, or the URL itself.
+     */
+    private static function upstream(string $source): string
+    {
+        $where = PatchText::upstream($source);
+
+        return '; the fix belongs upstream: '.('' === $where ? $source : $where);
     }
 
     /**
@@ -263,7 +284,7 @@ class PatchFiles
         $lines = [
             '# drupatch: '.(int) ($conflict['regions'] ?? 0).' unresolved region(s) in '.$file,
             '# drupatch: keep the region and end lines; replace the text between them.',
-            '# drupatch: then run '.Report::COMMAND.' --resolve',
+            '# drupatch: then run '.Report::REROLL,
         ];
         foreach ((array) ($conflict['hunks'] ?? []) as $index => $hunk) {
             $releaseLine = (int) ($hunk['release_line'] ?? 0);

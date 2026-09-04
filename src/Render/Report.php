@@ -4,17 +4,22 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Render;
 
+use TresBienTech\Drupatch\CheckCommand;
 use TresBienTech\Drupatch\PatchText;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\RerollCommand;
 
 /**
  * The command's output: the table a person reads, the JSON summary a job reads, and the workflow annotations a runner reads.
  */
 class Report
 {
-    /** The command every next-step suggestion is a flag on. */
-    public const COMMAND = 'composer drupal-patch-check';
+    /** The command the hook and the hints point at for the report. */
+    public const COMMAND = 'composer '.CheckCommand::NAME;
+
+    /** The command every next-step suggestion runs. */
+    public const REROLL = 'composer '.RerollCommand::NAME;
 
     /** The narrowest terminal the report is laid out for. */
     public const MIN_WIDTH = 80;
@@ -335,7 +340,7 @@ class Report
         // finds a patch the release carries whole. Say so where part of
         // one is already there.
         if ($row->conflicts() && [] !== $row->hunksShipped) {
-            $out[] = 'run --write to see if the release has the rest';
+            $out[] = 'run '.self::REROLL.' to see if the release has the rest';
         }
         if ('' !== $row->mergedFrom()) {
             $out[] = self::mergedFromNote($row->mergedFrom());
@@ -629,7 +634,7 @@ class Report
      * @param array<string, int> $counts   patches per verdict
      * @param Outcomes|null      $outcomes what the run did, null for a run that wrote nothing
      *
-     * @return list<array{flag: string, effect: string}>
+     * @return list<array{command: string, flag: string, effect: string}>
      */
     public static function nextSteps(array $counts, ?Outcomes $outcomes = null): array
     {
@@ -638,7 +643,8 @@ class Report
             $reroll = $counts[PatchRow::CONFLICTS] ?? 0;
             if ($reroll > 0) {
                 $out[] = [
-                    'flag' => '--write',
+                    'command' => self::REROLL,
+                    'flag' => '',
                     'effect' => 1 === $reroll ? 'writes the re-roll' : 'writes the '.$reroll.' re-rolls',
                 ];
             }
@@ -646,7 +652,8 @@ class Report
             $open = $outcomes->openConflictFiles();
             if ($open > 0) {
                 $out[] = [
-                    'flag' => '--resolve',
+                    'command' => self::REROLL,
+                    'flag' => '',
                     'effect' => 1 === $open
                         ? 'sends the regions you decide in the conflict file'
                         : 'sends the regions you decide in the '.$open.' conflict files',
@@ -655,6 +662,7 @@ class Report
             $forcible = $outcomes->lifted('--force');
             if ($forcible > 0) {
                 $out[] = [
+                    'command' => self::REROLL,
                     'flag' => '--force',
                     'effect' => 1 === $forcible
                         ? 'replaces the file this run would not overwrite'
@@ -665,10 +673,10 @@ class Report
         // A fix run dropped what shipped and adopted the URLs; offering it
         // again would repeat what just happened.
         $fixed = null !== $outcomes && $outcomes->fixed();
-        $urls = null === $outcomes ? 0 : $outcomes->lifted('--fix');
+        $urls = null === $outcomes ? 0 : $outcomes->lifted('--update');
         $shipped = $counts[PatchRow::MERGED] ?? 0;
         if (!$fixed && ($shipped > 0 || $urls > 0)) {
-            $out[] = ['flag' => '--fix', 'effect' => self::fixes($shipped, $urls)];
+            $out[] = ['command' => self::REROLL, 'flag' => '--update', 'effect' => self::fixes($shipped, $urls)];
         }
 
         return $out;
@@ -690,7 +698,7 @@ class Report
         }
         $commands = [];
         foreach ($steps as $step) {
-            $commands[] = \implode(' ', [self::COMMAND, ...$scope, $step['flag']]);
+            $commands[] = \implode(' ', \array_filter([$step['command'], ...$scope, $step['flag']], static fn (string $part): bool => '' !== $part));
         }
         $widest = \max(\array_map(\strlen(...), $commands));
         $lines = [];
@@ -801,7 +809,7 @@ class Report
     }
 
     /**
-     * What `--fix` would do, given what the run found.
+     * What `--update` would do, given what the run found.
      */
     private static function fixes(int $shipped, int $urls): string
     {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Render;
 
+use TresBienTech\Drupatch\Scope;
 use TresBienTech\Drupatch\Site;
 
 /**
@@ -38,45 +39,29 @@ class Coverage
     }
 
     /**
-     * What a run covered, narrowed to the packages it was asked about.
-     *
-     * @param list<string> $packages composer names or short names, empty for the whole site
+     * What a run covered, narrowed to the scope it was asked about.
      */
-    public static function of(Site $site, array $packages = []): self
+    public static function of(Site $site, Scope $scope): self
     {
         $config = $site->patches();
-        if ([] === $packages) {
+        if ($scope->isWhole()) {
             return new self(\count($config->patches), $config->skipped, $config->unsent, $site->installed());
         }
 
-        $wanted = [];
-        foreach ($packages as $name) {
-            $wanted[self::shortName($name)] = true;
-        }
         $checked = 0;
         foreach ($config->patches as $patch) {
-            if (isset($wanted[self::shortName($patch['package'])])) {
+            if ($scope->has($patch['package'], $patch['source'])) {
                 ++$checked;
             }
         }
         $skipped = [];
         foreach ($config->skipped as $entry) {
-            if (isset($wanted[self::shortName($entry['package'])])) {
+            if ($scope->hasPackage($entry['package'])) {
                 $skipped[] = $entry;
             }
         }
 
         return new self($checked, $skipped, $config->unsent, $site->installed());
-    }
-
-    /**
-     * A package named the way --package accepts it: either spelling of drupal/webform reduces to the same key.
-     */
-    private static function shortName(string $package): string
-    {
-        $slash = \strrpos($package, '/');
-
-        return false === $slash ? $package : \substr($package, $slash + 1);
     }
 
     /**

@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Render\Outcomes;
 use TresBienTech\Drupatch\Render\Report;
+use TresBienTech\Drupatch\Scope;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 
 class SummaryTest extends TestCase
@@ -51,7 +52,8 @@ class SummaryTest extends TestCase
 
     public function testNamesTheCommandsTheTableWouldOffer(): void
     {
-        self::assertSame(['--write', '--fix'], \array_column(Report::summary($this->plan())['next'], 'flag'));
+        self::assertSame(['', '--update'], \array_column(Report::summary($this->plan())['next'], 'flag'));
+        self::assertSame([Report::REROLL, Report::REROLL], \array_column(Report::summary($this->plan())['next'], 'command'));
     }
 
     public function testAPlanWithNothingToRunCarriesNoNext(): void
@@ -65,7 +67,7 @@ class SummaryTest extends TestCase
     {
         $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => [], 'regions' => 0]], 'refused' => []];
 
-        self::assertSame(['--resolve', '--fix'], \array_column(Report::summary($this->plan(), false, false, Outcomes::fromWrite($wrote))['next'], 'flag'));
+        self::assertSame(['', '--update'], \array_column(Report::summary($this->plan(), false, false, Outcomes::fromWrite($wrote))['next'], 'flag'));
     }
 
     public function testAPackageIsNamedOnceHoweverManyRowsItHas(): void
@@ -136,7 +138,7 @@ class SummaryTest extends TestCase
 
     public function testNarrowingNarrowsTheSummaryWithEverythingElse(): void
     {
-        $summary = Report::summary($this->plan()->onlyPackages(['token']));
+        $summary = Report::summary($this->plan()->only(new Scope(['token'], [])));
 
         self::assertSame(['merged' => 1], $summary['counts']);
         self::assertSame([], $summary['conflicts']);

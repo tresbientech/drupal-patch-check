@@ -6,6 +6,8 @@ namespace TresBienTech\Drupatch\Tests;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Render\Outcomes;
+use TresBienTech\Drupatch\Scope;
 
 class OutcomeTest extends TestCase
 {
@@ -133,8 +135,8 @@ class OutcomeTest extends TestCase
         ]]);
 
         self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode());
-        self::assertSame(Plan::CLEAN, $plan->onlyPackages(['token'])->exitCode());
-        self::assertSame(Plan::ACTION_NEEDED, $plan->onlyPackages(['webform'])->exitCode());
+        self::assertSame(Plan::CLEAN, $plan->only(new Scope(['token'], []))->exitCode());
+        self::assertSame(Plan::ACTION_NEEDED, $plan->only(new Scope(['webform'], []))->exitCode());
     }
 
     public function testASiteWithNothingToSayIsClean(): void
@@ -153,5 +155,36 @@ class OutcomeTest extends TestCase
 
         self::assertSame(Plan::CLEAN, $plan->exitCode());
         self::assertSame(Plan::CLEAN, $plan->exitCode(true));
+    }
+
+    public function testTheDocumentNamesTheFileInPlaceOfTheDiffItWrote(): void
+    {
+        $raw = ['plan' => ['patches' => [
+            ['package' => 'drupal/webform', 'title' => 'Fix', 'result' => ['reroll' => ['status' => 'clean', 'patch' => "the diff\n"]]],
+            ['package' => 'drupal/webform', 'title' => 'Menu', 'result' => ['reroll' => ['status' => 'conflicts', 'patch' => "part\n", 'conflicts' => [['file' => 'a.php', 'regions' => 1]]]]],
+            ['package' => 'drupal/token', 'title' => 'Cache', 'result' => ['reroll' => ['status' => 'clean', 'patch' => "refused diff\n"]]],
+        ]], 'summary' => ['exit_code' => 1]];
+        $outcomes = Outcomes::fromWrite(['written' => [
+            ['path' => 'patches/webform/fix.patch', 'status' => 'clean', 'package' => 'drupal/webform', 'title' => 'Fix', 'verified' => true, 'unioned' => [], 'regions' => 0],
+            ['path' => 'patches/webform/menu.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'Menu', 'verified' => false, 'unioned' => [], 'regions' => 1],
+        ], 'refused' => [['package' => 'drupal/token', 'title' => 'Cache', 'path' => 'patches/token/cache.patch', 'reason' => 'changed', 'lifts' => '--force']]]);
+
+        $document = $outcomes->intoDocument($raw);
+
+        $rows = $document['plan']['patches'];
+        self::assertSame(['status' => 'clean', 'patch' => '', 'path' => 'patches/webform/fix.patch'], $rows[0]['result']['reroll']);
+        self::assertSame('', $rows[1]['result']['reroll']['patch']);
+        self::assertSame('patches/webform/menu.conflict.patch', $rows[1]['result']['reroll']['path']);
+        self::assertSame([['file' => 'a.php', 'regions' => 1]], $rows[1]['result']['reroll']['conflicts'], 'the regions stay');
+        self::assertSame("refused diff\n", $rows[2]['result']['reroll']['patch'], 'a refused row keeps its text');
+        self::assertArrayNotHasKey('path', $rows[2]['result']['reroll']);
+        self::assertSame(['exit_code' => 1], $document['summary'], 'nothing else in the document moves');
+    }
+
+    public function testARunThatWroteNothingLeavesTheDocumentAlone(): void
+    {
+        $raw = ['plan' => ['patches' => [['package' => 'drupal/webform', 'title' => 'Fix', 'result' => ['reroll' => ['patch' => "d\n"]]]]]];
+
+        self::assertSame($raw, Outcomes::fromWrite(['written' => [], 'refused' => []])->intoDocument($raw));
     }
 }

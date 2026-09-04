@@ -622,7 +622,7 @@ class TableTest extends TestCase
 
         $out = \implode("\n", self::table($plan));
 
-        self::assertStringContainsString('<fg=cyan>run --write to see if the release has the rest</>', $out);
+        self::assertStringContainsString('<fg=cyan>run composer drupatch:reroll to see if the release has the rest</>', $out);
     }
 
     // Nothing of it is upstream, so there is nothing to suggest.
@@ -635,7 +635,7 @@ class TableTest extends TestCase
 
         $out = \implode("\n", self::table($plan));
 
-        self::assertStringNotContainsString('run --write', $out);
+        self::assertStringNotContainsString('run composer drupatch:reroll', $out);
     }
 
     // A fix run drops the entries the release already carries, so the
@@ -1002,7 +1002,7 @@ class TableTest extends TestCase
         $lines = self::whole($this->plan(), null, 100);
         $last = $lines[\count($lines) - 1];
 
-        self::assertStringContainsString('--write', $last);
+        self::assertStringContainsString('drupatch:reroll', $last);
     }
 
     public function testTheWrittenFilesPrintAboveTheFooter(): void
@@ -1412,7 +1412,7 @@ class TableTest extends TestCase
         $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '']]));
 
         self::assertStringNotContainsString('nothing to change', $out);
-        self::assertStringNotContainsString('--fix', $out);
+        self::assertStringNotContainsString('--update', $out);
     }
 
     public function testTheHeadlineShowsBothCoresWhenTheSiteHasNotMoved(): void
@@ -1454,7 +1454,7 @@ class TableTest extends TestCase
         ]);
         $wrote = ['written' => [$this->writtenFile('patches/a.patch')], 'refused' => []];
 
-        self::assertStringNotContainsString('--write', \implode("\n", self::whole($plan, Outcomes::fromWrite($wrote), 100)));
+        self::assertStringNotContainsString('writes the re-roll', \implode("\n", self::whole($plan, Outcomes::fromWrite($wrote), 100)));
     }
 
     public function testAReportOfARunThatDidNotWriteStillSuggestsTheFlag(): void
@@ -1464,7 +1464,7 @@ class TableTest extends TestCase
             'patches' => [$this->row(['verdict' => 'conflicts'])],
         ]);
 
-        self::assertStringContainsString('--write', \implode("\n", self::whole($plan, null, 100)));
+        self::assertStringContainsString('drupatch:reroll', \implode("\n", self::whole($plan, null, 100)));
     }
 
     public function testTheReportIsByteIdenticalAcrossTwoRuns(): void

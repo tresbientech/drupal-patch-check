@@ -193,4 +193,15 @@ class PatchTextTest extends TestCase
             return $hosts[$url] ?? ['status' => 200, 'body' => self::DIFF];
         }, $cache);
     }
+
+    public function testUpstreamIsTheMergeRequestTheIssueOrNothing(): void
+    {
+        self::assertSame('https://git.drupalcode.org/project/webform/-/merge_requests/12', PatchText::upstream('https://git.drupalcode.org/project/webform/-/merge_requests/12.patch'));
+        self::assertSame('https://www.drupal.org/i/2466553', PatchText::upstream('https://www.drupal.org/files/issues/2024-01-01/2466553-175.patch'), 'at the start');
+        self::assertSame('https://www.drupal.org/i/2744851', PatchText::upstream('https://www.drupal.org/files/issues/core9.2-node-lock-translations-2744851.patch'), 'at the end');
+        self::assertSame('https://www.drupal.org/i/3390255', PatchText::upstream('https://www.drupal.org/files/issues/migrate_tools_3390255_new_test.patch'), 'in the middle');
+        self::assertSame('', PatchText::upstream('https://www.drupal.org/files/issues/image_widget_crop_fix.patch'), 'no number');
+        self::assertSame('', PatchText::upstream('https://example.test/files/12345678.patch'), 'eight digits are not an issue number');
+        self::assertSame('', PatchText::upstream('https://example.test/files/50.patch'));
+    }
 }

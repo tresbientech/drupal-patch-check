@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Scope;
 
 /**
  * The boundary between the server's JSON and the plugin's data.
@@ -231,7 +232,7 @@ class PlanTest extends TestCase
     {
         $plan = $this->wholeSite();
 
-        $only = $plan->onlyPackages(['drupal/webform']);
+        $only = $plan->only(new Scope(['drupal/webform'], []));
 
         self::assertSame(['drupal/webform'], $only->packages());
         self::assertCount(2, $only->patches);
@@ -244,15 +245,15 @@ class PlanTest extends TestCase
     {
         $plan = $this->wholeSite();
 
-        self::assertSame($plan->onlyPackages(['drupal/webform'])->packages(), $plan->onlyPackages(['webform'])->packages());
-        self::assertSame(['drupal/webform'], $plan->onlyPackages(['WebForm'])->packages());
-        self::assertSame(['drupal/webform'], $plan->onlyPackages(['  webform  '])->packages(), 'a name typed with spaces is the same name');
+        self::assertSame($plan->only(new Scope(['drupal/webform'], []))->packages(), $plan->only(new Scope(['webform'], []))->packages());
+        self::assertSame(['drupal/webform'], $plan->only(new Scope(['WebForm'], []))->packages());
+        self::assertSame(['drupal/webform'], $plan->only(new Scope(['  webform  '], []))->packages(), 'a name typed with spaces is the same name');
     }
 
     // A caller reads [0], so dropping the rows before it must renumber.
     public function testWhatNarrowingKeepsIsARenumberedList(): void
     {
-        $only = $this->wholeSite()->onlyPackages(['token']);
+        $only = $this->wholeSite()->only(new Scope(['token'], []));
 
         self::assertSame([0], \array_keys($only->patches));
         self::assertSame('drupal/token', $only->patches[0]->package);
@@ -267,7 +268,7 @@ class PlanTest extends TestCase
             ['package' => 'drupal/token', 'verdict' => 'merged', 'title' => 'c'],
         ]]]);
 
-        self::assertSame(['applies' => 2], $plan->onlyPackages(['webform'])->counts);
+        self::assertSame(['applies' => 2], $plan->only(new Scope(['webform'], []))->counts);
     }
 
     public function testTheNarrowedBlockedListIsARenumberedList(): void
@@ -282,32 +283,32 @@ class PlanTest extends TestCase
             ],
         ]);
 
-        self::assertSame([0], \array_keys($plan->onlyPackages(['domain'])->noRelease));
+        self::assertSame([0], \array_keys($plan->only(new Scope(['domain'], []))->noRelease));
     }
 
     public function testNarrowingKeepsABlockedPackageThatWasNamed(): void
     {
-        $only = $this->wholeSite()->onlyPackages(['domain']);
+        $only = $this->wholeSite()->only(new Scope(['domain'], []));
 
         self::assertSame(['drupal/domain'], $only->noRelease);
     }
 
     public function testNarrowingToNothingLeavesAPlanWithNoPatches(): void
     {
-        self::assertFalse($this->wholeSite()->onlyPackages(['drupal/nothing'])->hasPatches());
+        self::assertFalse($this->wholeSite()->only(new Scope(['drupal/nothing'], []))->hasPatches());
     }
 
     public function testAnEmptyPackageListLeavesThePlanAlone(): void
     {
         $plan = $this->wholeSite();
 
-        self::assertSame($plan, $plan->onlyPackages([]));
+        self::assertSame($plan, $plan->only(Scope::whole()));
     }
 
     // --json owes the scope it was asked for.
     public function testNarrowingRewritesWhatJsonWouldPrint(): void
     {
-        $raw = $this->wholeSite()->onlyPackages(['webform'])->raw;
+        $raw = $this->wholeSite()->only(new Scope(['webform'], []))->raw;
         $nested = $raw['plan'] ?? [];
 
         self::assertSame(['webform'], $raw['scope']);

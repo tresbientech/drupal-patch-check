@@ -23,7 +23,7 @@ class Client
     public const PACKAGE = 'tresbientech/drupal-patch-check';
 
     /** What agent() reports when composer has no release to name. */
-    public const VERSION = '0.11.4';
+    public const VERSION = '0.12.0';
 
     public const DEFAULT_ENDPOINT = 'https://api.tresbien.tech/v1/composer/scan';
 

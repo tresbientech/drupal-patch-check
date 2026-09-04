@@ -35,14 +35,19 @@ composer config allow-plugins.tresbientech/drupal-patch-check true
 Installing it runs nothing. The plugin sends your patch data to
 `api.tresbien.tech` only when you run the command, or when you turn the
 update hook on. Read [What leaves the site](#what-leaves-the-site) first,
-and run `composer drupal-patch-check --dry-run` to print the request your
+and run `composer drupatch:check --dry-run` to print the request your
 own site would send.
 
-## The command
+## The commands
 
 ```
-composer drupal-patch-check
+composer drupatch:check                       judges every patch, writes nothing
+composer drupatch:reroll [--update] [--force] writes what merges
 ```
+
+`composer drupal-patch-check` still runs the check. Both commands take the
+same options for the target, the scope and the shape; only `drupatch:reroll`
+takes the two that write.
 
 Patches are grouped under their package, worst package first. Each row has
 the patch's number in its package, a mark, the verdict, the patch title and
@@ -72,34 +77,39 @@ Drupal Patch Check: 5 patches for a move from core 11.3.2 to 11.4.5
 
   patches: 1 conflicts, 2 applies, 1 merged, 1 unknown
 
-  Next:  composer drupal-patch-check --write   writes the re-roll
-         composer drupal-patch-check --fix     drops the merged entry from composer.json
+  Next:  composer drupatch:reroll            writes the re-roll
+         composer drupatch:reroll --update   drops the merged entry from composer.json
 ```
 
-Options that change what is judged, and how the answer is printed:
+Options both commands take:
 
 | Option | What it does |
 | --- | --- |
 | `--target=11.4.5` | Judges the patches against the releases that core version would bring in. |
 | `--target=latest` | The same, against the newest core release your own constraint allows. |
 | `--strict` | Also fails on a patch that could not be judged, and on a run that judged none. |
-| `--package=drupal/webform` | Narrows the report, `--write`, `--fix` and the exit code to this package; repeatable, and `webform` works too. |
+| `--package=drupal/webform` | Narrows the report, what is written and the exit code to this package; repeatable, and `webform` works too. |
+| `--patch=patches/fix.patch` | Narrows the same to one patch, named by the source the site declares, a path or a URL; repeatable, and combines with `--package`. |
 | `--format=json` | Prints the plan as one JSON object; `--json` does the same. |
 | `--format=github` | Prints each verdict as a GitHub Actions annotation on the line that declares the patch. |
 | `--dry-run` | Prints the request that would be sent and stops, without asking the service or writing anything. |
 
-Options that write to the site:
+`drupatch:reroll` replaces each patch file whose patch no longer applies
+with its re-roll, and writes a conflicted merge beside it as
+`<name>.conflict.patch`. On every run it also reads the conflict files it
+finds: an untouched one changes nothing, an edited one sends the regions you
+decided and the finished patch replaces the file. Its own options:
 
 | Option | What it does |
 | --- | --- |
-| `--write` | Replaces each patch file whose patch no longer applies with its re-roll, and writes a conflicted merge beside it as `<name>.conflict.patch`. |
-| `--fix` | Rewrites the patch declarations: drops what is already in the release, adopts the ones declared as a URL, and implies `--write`. |
-| `--resolve` | Re-reads the `.conflict.patch` files, sends the regions you decided, writes back what the service verified, and implies `--write`. |
-| `--force` | Lets `--write` replace a patch file git reports as changed or untracked, and lets `--fix` rewrite a declaration file with uncommitted changes. |
+| `--decisions=decisions.json` | Sends the regions a JSON document decides, `-` to read it from stdin. Merged with the conflict files; on a region both decide, the document wins and the run says so. |
+| `--update` | Also rewrites the patch declarations: drops what is already in the release, adopts the ones declared as a URL, points the rest at their re-rolls. A URL patch is fetched only when its re-roll merged something; when no hunk merged, nothing is written and the run points at the merge request or the issue. |
+| `--force` | Replaces a patch file git reports as changed or untracked, and lets `--update` rewrite a declaration file with uncommitted changes. |
 
 A run that writes prints only the rows a person still has to look at, then
 lists the files it wrote, the ones it would not, and any declaration it
-rewrote.
+rewrote. In `--format=json`, each row it wrote carries the file's path in
+`reroll.path` and an empty `reroll.patch`: the diff is on disk, once.
 
 With `--target`, the plugin asks composer which release each patched package
 would move to. A bare run judges the releases the lock installs.
@@ -126,8 +136,8 @@ Drupal Patch Check: 1 unknown, 1 merged after this update
   ? unknown       drupal/domain   Domain content translations permissions
                   the lock does not install drupal/domain, so there is no release to judge this patch against
   ✓ merged        drupal/token 1.15.0  Cache tag on token replacement
-  run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade
-  Next:  composer drupal-patch-check --fix   drops the merged entry from composer.json
+  run `composer drupatch:check` for the detail, or `--target <version>` before a core upgrade
+  Next:  composer drupatch:reroll --update   drops the merged entry from composer.json
 ```
 
 When every patch applies it prints nothing. Only a literal `true` turns the
@@ -142,7 +152,7 @@ for the newest core your own constraint allows.
 
 ```yaml
 # weekly
-- run: composer drupal-patch-check --target latest --format json > patch-check.json
+- run: composer drupatch:check --target latest --format json > patch-check.json
 - if: always()
   run: jq -r '.summary | "\(.counts.conflicts // 0) conflicts, exit \(.exit_code)"' patch-check.json
 - uses: actions/upload-artifact@v4
@@ -176,8 +186,24 @@ A conflict file holds the hunks that merged, then each open region between a
 `# drupatch region N file` line and a `# drupatch end N file` line. Inside
 are the release side and the patch side as merge markers. Replace the text
 between the two sentinel lines with the code you want, or leave it empty to
-drop the region. Then run `composer drupal-patch-check --resolve`. The
-finished patch replaces the file the site declares.
+drop the region. Then run `composer drupatch:reroll` again. The finished
+patch replaces the file the site declares.
+
+A script or an agent can decide the same regions without editing the file.
+`--decisions` takes a JSON document, one object with a `decisions` list. Each
+entry names the patch by the source the site declares, the file, the region
+index the report printed, and either a `choice` of `release` or `patch` or
+the `text` to put there.
+
+```json
+{"decisions": [
+  {"source": "patches/webform/fix.patch", "file": "src/Form.php", "region": 0, "choice": "release"},
+  {"source": "patches/webform/fix.patch", "file": "src/Form.php", "region": 1, "text": "  $x = 1;"}
+]}
+```
+
+A decision naming a region the release no longer has in conflict decides
+nothing, and the run stops before writing and says how many did.
 
 ## Drupal core references
 
@@ -210,7 +236,7 @@ for each package that came from drupal.org, and the text of each patch. A
 patch declared as a URL is fetched over your own network, so a patch kept on
 a company host is checked like any other.
 
-Run `composer drupal-patch-check --dry-run` to print the exact request your
+Run `composer drupatch:check --dry-run` to print the exact request your
 own site would send. It prints the same body a real run posts.
 
 ## Requirements

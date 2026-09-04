@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Plan;
 
 use RuntimeException;
+use TresBienTech\Drupatch\Scope;
 
 /**
  * One upgrade plan as the api answered it. The one place the server's
@@ -100,53 +101,49 @@ class Plan
     }
 
     /**
-     * The same plan narrowed to some packages, counts recomputed from the rows that are left.
-     *
-     * @param list<string> $packages composer names or drupal.org project names
+     * The same plan narrowed to a scope, counts recomputed from the rows that are left.
      */
-    public function onlyPackages(array $packages): self
+    public function only(Scope $scope): self
     {
-        if ([] === $packages) {
+        if ($scope->isWhole()) {
             return $this;
-        }
-        $wanted = [];
-        foreach ($packages as $name) {
-            $wanted[self::normalisePackage($name)] = true;
         }
         $patches = \array_values(\array_filter(
             $this->patches,
-            static fn (PatchRow $row): bool => isset($wanted[self::normalisePackage($row->package)])
+            static fn (PatchRow $row): bool => $scope->has($row->package, $row->source)
         ));
         $counts = [];
+        $left = [];
         foreach ($patches as $row) {
             $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) + 1;
+            $left[Scope::key($row->package)] = true;
         }
-        $noRelease = \array_values(\array_filter(
-            $this->noRelease,
-            static fn (string $name): bool => isset($wanted[self::normalisePackage($name)])
-        ));
+        // What is said about a package follows the packages named. When
+        // only patches were named, it follows the packages their rows
+        // belong to.
+        $about = static fn (string $name): bool => [] === $scope->packages ? isset($left[Scope::key($name)]) : $scope->hasPackage($name);
+        $noRelease = \array_values(\array_filter($this->noRelease, $about));
         // A warning about a package outside the scope is dropped; one
         // naming no package stays.
         $warnings = \array_values(\array_filter(
             $this->warnings,
-            static function (string $warning) use ($wanted): bool {
-                foreach ($wanted as $name => $_) {
-                    if (\str_starts_with(self::normalisePackage($warning), $name.' ')) {
-                        return true;
-                    }
-                }
+            static function (string $warning) use ($about): bool {
+                $first = \explode(' ', \trim($warning))[0];
 
-                return !\str_contains(\explode(' ', $warning)[0], '/');
+                return !\str_contains($first, '/') || $about($first);
             }
         ));
         // --json owes the scope it was asked for, not the whole site.
         $raw = $this->raw;
-        $raw['scope'] = $packages;
+        $raw['scope'] = $scope->packages;
+        if ([] !== $scope->sources) {
+            $raw['scope_patches'] = $scope->sources;
+        }
         if (isset($raw['plan']) && \is_array($raw['plan'])) {
             $nested = $raw['plan'];
             $nested['patches'] = \array_values(\array_filter(
                 (array) ($nested['patches'] ?? []),
-                static fn (array $row): bool => isset($wanted[self::normalisePackage((string) ($row['package'] ?? ''))])
+                static fn (array $row): bool => $scope->has((string) ($row['package'] ?? ''), (string) ($row['source'] ?? ''))
             ));
             $nested['counts'] = $counts;
             $nested['no_release'] = $noRelease;
@@ -163,20 +160,12 @@ class Plan
             $counts,
             [],
             $noRelease,
-            \array_filter($this->rowNotes, static fn (string $name): bool => isset($wanted[self::normalisePackage($name)]), \ARRAY_FILTER_USE_KEY),
+            \array_filter($this->rowNotes, $about, \ARRAY_FILTER_USE_KEY),
             $patches,
             $this->missingFiles,
             $warnings,
             $raw,
         );
-    }
-
-    /**
-     * One package name: `drupal/webform` and `webform` are the same thing to a person typing --package.
-     */
-    private static function normalisePackage(string $name): string
-    {
-        return \strtolower(\str_replace('drupal/', '', \trim($name)));
     }
 
     /**

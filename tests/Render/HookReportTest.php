@@ -111,7 +111,7 @@ class HookReportTest extends TestCase
     public function testTheHintIsPrintedWhole(): void
     {
         self::assertContains(
-            '  run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade',
+            '  run `composer drupatch:check` for the detail, or `--target <version>` before a core upgrade',
             HookReport::lines($this->plan())
         );
     }
@@ -120,8 +120,8 @@ class HookReportTest extends TestCase
     {
         $lines = HookReport::lines($this->plan());
 
-        self::assertStringContainsString('--write', $lines[\count($lines) - 2]);
-        self::assertStringContainsString('--fix', $lines[\count($lines) - 1]);
+        self::assertStringContainsString('drupatch:reroll', $lines[\count($lines) - 2]);
+        self::assertStringContainsString('--update', $lines[\count($lines) - 1]);
     }
 
     public function testAPlanWithNothingToRunAddsNoFooter(): void
@@ -132,7 +132,7 @@ class HookReportTest extends TestCase
         $lines = HookReport::lines($plan);
 
         self::assertSame(
-            '  run `composer drupal-patch-check` for the detail, or `--target <version>` before a core upgrade',
+            '  run `composer drupatch:check` for the detail, or `--target <version>` before a core upgrade',
             $lines[\count($lines) - 1],
             'the hook gains no line when there is nothing to run'
         );
@@ -219,7 +219,7 @@ class HookReportTest extends TestCase
 
     public function testPointsAtTheCommandThatShowsMore(): void
     {
-        self::assertStringContainsString('composer drupal-patch-check', \implode("\n", HookReport::lines($this->plan())));
+        self::assertStringContainsString('composer drupatch:check', \implode("\n", HookReport::lines($this->plan())));
     }
 
     // The hint prints the `--target <version>` placeholder, so a site

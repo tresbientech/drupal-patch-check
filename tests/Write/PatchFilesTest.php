@@ -231,7 +231,7 @@ class PatchFilesTest extends TestCase
         self::assertSame([], self::paths($this->root.'/*'));
         self::assertCount(1, $result['refused']);
         self::assertSame(PatchFiles::URL_DECLARED, $result['refused'][0]['reason']);
-        self::assertSame('--fix', $result['refused'][0]['lifts']);
+        self::assertSame('--update', $result['refused'][0]['lifts']);
     }
 
     public function testAnAdoptedUrlPatchLandsUnderItsProject(): void
@@ -276,10 +276,11 @@ class PatchFilesTest extends TestCase
         self::assertSame(PatchFiles::NO_FILE_NAME, $result['refused'][0]['reason']);
     }
 
-    public function testAnAdoptedUrlWhoseRerollConflictsGetsAConflictFileBesideIt(): void
+    public function testAnAdoptedUrlWhoseRerollPartlyMergedGetsAConflictFileBesideIt(): void
     {
         $plan = $this->plan([
             'status' => 'conflicts',
+            'patch' => "part\n",
             'conflicts' => [['file' => 'a.php', 'regions' => 1, 'hunks' => [['line' => 1, 'release' => "a\n", 'patch' => "b\n"]]]],
         ], 'https://example.test/files/a.patch');
 
@@ -287,6 +288,53 @@ class PatchFilesTest extends TestCase
 
         self::assertSame('patches/webform/a.conflict.patch', $result['written'][0]['path']);
         self::assertFalse('clean' === $result['written'][0]['status']);
+    }
+
+    public function testAUrlWhoseRerollMergedNothingIsNotFetchedAndPointsUpstream(): void
+    {
+        $plan = $this->plan([
+            'status' => 'conflicts',
+            'conflicts' => [['file' => 'a.php', 'regions' => 1, 'hunks' => [['line' => 1, 'release' => "a\n", 'patch' => "b\n"]]]],
+        ], 'https://www.drupal.org/files/issues/2024-01-01/webform-fix-2466553-12.patch');
+
+        $result = $this->adopter($plan)->write($plan);
+
+        self::assertSame([], $result['written']);
+        self::assertFalse(\is_file($this->root.'/patches/webform/webform-fix-2466553-12.patch'));
+        self::assertFalse(\is_file($this->root.'/patches/webform/webform-fix-2466553-12.conflict.patch'));
+        self::assertSame(PatchFiles::NOTHING_MERGED.'; the fix belongs upstream: https://www.drupal.org/i/2466553', $result['refused'][0]['reason']);
+    }
+
+    public function testAUrlWhoseRerollIsUnavailablePointsAtItsMergeRequest(): void
+    {
+        $plan = $this->plan(['status' => 'unavailable', 'error' => 'the patch names no base blobs'], 'https://git.drupalcode.org/project/webform/-/merge_requests/12.diff');
+
+        $result = $this->adopter($plan)->write($plan);
+
+        self::assertSame([], $result['written']);
+        self::assertSame('the patch names no base blobs; the fix belongs upstream: https://git.drupalcode.org/project/webform/-/merge_requests/12', $result['refused'][0]['reason']);
+    }
+
+    public function testAUrlWithNoIssueNumberPointsAtItself(): void
+    {
+        $plan = $this->plan(['status' => 'conflicts', 'conflicts' => [['file' => 'a.php', 'regions' => 1, 'hunks' => []]]], 'https://example.test/files/a.patch');
+
+        $result = $this->adopter($plan)->write($plan);
+
+        self::assertStringEndsWith('; the fix belongs upstream: https://example.test/files/a.patch', $result['refused'][0]['reason']);
+    }
+
+    public function testALocalPatchWhoseRerollMergedNothingStillGetsItsConflictFile(): void
+    {
+        $plan = $this->plan([
+            'status' => 'conflicts',
+            'conflicts' => [['file' => 'a.php', 'regions' => 1, 'hunks' => [['line' => 1, 'release' => "a\n", 'patch' => "b\n"]]]],
+        ]);
+
+        $result = $this->writer($plan)->write($plan);
+
+        self::assertCount(1, $result['written']);
+        self::assertStringEndsWith('.conflict.patch', $result['written'][0]['path']);
     }
 
     public function testASourceLeavingTheSiteRootIsRefused(): void
@@ -449,7 +497,7 @@ class PatchFilesTest extends TestCase
         $this->writer($plan)->write($plan);
 
         $body = (string) \file_get_contents($this->root.'/patches/core/htaccess.conflict.patch');
-        self::assertStringContainsString('then run composer drupal-patch-check --resolve', $body);
+        self::assertStringContainsString('then run composer drupatch:reroll', $body);
     }
 
     public function testTheWriterOutputParsesBackAsNothingDecided(): void

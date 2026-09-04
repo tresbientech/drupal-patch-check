@@ -8,14 +8,14 @@ use Composer\Console\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
-use TresBienTech\Drupatch\CheckCommand;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\RerollCommand;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
 /**
- * What a --fix run prints, and where.
+ * What an --update run prints, and where.
  */
-#[CoversClass(CheckCommand::class)]
+#[CoversClass(RerollCommand::class)]
 class FixCommandTest extends TestCase
 {
     private ?SiteFixture $site = null;
@@ -57,7 +57,7 @@ class FixCommandTest extends TestCase
             $before($this->site);
         }
 
-        $command = new CheckCommand();
+        $command = new RerollCommand();
         $command->setComposer($composer);
         $command->setApplication(new Application());
 
@@ -71,21 +71,21 @@ class FixCommandTest extends TestCase
     {
         // Not a git checkout: the re-roll is refused and --force is offered,
         // which gives the run a footer to order against.
-        $tester = $this->drive(['--fix' => true]);
+        $tester = $this->drive(['--update' => true]);
         $display = $tester->getDisplay();
 
         self::assertStringContainsString("  composer.json:\n    - drupal/webform: Menu cache (already in the release; patches/webform/menu.patch is no longer used and was kept)", $display);
         self::assertStringContainsString("  not re-rolled:\n    ".WorkingTree::NOT_A_CHECKOUT."\n      ", $display);
         self::assertLessThan(\strpos($display, 'Next:'), \strpos($display, 'composer.json:'));
         self::assertStringContainsString('--force   replaces the file this run would not overwrite', $display);
-        self::assertStringNotContainsString('--fix', $display);
+        self::assertStringNotContainsString('--update', $display);
         $declared = \json_decode((string) $this->site?->read('composer.json'), true)['extra']['patches']['drupal/webform'] ?? [];
         self::assertSame(['Fix' => 'patches/webform/fix.patch'], $declared, 'the merged entry is gone, the re-rolled one stays');
     }
 
     public function testADirtyDeclarationFilePrintsTheReportThenTheError(): void
     {
-        $tester = $this->drive(['--fix' => true], static function (SiteFixture $site): void {
+        $tester = $this->drive(['--update' => true], static function (SiteFixture $site): void {
             $root = \escapeshellarg($site->root());
             \exec("cd $root && git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init 2>&1", $out, $code);
             self::assertSame(0, $code, \implode("\n", $out));

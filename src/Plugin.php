@@ -19,6 +19,7 @@ use Composer\Script\Event;
 use Composer\Script\ScriptEvents;
 use Throwable;
 use TresBienTech\Drupatch\Render\HookReport;
+use TresBienTech\Drupatch\Render\Report;
 
 /**
  * Prints a patch verdict tally after a composer update the site opted into.
@@ -30,7 +31,7 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
 
     private const NOTICE = [
         'Drupal Patch Check is installed. It sends your patch data to api.tresbien.tech.',
-        'Review what is sent by running composer drupal-patch-check --dry-run.',
+        'Review what is sent by running '.Report::COMMAND.' --dry-run.',
         'Your submission is cached on the server to improve the service.',
     ];
 

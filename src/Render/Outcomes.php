@@ -88,6 +88,34 @@ class Outcomes
     }
 
     /**
+     * The document with the diff text this run put on disk taken out: each written row's `reroll.patch` is emptied and `reroll.path` names the file. A row the run refused keeps its text.
+     *
+     * @param array<string, mixed> $raw the service's document as received
+     *
+     * @return array<string, mixed>
+     */
+    public function intoDocument(array $raw): array
+    {
+        $paths = [];
+        foreach ($this->written as $file) {
+            $paths[PatchRow::keyOf($file['package'], $file['title'])] = $file['path'];
+        }
+        if ([] === $paths || !\is_array($raw['plan'] ?? null)) {
+            return $raw;
+        }
+        foreach ((array) ($raw['plan']['patches'] ?? []) as $i => $row) {
+            $path = $paths[PatchRow::keyOf((string) ($row['package'] ?? ''), (string) ($row['title'] ?? ''))] ?? null;
+            if (null === $path || !\is_array($row['result']['reroll'] ?? null)) {
+                continue;
+            }
+            $raw['plan']['patches'][$i]['result']['reroll']['patch'] = '';
+            $raw['plan']['patches'][$i]['result']['reroll']['path'] = $path;
+        }
+
+        return $raw;
+    }
+
+    /**
      * The conflict files this run left, none of them usable as a patch.
      */
     public function openConflictFiles(): int

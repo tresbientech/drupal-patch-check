@@ -100,6 +100,25 @@ class PatchText
     }
 
     /**
+     * Where the fix for a patch taken from a URL belongs: its merge request, or the drupal.org issue whose number the file name carries, or nothing when the URL says neither.
+     */
+    public static function upstream(string $source): string
+    {
+        $request = self::mergeRequest($source);
+        if ('' !== $request) {
+            return $request;
+        }
+        $path = \parse_url(\trim($source), \PHP_URL_PATH);
+        // An issue number is seven digits, and file names put it at the
+        // start, the end or the middle; about half carry none.
+        if (\is_string($path) && 1 === \preg_match('/(?<!\d)(\d{7})(?!\d)/', \basename($path), $found)) {
+            return 'https://www.drupal.org/i/'.$found[1];
+        }
+
+        return '';
+    }
+
+    /**
      * The squashed form of a merge request patch URL, empty when the source is not one.
      *
      * A series applies its later diffs onto blobs its earlier commits left

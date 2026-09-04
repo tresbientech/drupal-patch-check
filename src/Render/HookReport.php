@@ -13,7 +13,7 @@ use TresBienTech\Drupatch\Plan\Plan;
 class HookReport
 {
     /** The command the hook points at for anything it does not print. */
-    public const COMMAND = 'composer drupal-patch-check';
+    public const COMMAND = Report::COMMAND;
 
     /** Row indent, the mark and its space, then the verdict column. */
     private const DETAIL_INDENT = '                  ';

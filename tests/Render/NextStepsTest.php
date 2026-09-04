@@ -32,7 +32,7 @@ class NextStepsTest extends TestCase
         $steps = Report::nextSteps(['conflicts' => 4]);
 
         self::assertCount(1, $steps);
-        self::assertSame('--write', $steps[0]['flag']);
+        self::assertSame([Report::REROLL, ''], [$steps[0]['command'], $steps[0]['flag']]);
         self::assertStringContainsString('4', $steps[0]['effect']);
     }
 
@@ -46,7 +46,7 @@ class NextStepsTest extends TestCase
         $steps = Report::nextSteps(['merged' => 3]);
 
         self::assertCount(1, $steps);
-        self::assertSame('--fix', $steps[0]['flag']);
+        self::assertSame([Report::REROLL, '--update'], [$steps[0]['command'], $steps[0]['flag']]);
         self::assertStringContainsString('3', $steps[0]['effect']);
     }
 
@@ -59,7 +59,8 @@ class NextStepsTest extends TestCase
     {
         $steps = Report::nextSteps(['merged' => 3, 'conflicts' => 4]);
 
-        self::assertSame(['--write', '--fix'], \array_column($steps, 'flag'));
+        self::assertSame([Report::REROLL, Report::REROLL], \array_column($steps, 'command'));
+        self::assertSame(['', '--update'], \array_column($steps, 'flag'));
     }
 
     public function testAZeroCountIsNotAFinding(): void
@@ -70,7 +71,7 @@ class NextStepsTest extends TestCase
     public function testEverySuggestionNamesTheCommandAndWhatItDoes(): void
     {
         foreach (Report::nextStepLines(['conflicts' => 4, 'merged' => 3]) as $line) {
-            self::assertStringContainsString(Report::COMMAND, $line);
+            self::assertStringContainsString(Report::REROLL, $line);
         }
     }
 
@@ -87,15 +88,15 @@ class NextStepsTest extends TestCase
     {
         $lines = Report::nextStepLines(['conflicts' => 1], '  ', null, ['--target 11.4.5', '--package webform']);
 
-        self::assertStringContainsString('composer drupal-patch-check --target 11.4.5 --package webform --write', $lines[0]);
+        self::assertStringContainsString('composer drupatch:reroll --target 11.4.5 --package webform', $lines[0]);
     }
 
     public function testEveryStepRepeatsTheScopeAndTheEffectsStillLineUp(): void
     {
         $lines = Report::nextStepLines(['conflicts' => 4, 'merged' => 3], '  ', null, ['--target 11.4.5']);
 
-        self::assertStringContainsString('--target 11.4.5 --write', $lines[0]);
-        self::assertStringContainsString('--target 11.4.5 --fix', $lines[1]);
+        self::assertStringContainsString('drupatch:reroll --target 11.4.5 ', $lines[0]);
+        self::assertStringContainsString('--target 11.4.5 --update', $lines[1]);
         self::assertSame(\strpos($lines[0], 'writes'), \strpos($lines[1], 'drops'));
     }
 
@@ -139,7 +140,8 @@ class NextStepsTest extends TestCase
 
         $steps = Report::nextSteps(['conflicts' => 1], Outcomes::fromWrite($wrote));
 
-        self::assertSame(['--resolve'], \array_column($steps, 'flag'));
+        self::assertSame([''], \array_column($steps, 'flag'));
+        self::assertSame([Report::REROLL], \array_column($steps, 'command'));
         self::assertSame('sends the regions you decide in the conflict file', $steps[0]['effect']);
     }
 
@@ -161,7 +163,7 @@ class NextStepsTest extends TestCase
             'refused' => [['package' => 'drupal/b', 'title' => 'Fix b', 'path' => 'patches/b.patch', 'reason' => WorkingTree::UNCOMMITTED, 'lifts' => '--force']],
         ];
 
-        self::assertSame(['--resolve', '--force'], \array_column(Report::nextSteps(['conflicts' => 2], Outcomes::fromWrite($wrote)), 'flag'));
+        self::assertSame(['', '--force'], \array_column(Report::nextSteps(['conflicts' => 2], Outcomes::fromWrite($wrote)), 'flag'));
     }
 
     public function testARunThatCouldNotReplaceAFileIsOfferedTheFlagThatLetsIt(): void
@@ -203,26 +205,26 @@ class NextStepsTest extends TestCase
     {
         $wrote = ['written' => [['path' => 'patches/a.patch', 'status' => 'clean', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => true, 'unioned' => [], 'regions' => 0]], 'refused' => []];
 
-        self::assertSame(['--fix'], \array_column(Report::nextSteps(['merged' => 2, 'conflicts' => 1], Outcomes::fromWrite($wrote)), 'flag'));
+        self::assertSame(['--update'], \array_column(Report::nextSteps(['merged' => 2, 'conflicts' => 1], Outcomes::fromWrite($wrote)), 'flag'));
     }
 
     public function testAUrlDeclarationIsOfferedTheFlagThatAdoptsIt(): void
     {
-        $wrote = ['written' => [], 'refused' => [['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'https://example.test/a.patch', 'reason' => 'declared as a URL', 'lifts' => '--fix']]];
+        $wrote = ['written' => [], 'refused' => [['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'https://example.test/a.patch', 'reason' => 'declared as a URL', 'lifts' => '--update']]];
 
         $steps = Report::nextSteps([], Outcomes::fromWrite($wrote));
 
-        self::assertSame(['--fix'], \array_column($steps, 'flag'));
+        self::assertSame(['--update'], \array_column($steps, 'flag'));
         self::assertStringContainsString('URL', $steps[0]['effect']);
     }
 
     public function testShippedEntriesAndUrlDeclarationsShareTheOneFlag(): void
     {
-        $wrote = ['written' => [], 'refused' => [['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'https://example.test/a.patch', 'reason' => 'declared as a URL', 'lifts' => '--fix']]];
+        $wrote = ['written' => [], 'refused' => [['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'https://example.test/a.patch', 'reason' => 'declared as a URL', 'lifts' => '--update']]];
 
         $steps = Report::nextSteps(['merged' => 2], Outcomes::fromWrite($wrote));
 
-        self::assertSame(['--fix'], \array_column($steps, 'flag'));
+        self::assertSame(['--update'], \array_column($steps, 'flag'));
         self::assertStringContainsString('2', $steps[0]['effect']);
         self::assertStringContainsString('URL', $steps[0]['effect']);
     }
