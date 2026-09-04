@@ -29,7 +29,7 @@ class PatchFiles
 
     public const OUTSIDE_ROOT = 'its path points outside the site';
 
-    public const NO_REROLL = 'the service built no re-roll for it';
+    public const NO_REROLL = 'the service returned no re-roll and gave no reason';
 
     public const URL_DECLARED = 'it is declared as a URL, so there is no file to replace';
 
@@ -85,8 +85,7 @@ class PatchFiles
             }
             $body = self::body($row);
             if (null === $body) {
-                $error = (string) ($row->reroll['error'] ?? '');
-                $refused[] = self::refusal($row, $row->source, '' === $error ? self::NO_REROLL : $error);
+                $refused[] = self::refusal($row, $row->source, self::whyNoReroll($row));
                 continue;
             }
             $declaredSource = $this->declaredSource($row);
@@ -134,6 +133,21 @@ class PatchFiles
         }
 
         return ['written' => $written, 'refused' => $refused];
+    }
+
+    /**
+     * Why a row produced no patch to write, in the service's own words
+     * when it gave any.
+     */
+    private static function whyNoReroll(PatchRow $row): string
+    {
+        foreach (['error', 'note'] as $key) {
+            if ('' !== ($said = (string) ($row->reroll[$key] ?? ''))) {
+                return $said;
+            }
+        }
+
+        return self::NO_REROLL;
     }
 
     /**

@@ -535,4 +535,23 @@ class PatchFilesTest extends TestCase
         self::assertStringEndsWith('real.patch', $result['written'][0]['path']);
         self::assertSame([], self::paths($this->root.'/patches/webform/steal.patch'));
     }
+
+    // The service says why it built no re-roll. Its words beat the
+    // plugin's fallback, which claimed it had built nothing at all.
+    public function testARefusalTakesTheServicesOwnWords(): void
+    {
+        $cases = [
+            ['reroll' => ['status' => 'unavailable', 'error' => 'no release takes this patch'], 'want' => 'no release takes this patch'],
+            ['reroll' => ['status' => 'clean', 'verified' => true, 'note' => 'the merge changes nothing: the patch is already in the release'], 'want' => 'the merge changes nothing: the patch is already in the release'],
+            ['reroll' => ['status' => 'unavailable'], 'want' => PatchFiles::NO_REROLL],
+        ];
+
+        foreach ($cases as $case) {
+            $plan = $this->plan($case['reroll']);
+            $result = (new PatchFiles($this->root, null, []))->write($plan);
+
+            self::assertCount(1, $result['refused'], 'a row with no patch to write is refused');
+            self::assertSame($case['want'], $result['refused'][0]['reason']);
+        }
+    }
 }

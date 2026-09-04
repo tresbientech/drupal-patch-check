@@ -224,9 +224,13 @@ class Report
         if ([] !== $unjudged) {
             $blocks[] = \array_map(static fn (string $line): string => '  '.self::caveat($line), $unjudged);
         }
-        foreach ($grouped as $package => $rows) {
-            $note = $placed[$package] ?? '';
-            $blocks[] = self::group($rows, '' === $note ? [] : [$note], $coverage->notesFor($package), $titleWidth, $outcomes);
+        // A run that writes is about the files it wrote. The table is the
+        // plain run's answer, and repeating it here buries the footer.
+        if (null === $outcomes) {
+            foreach ($grouped as $package => $rows) {
+                $note = $placed[$package] ?? '';
+                $blocks[] = self::group($rows, '' === $note ? [] : [$note], $coverage->notesFor($package), $titleWidth);
+            }
         }
         foreach ($blocks as $i => $block) {
             if ($i > 0) {
@@ -238,7 +242,7 @@ class Report
         }
 
         $lines[] = '';
-        $lines[] = '  patches: '.self::tally($plan->counts);
+        $lines[] = '  patches: '.self::tally($plan->counts).self::afterWrite($plan, $outcomes);
 
         // A path the service says it never received that the run did not
         // hold back: the text was lost rather than kept back on purpose.
@@ -259,7 +263,7 @@ class Report
      *
      * @return list<string>
      */
-    private static function group(array $rows, array $warnings, array $notes, int $titleWidth, ?Outcomes $outcomes): array
+    private static function group(array $rows, array $warnings, array $notes, int $titleWidth): array
     {
         $lines = ['  '.self::heading($rows[0]).'   '.self::packageTally($rows)];
         foreach ($warnings as $warning) {
@@ -271,9 +275,6 @@ class Report
         }
         foreach ($rows as $i => $row) {
             $details = self::details($row, $numbers);
-            if (null !== $outcomes && PatchRow::APPLIES === $row->verdict && [] === $details) {
-                continue;
-            }
             $lines[] = \rtrim(\sprintf(
                 '    %'.self::NUMBER_WIDTH.'s %s %-9s %s  %s',
                 '#'.($i + 1),
@@ -330,6 +331,12 @@ class Report
         if ($more > 0) {
             $out[] = '+'.$more.' more hunk'.(1 === $more ? '' : 's').' already in the release';
         }
+        // A plain run does not ask for a re-roll, and a re-roll is what
+        // finds a patch the release carries whole. Say so where part of
+        // one is already there.
+        if ($row->conflicts() && [] !== $row->hunksShipped) {
+            $out[] = 'a re-roll may find the whole patch is already in the release';
+        }
         if ('' !== $row->mergedFrom()) {
             $out[] = self::mergedFromNote($row->mergedFrom());
         }
@@ -376,31 +383,50 @@ class Report
     }
 
     /**
-     * The files a re-roll wrote, each with its status, and what still needs a person.
+     * The files a re-roll wrote, in two groups: the patches the site can
+     * use, and the conflict files a person still has to decide.
      *
      * @return list<string>
      */
     public static function written(?Outcomes $outcomes): array
     {
-        $files = null === $outcomes ? [] : $outcomes->written();
+        $clean = [];
+        $conflicted = [];
+        foreach (null === $outcomes ? [] : $outcomes->written() as $file) {
+            if (PatchRow::CONFLICTS === $file['status']) {
+                $conflicted[] = $file;
+                continue;
+            }
+            $clean[] = $file;
+        }
+
+        return \array_merge(
+            self::writtenFiles('re-rolled:', $clean),
+            self::writtenFiles('re-rolled with conflicts:', $conflicted),
+        );
+    }
+
+    /**
+     * One group of written files under its heading.
+     *
+     * @param list<array{path: string, status: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}> $files
+     *
+     * @return list<string>
+     */
+    private static function writtenFiles(string $heading, array $files): array
+    {
         if ([] === $files) {
             return [];
         }
-        $lines = [''];
+        $lines = ['', '  '.$heading];
         foreach ($files as $file) {
-            $lines[] = \sprintf('  wrote %s  (%s)', $file['path'], self::status($file));
+            $lines[] = \sprintf('    %s  (%s)', $file['path'], self::status($file));
             if ([] !== $file['unioned']) {
-                $lines[] = '    '.self::unionNote(\count($file['unioned'])).':';
+                $lines[] = '      '.self::unionNote(\count($file['unioned'])).':';
                 foreach ($file['unioned'] as $region) {
-                    $lines[] = '      '.$region['file'].':'.$region['line'];
+                    $lines[] = '        '.$region['file'].':'.$region['line'];
                 }
             }
-        }
-        $open = $outcomes->openConflictFiles();
-        if ($open > 0) {
-            $lines[] = 1 === $open
-                ? '  1 conflict file has regions to decide; it is not a usable patch until you resolve it'
-                : \sprintf('  %d conflict files have regions to decide; they are not usable patches until you resolve them', $open);
         }
 
         return $lines;
@@ -414,10 +440,12 @@ class Report
     private static function status(array $file): string
     {
         if (PatchRow::CONFLICTS === $file['status']) {
-            return \sprintf('conflicts, %d region%s to decide', $file['regions'], 1 === $file['regions'] ? '' : 's');
+            return \sprintf('%d region%s to decide', $file['regions'], 1 === $file['regions'] ? '' : 's');
         }
 
-        return $file['verified'] ? 'clean, verified against the release by the server' : 'clean';
+        // An unverified merge produced no conflict and nothing applied it,
+        // so it is not yet a patch that works.
+        return $file['verified'] ? 'verified against the release' : 'not verified';
     }
 
     /**
@@ -436,13 +464,15 @@ class Report
             $groups[$refusal['reason']][] = $refusal;
         }
         \ksort($groups);
-        $lines = ['', '  not written:'];
+        $lines = ['', '  not re-rolled:'];
+        // The reason heads its group. Printed after the patches it
+        // explains, it reads as though the ones above it have none.
         foreach ($groups as $reason => $items) {
             \usort($items, static fn (array $a, array $b): int => [$a['package'], $a['title']] <=> [$b['package'], $b['title']]);
+            $lines[] = '    '.$reason;
             foreach ($items as $item) {
-                $lines[] = \sprintf('    %s: %s', $item['package'], $item['title']);
+                $lines[] = \sprintf('      %s  %s: %s', $item['path'], $item['package'], $item['title']);
             }
-            $lines[] = '      '.$reason;
         }
 
         return $lines;
@@ -857,6 +887,35 @@ class Report
         }
 
         return \sprintf('%s %s → %s', $row->package, $row->installed, $row->version);
+    }
+
+    /**
+     * What the write left behind, as a re-run would tally it.
+     *
+     * A file written clean and verified is a patch that applies, so its
+     * row moves. An unverified merge and a conflict file move nothing.
+     */
+    private static function afterWrite(Plan $plan, ?Outcomes $outcomes): string
+    {
+        if (null === $outcomes) {
+            return '';
+        }
+        $fixed = [];
+        foreach ($outcomes->written() as $file) {
+            if (PatchRow::CONFLICTS !== $file['status'] && $file['verified']) {
+                $fixed[PatchRow::keyOf($file['package'], $file['title'])] = true;
+            }
+        }
+        if ([] === $fixed) {
+            return '';
+        }
+        $counts = [];
+        foreach ($plan->patches as $row) {
+            $verdict = isset($fixed[$row->key()]) ? PatchRow::APPLIES : $row->verdict;
+            $counts[$verdict] = ($counts[$verdict] ?? 0) + 1;
+        }
+
+        return ' → '.self::tally($counts);
     }
 
     /**

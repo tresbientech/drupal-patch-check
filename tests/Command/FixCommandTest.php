@@ -75,7 +75,7 @@ class FixCommandTest extends TestCase
         $display = $tester->getDisplay();
 
         self::assertStringContainsString("  composer.json:\n    - drupal/webform: Menu cache (already in the release; patches/webform/menu.patch is no longer used and was kept)", $display);
-        self::assertStringContainsString("  not written:\n    drupal/webform: Fix\n      ".WorkingTree::NOT_A_CHECKOUT, $display);
+        self::assertStringContainsString("  not re-rolled:\n    ".WorkingTree::NOT_A_CHECKOUT."\n      ", $display);
         self::assertLessThan(\strpos($display, 'Next:'), \strpos($display, 'composer.json:'));
         self::assertStringContainsString('--force   replaces the file this run would not overwrite', $display);
         self::assertStringNotContainsString('--fix', $display);
@@ -94,7 +94,7 @@ class FixCommandTest extends TestCase
 
         self::assertSame(Plan::FAILED, $tester->getStatusCode());
         $display = $tester->getDisplay();
-        self::assertStringContainsString('Menu cache', $display, 'the report still prints');
+        self::assertStringContainsString('patches: ', $display, 'the report still prints');
         self::assertStringContainsString('composer.json has uncommitted changes; commit them or pass --force', $display);
         self::assertGreaterThan(\strpos($display, 'Menu cache'), \strpos($display, 'uncommitted changes'));
     }
