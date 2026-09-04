@@ -154,7 +154,7 @@ class TableTest extends TestCase
     // belongs where the people who share it will get it.
     public function testAConflictingMergeRequestPatchPointsAtTheRequest(): void
     {
-        $out = \implode("\n", self::whole($this->fromMergeRequest('conflicts'), null, 100));
+        $out = \implode("\n", self::whole($this->fromMergeRequest('conflicts'), self::wrote(), 100));
 
         self::assertStringContainsString('drupal/webform takes this patch from a merge request', $out);
         self::assertStringContainsString('https://git.drupalcode.org/project/webform/-/merge_requests/22', $out);
@@ -164,7 +164,16 @@ class TableTest extends TestCase
     {
         self::assertStringNotContainsString(
             'merge request',
-            \implode("\n", self::whole($this->fromMergeRequest('applies'), null, 100)),
+            \implode("\n", self::whole($this->fromMergeRequest('applies'), self::wrote(), 100)),
+        );
+    }
+
+    // A plain run makes no re-roll, so it has none to send upstream.
+    public function testAPlainRunPointsNowhere(): void
+    {
+        self::assertStringNotContainsString(
+            'merge request',
+            \implode("\n", self::whole($this->fromMergeRequest('conflicts'), null, 100)),
         );
     }
 
@@ -172,7 +181,12 @@ class TableTest extends TestCase
     {
         self::assertSame([], Report::upstream($this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [
             $this->row(['verdict' => 'conflicts', 'source' => 'patches/webform/fix.patch']),
-        ]])));
+        ]]), self::wrote()));
+    }
+
+    private static function wrote(): Outcomes
+    {
+        return Outcomes::fromWrite(['written' => [], 'refused' => []]);
     }
 
     private function fromMergeRequest(string $verdict): Plan

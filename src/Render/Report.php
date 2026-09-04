@@ -179,7 +179,7 @@ class Report
             self::written($outcomes),
             self::refused($outcomes),
             self::rewrite($outcomes),
-            self::upstream($plan),
+            self::upstream($plan, $outcomes),
             self::footer($plan, $outcomes, $scope),
         );
     }
@@ -578,12 +578,18 @@ class Report
     }
 
     /**
-     * Where the re-roll of a conflicting patch belongs when the site took that patch from a merge request.
+     * Where the re-roll of a conflicting patch belongs when the site took
+     * that patch from a merge request. Only a run that wrote has one.
      *
      * @return list<string>
      */
-    public static function upstream(Plan $plan): array
+    public static function upstream(Plan $plan, ?Outcomes $outcomes): array
     {
+        // The line asks for a re-roll to be sent. A plain run makes none,
+        // so it has nothing to send.
+        if (null === $outcomes) {
+            return [];
+        }
         $requests = [];
         foreach ($plan->patches as $row) {
             $request = PatchText::mergeRequest($row->source);
