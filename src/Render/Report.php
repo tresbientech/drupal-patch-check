@@ -211,10 +211,12 @@ class Report
         foreach ($plan->patches as $row) {
             $grouped[$row->package][] = $row;
         }
-        $placed = self::warningsByPackage($plan->warnings, \array_keys($grouped));
+        // The service states a blocked package on its scan row; a plan
+        // warning names no package at all.
+        $placed = $plan->rowNotes;
 
         $blocks = [];
-        $loose = self::aboutNoPackage($plan->warnings, \array_merge($plan->packages(), $plan->noRelease));
+        $loose = $plan->warnings;
         if ([] !== $loose) {
             $blocks[] = \array_map(self::warning(...), $loose);
         }
@@ -223,7 +225,8 @@ class Report
             $blocks[] = \array_map(static fn (string $line): string => '  '.self::caveat($line), $unjudged);
         }
         foreach ($grouped as $package => $rows) {
-            $blocks[] = self::group($rows, $placed[$package] ?? [], $coverage->notesFor($package), $titleWidth, $outcomes);
+            $note = $placed[$package] ?? '';
+            $blocks[] = self::group($rows, '' === $note ? [] : [$note], $coverage->notesFor($package), $titleWidth, $outcomes);
         }
         foreach ($blocks as $i => $block) {
             if ($i > 0) {
@@ -303,11 +306,29 @@ class Report
         if ('' !== $row->reason()) {
             $out[] = $row->reason();
         }
-        if ('' !== $row->firstFailure()) {
-            $out[] = $row->firstFailure();
+        $shipped = \array_flip($row->hunksShipped);
+        foreach ($row->failures() as $place => $failure) {
+            // A hunk the release already carries is why the patch stopped
+            // applying there, so the two lines about it become one.
+            $out[] = isset($shipped[$place])
+                ? $place.': already in the release, not needed'
+                : $failure;
         }
-        foreach ($row->hunksShipped as $shipped) {
-            $out[] = 'already in the release: '.$shipped;
+        $failed = $row->failures();
+        // Server JSON is the boundary: a total below what it sent prints
+        // nothing rather than a negative count.
+        $more = $row->failedTotal - \count($failed);
+        if ($more > 0) {
+            $out[] = '+'.$more.' more failed hunk'.(1 === $more ? '' : 's');
+        }
+        foreach ($row->hunksShipped as $place) {
+            if (!isset($failed[$place])) {
+                $out[] = 'already in the release: '.$place;
+            }
+        }
+        $more = $row->shippedTotal - \count($row->hunksShipped);
+        if ($more > 0) {
+            $out[] = '+'.$more.' more hunk'.(1 === $more ? '' : 's').' already in the release';
         }
         if ('' !== $row->mergedFrom()) {
             $out[] = self::mergedFromNote($row->mergedFrom());
@@ -707,7 +728,9 @@ class Report
             }
             $message = $row->verdict.' '.$row->package.('' === $row->version ? '' : ' '.$row->version).': '.$row->label();
             // What a re-roll must fix, or why a row has no verdict.
-            $detail = '' !== $row->firstFailure() ? $row->firstFailure() : $row->reason();
+            // One line per annotation, so the first failure stands for the rest.
+            $failures = $row->failures();
+            $detail = \reset($failures) ?: $row->reason();
             if ('' !== $detail) {
                 $message .= '; '.$detail;
             }
@@ -801,52 +824,6 @@ class Report
     private static function caveat(string $text): string
     {
         return '<comment>'.$text.'</comment>';
-    }
-
-    /**
-     * Warnings grouped under the package each one is about, the package name taken off; a warning opens with the package it names.
-     *
-     * @param list<string> $warnings
-     * @param list<string> $packages
-     *
-     * @return array<string, non-empty-list<string>>
-     */
-    private static function warningsByPackage(array $warnings, array $packages): array
-    {
-        $out = [];
-        foreach ($warnings as $warning) {
-            foreach ($packages as $package) {
-                if (\str_starts_with($warning, $package.' ')) {
-                    $out[$package][] = \substr($warning, \strlen($package) + 1);
-                    break;
-                }
-            }
-        }
-
-        return $out;
-    }
-
-    /**
-     * The warnings that name no package at all; those lead the report.
-     *
-     * @param list<string> $warnings
-     * @param list<string> $packages
-     *
-     * @return list<string>
-     */
-    private static function aboutNoPackage(array $warnings, array $packages): array
-    {
-        $out = [];
-        foreach ($warnings as $warning) {
-            foreach ($packages as $package) {
-                if (\str_starts_with($warning, $package.' ')) {
-                    continue 2;
-                }
-            }
-            $out[] = $warning;
-        }
-
-        return $out;
     }
 
     /**

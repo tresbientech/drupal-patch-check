@@ -46,10 +46,20 @@ class PatchRow
          * @var list<string>
          */
         public readonly array $judgedWithout,
-        /** The first file the patch failed on, and why. */
-        private readonly string $failedHunk,
         /**
-         * The hunks the release already carries verbatim, one line each.
+         * Every hunk the patch failed on, keyed by where it is, so a row
+         * can pair a failure with the same place in hunksShipped.
+         *
+         * @var array<string, string> place => `file:line: reason`
+         */
+        private readonly array $hunksFailed,
+        /** How many hunks failed, before the service capped the list. */
+        public readonly int $failedTotal,
+        /** How many hunks the release carries, before the same cap. */
+        public readonly int $shippedTotal,
+        /**
+         * The hunks the release already carries verbatim, one line each,
+         * named file:line.
          *
          * Every hunk, not just the first: a patch whose hunks the release
          * mostly has is the evidence that its fix landed in another form.
@@ -100,8 +110,10 @@ class PatchRow
             (string) ($result['error'] ?? ''),
             (string) ($result['strict_refused'] ?? ''),
             \array_values(\array_filter($without, \is_string(...))),
-            [] === $failed ? '' : self::hunk($failed[0]),
-            \array_values(\array_map(static fn (array $hunk): string => (string) ($hunk['file'] ?? ''), $shipped)),
+            self::failedHunks($failed),
+            (int) ($result['hunks_failed_total'] ?? \count($failed)),
+            (int) ($result['hunks_shipped_total'] ?? \count($shipped)),
+            \array_values(\array_map(static fn (array $hunk): string => self::place($hunk), $shipped)),
             (string) ($data['decided_by'] ?? ''),
             \is_array($result['reroll'] ?? null) ? $result['reroll'] : null,
             \is_array($result['core_references'] ?? null) ? $result['core_references'] : [],
@@ -165,27 +177,60 @@ class PatchRow
     }
 
     /**
-     * One failed hunk as a person reads it: the file, and why.
+     * One failed hunk as a person reads it: where it is, and why.
      *
      * @param array<string, mixed> $hunk
      */
     private static function hunk(array $hunk): string
     {
-        $file = (string) ($hunk['file'] ?? '');
+        $place = self::place($hunk);
         $reason = (string) ($hunk['reason'] ?? '');
-        if ('' === $file || '' === $reason) {
-            return $file.$reason;
+        if ('' === $place || '' === $reason) {
+            return $place.$reason;
         }
 
-        return $file.': '.$reason;
+        return $place.': '.$reason;
     }
 
     /**
-     * The first file a re-roll has to fix, empty when the verdict stands.
+     * The failed hunks a row prints, keyed by place.
+     *
+     * @param array<mixed> $failed
+     *
+     * @return array<string, string>
      */
-    public function firstFailure(): string
+    private static function failedHunks(array $failed): array
     {
-        return $this->conflicts() ? $this->failedHunk : '';
+        $out = [];
+        foreach ($failed as $hunk) {
+            $hunk = (array) $hunk;
+            $out[self::place($hunk)] = self::hunk($hunk);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Where a hunk is: its file, and the release line it was aimed at.
+     *
+     * @param array<string, mixed> $hunk
+     */
+    private static function place(array $hunk): string
+    {
+        $file = (string) ($hunk['file'] ?? '');
+        $line = (int) ($hunk['line'] ?? 0);
+
+        return '' === $file || $line <= 0 ? $file : $file.':'.$line;
+    }
+
+    /**
+     * What a re-roll has to fix, empty when the verdict stands.
+     *
+     * @return array<string, string> place => `file:line: reason`
+     */
+    public function failures(): array
+    {
+        return $this->conflicts() ? $this->hunksFailed : [];
     }
 
     /**

@@ -30,7 +30,7 @@ class PlanTest extends TestCase
         ]);
 
         $this->assertSame(
-            ['src/Plugin/ImageToolkit/ImagemagickToolkit.php'],
+            ['src/Plugin/ImageToolkit/ImagemagickToolkit.php:369'],
             $row->hunksShipped,
         );
     }
@@ -49,10 +49,12 @@ class PlanTest extends TestCase
             'core_installed' => '10.6.9',
             'bundle_date' => '2026-08-11T02:00:00Z',
             'counts' => ['current' => 30],
-            'rows' => [['package' => 'drupal/webform', 'status' => 'current']],
+            'rows' => [
+                ['package' => 'drupal/webform', 'status' => 'current'],
+                ['package' => 'drupal/domain', 'status' => 'no_release'],
+            ],
             'plan' => [
                 'counts' => ['conflicts' => 1],
-                'no_release' => ['drupal/domain'],
                 'missing_files' => ['patchs/local.patch'],
                 'patches' => [[
                     'package' => 'drupal/webform', 'project' => 'webform', 'installed' => '6.2.9', 'version' => '6.3.2',
@@ -271,8 +273,11 @@ class PlanTest extends TestCase
     public function testTheNarrowedBlockedListIsARenumberedList(): void
     {
         $plan = Plan::fromArray([
+            'rows' => [
+                ['package' => 'drupal/autotitle', 'status' => 'no_release'],
+                ['package' => 'drupal/domain', 'status' => 'no_release'],
+            ],
             'plan' => [
-                'no_release' => ['drupal/autotitle', 'drupal/domain'],
                 'patches' => [['package' => 'drupal/domain', 'verdict' => 'unknown', 'title' => 'a']],
             ],
         ]);
@@ -392,9 +397,9 @@ class PlanTest extends TestCase
         return Plan::fromArray([
             'target_core' => '11.4.5',
             'counts' => ['current' => 30, 'no_release' => 1],
+            'rows' => [['package' => 'drupal/domain', 'status' => 'no_release']],
             'plan' => [
                 'counts' => ['conflicts' => 1, 'applies' => 2],
-                'no_release' => ['drupal/domain'],
                 'patches' => [
                     ['package' => 'drupal/webform', 'verdict' => 'conflicts', 'title' => 'a'],
                     ['package' => 'drupal/webform', 'verdict' => 'applies', 'title' => 'b'],

@@ -77,24 +77,17 @@ class HookReport
     }
 
     /**
-     * The warnings this hook prints: those about a package it names a row for, and those about the run rather than about a package.
+     * The warnings this hook prints: what a scan row says about a package
+     * it has a row for, and what the plan says about the run itself.
      *
      * @return list<string>
      */
     private static function worthPrinting(Plan $plan): array
     {
-        $named = \array_merge($plan->packages(), $plan->noRelease);
-        $out = [];
-        foreach ($plan->warnings as $warning) {
-            $about = '';
-            foreach ($named as $package) {
-                if (\str_starts_with($warning, $package.' ')) {
-                    $about = $package;
-                    break;
-                }
-            }
-            if ('' === $about || \in_array($about, $plan->packages(), true)) {
-                $out[] = $warning;
+        $out = $plan->warnings;
+        foreach ($plan->packages() as $package) {
+            if ('' !== ($note = $plan->rowNotes[$package] ?? '')) {
+                $out[] = $package.' '.$note;
             }
         }
 

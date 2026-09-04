@@ -13,13 +13,14 @@ use RuntimeException;
 class Plan
 {
     /**
-     * @param array<string, int>   $counts
-     * @param array<string, int>   $packageCounts
-     * @param list<string>         $noRelease
-     * @param list<PatchRow>       $patches
-     * @param list<string>         $missingFiles
-     * @param list<string>         $warnings
-     * @param array<string, mixed> $raw           the body as received, for --json
+     * @param array<string, int>    $counts
+     * @param array<string, int>    $packageCounts
+     * @param list<string>          $noRelease
+     * @param array<string, string> $rowNotes
+     * @param list<PatchRow>        $patches
+     * @param list<string>          $missingFiles
+     * @param list<string>          $warnings
+     * @param array<string, mixed>  $raw           the body as received, for --json
      */
     private function __construct(
         public readonly string $targetCore,
@@ -31,6 +32,8 @@ class Plan
         public readonly array $counts,
         public readonly array $packageCounts,
         public readonly array $noRelease,
+        /** The sentence a blocked package's scan row carries, keyed by package. */
+        public readonly array $rowNotes,
         public readonly array $patches,
         public readonly array $missingFiles,
         public readonly array $warnings,
@@ -61,6 +64,21 @@ class Plan
         foreach ($plan['patches'] ?? [] as $row) {
             $patches[] = PatchRow::fromArray($row);
         }
+        // The blocked packages and their sentences come from the scan
+        // rows, which is where the service states them.
+        $noRelease = [];
+        $rowNotes = [];
+        foreach ((array) ($data['rows'] ?? []) as $row) {
+            $row = (array) $row;
+            $package = (string) ($row['package'] ?? '');
+            if ('' === $package || 'no_release' !== ($row['status'] ?? '')) {
+                continue;
+            }
+            $noRelease[] = $package;
+            if ('' !== ($note = (string) ($row['note'] ?? ''))) {
+                $rowNotes[$package] = $note;
+            }
+        }
 
         // `counts` outside is package statuses, `counts` inside the plan
         // is verdicts.
@@ -72,7 +90,8 @@ class Plan
             (string) ($data['target_from'] ?? ''),
             (array) ($plan['counts'] ?? []),
             (array) ($data['counts'] ?? []),
-            (array) ($plan['no_release'] ?? []),
+            $noRelease,
+            $rowNotes,
             $patches,
             (array) ($plan['missing_files'] ?? []),
             (array) ($plan['warnings'] ?? []),
@@ -144,6 +163,7 @@ class Plan
             $counts,
             [],
             $noRelease,
+            \array_filter($this->rowNotes, static fn (string $name): bool => isset($wanted[self::normalisePackage($name)]), \ARRAY_FILTER_USE_KEY),
             $patches,
             $this->missingFiles,
             $warnings,

@@ -41,14 +41,41 @@ trait PlanFactory
     {
         $nested = [];
         $body = [];
+        $blocked = [];
         foreach ($flat as $key => $value) {
-            if (\in_array($key, ['counts', 'no_release', 'patches', 'missing_files', 'warnings'], true)) {
+            if ('no_release' === $key) {
+                $blocked = (array) $value;
+            } elseif (\in_array($key, ['counts', 'patches', 'missing_files', 'warnings'], true)) {
                 $nested[$key] = $value;
             } elseif ('package_counts' === $key) {
                 $body['counts'] = $value;
             } else {
                 $body[$key] = $value;
             }
+        }
+        // The service states a blocked package on its scan row, and a
+        // warning that opens with a package name is that row's sentence.
+        $rows = [];
+        $loose = [];
+        foreach ((array) ($nested['warnings'] ?? []) as $warning) {
+            $loose[] = $warning;
+        }
+        foreach ($blocked as $package) {
+            $row = ['package' => $package, 'status' => 'no_release'];
+            foreach ($loose as $i => $warning) {
+                if (\str_starts_with((string) $warning, $package.' ')) {
+                    $row['note'] = \substr((string) $warning, \strlen($package) + 1);
+                    unset($loose[$i]);
+                    break;
+                }
+            }
+            $rows[] = $row;
+        }
+        if ([] !== $rows) {
+            $body['rows'] = $rows;
+        }
+        if (isset($nested['warnings'])) {
+            $nested['warnings'] = \array_values($loose);
         }
         $body['plan'] = $nested;
 

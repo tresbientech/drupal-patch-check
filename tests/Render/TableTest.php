@@ -328,7 +328,7 @@ class TableTest extends TestCase
 
         $out = \implode("\n", self::table($plan));
 
-        self::assertStringContainsString('memcache.services.yml: patch failed', $out);
+        self::assertStringContainsString('memcache.services.yml:3: patch failed', $out);
         self::assertStringNotContainsString('references not extracted', $out);
     }
 
@@ -337,21 +337,24 @@ class TableTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/^\s+core (removed|moved|signature):/m', \implode("\n", self::table($this->plan())));
     }
 
-    public function testNamesTheFileARerollWillHaveToFix(): void
+    // A re-roll has to fix every place the patch failed, so the row names
+    // them all rather than the first.
+    public function testNamesEveryPlaceARerollWillHaveToFix(): void
     {
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
             'verdict' => 'conflicts',
             'result' => ['hunks_failed' => [
                 ['file' => 'tests/src/Functional/SimplesitemapTest.php', 'reason' => 'does not exist in index'],
-                ['file' => 'src/Manager.php', 'reason' => 'patch does not apply'],
+                ['file' => 'src/Manager.php', 'line' => 88, 'reason' => 'patch failed'],
+                ['file' => 'src/Manager.php', 'line' => 204, 'reason' => 'patch failed'],
             ]],
         ])]]);
 
         $out = \implode("\n", self::table($plan));
 
         self::assertStringContainsString('tests/src/Functional/SimplesitemapTest.php: does not exist in index', $out);
-        // One line is the size of the hint; the rest is in the patch.
-        self::assertStringNotContainsString('src/Manager.php', $out);
+        self::assertStringContainsString('src/Manager.php:88: patch failed', $out);
+        self::assertStringContainsString('src/Manager.php:204: patch failed', $out);
     }
 
     public function testSaysNothingAboutFailedHunksOnAVerdictThatStands(): void
@@ -464,6 +467,94 @@ class TableTest extends TestCase
             '                    <fg=cyan>judged with only the parts of #1, #2 and #3 that applied</>',
             $lines[$row + 1]
         );
+    }
+
+    // A failure and a shipped hunk in one file are told apart by the line
+    // they name, which is the same number in both.
+    public function testAFailureAndAShippedHunkBothNameTheirLine(): void
+    {
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts',
+            'result' => [
+                'hunks_failed' => [['file' => 'm.module', 'line' => 165, 'reason' => 'patch failed']],
+                'hunks_shipped' => [['file' => 'm.module', 'line' => 6, 'reason' => 'this hunk is already in the release']],
+            ],
+        ])]]);
+
+        $out = \implode("\n", self::table($plan));
+
+        self::assertStringContainsString('m.module:165: patch failed', $out);
+        self::assertStringContainsString('already in the release: m.module:6', $out);
+    }
+
+    // A hunk the release already carries is why the patch stopped applying
+    // there, so the row says it once rather than twice.
+    public function testAHunkThatIsBothFailedAndShippedPrintsOneLine(): void
+    {
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts',
+            'result' => [
+                'hunks_failed' => [
+                    ['file' => 'm.module', 'line' => 6, 'reason' => 'patch failed'],
+                    ['file' => 'm.module', 'line' => 165, 'reason' => 'patch failed'],
+                ],
+                'hunks_shipped' => [['file' => 'm.module', 'line' => 6, 'reason' => 'this hunk is already in the release']],
+            ],
+        ])]]);
+
+        $out = \implode("\n", self::table($plan));
+
+        self::assertStringContainsString('m.module:6: already in the release, not needed', $out);
+        self::assertStringContainsString('m.module:165: patch failed', $out);
+        self::assertStringNotContainsString('m.module:6: patch failed', $out);
+        self::assertStringNotContainsString('already in the release: m.module:6', $out);
+    }
+
+    // The service caps what it sends, so a row says how much it is not
+    // showing rather than reading as the whole answer.
+    public function testAShortenedHunkListSaysHowManyItDropped(): void
+    {
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts',
+            'result' => [
+                'hunks_failed' => [['file' => 'm.module', 'line' => 6, 'reason' => 'patch failed']],
+                'hunks_failed_total' => 4,
+                'hunks_shipped' => [['file' => 'm.module', 'line' => 90, 'reason' => 'this hunk is already in the release']],
+                'hunks_shipped_total' => 2,
+            ],
+        ])]]);
+
+        $out = \implode("\n", self::table($plan));
+
+        self::assertStringContainsString('+3 more failed hunks', $out);
+        self::assertStringContainsString('+1 more hunk already in the release', $out);
+    }
+
+    // A list the cap did not touch prints no extra line.
+    public function testAWholeHunkListSaysNothingExtra(): void
+    {
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts',
+            'result' => ['hunks_failed' => [['file' => 'm.module', 'line' => 6, 'reason' => 'patch failed']]],
+        ])]]);
+
+        $out = \implode("\n", self::table($plan));
+
+        self::assertStringNotContainsString('more failed hunk', $out);
+    }
+
+    // git gives no line for a refusal about the file itself, so none is
+    // printed.
+    public function testAFileLevelRefusalPrintsNoLine(): void
+    {
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row([
+            'verdict' => 'conflicts',
+            'result' => ['hunks_failed' => [['file' => 'gone.php', 'reason' => 'does not exist in index']]],
+        ])]]);
+
+        $out = \implode("\n", self::table($plan));
+
+        self::assertStringContainsString('gone.php: does not exist in index', $out);
     }
 
     // The label came from the service; one no row carries is printed
@@ -968,6 +1059,7 @@ class TableTest extends TestCase
     {
         $plan = $this->planFrom([
             'counts' => ['applies' => 1],
+            'no_release' => ['drupal/webform'],
             'warnings' => ['drupal/webform 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.'],
             'patches' => [$this->row()],
         ]);
@@ -987,6 +1079,7 @@ class TableTest extends TestCase
     {
         $plan = $this->planFrom([
             'counts' => ['conflicts' => 1, 'applies' => 1],
+            'no_release' => ['drupal/domain'],
             'warnings' => ['drupal/domain 2.1.0 supports 11.4.5; the site requires ^2.0. Widen it to ^2.1.'],
             'patches' => [
                 $this->row(['title' => 'Alpha', 'verdict' => 'conflicts']),
