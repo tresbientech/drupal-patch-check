@@ -315,6 +315,19 @@ class PatchFilesTest extends TestCase
         self::assertSame('the patch names no base blobs; the fix belongs upstream: https://git.drupalcode.org/project/webform/-/merge_requests/12', $result['refused'][0]['reason']);
     }
 
+    public function testAMergedUrlPatchPointsNowhereBecauseTheFixIsAlreadyThere(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->rerolledRow(
+            ['status' => 'clean', 'patch' => '', 'note' => 'the merge changes nothing: the patch is already in the release'],
+            ['source' => 'https://git.drupalcode.org/project/webform/-/merge_requests/12.diff', 'version' => '6.3.2', 'verdict' => 'merged'],
+        )]]);
+
+        $result = $this->adopter($plan)->write($plan);
+
+        self::assertSame([], $result['written']);
+        self::assertSame('the merge changes nothing: the patch is already in the release', $result['refused'][0]['reason']);
+    }
+
     public function testAUrlWithNoIssueNumberPointsAtItself(): void
     {
         $plan = $this->plan(['status' => 'conflicts', 'conflicts' => [['file' => 'a.php', 'regions' => 1, 'hunks' => []]]], 'https://example.test/files/a.patch');

@@ -90,7 +90,10 @@ class PatchFiles
             $fromUrl = null !== $declaredSource && PatchConfig::isUrl($declaredSource);
             $body = self::body($row);
             if (null === $body) {
-                $refused[] = self::refusal($row, $row->source, self::whyNoReroll($row).($fromUrl ? self::upstream($declaredSource) : ''));
+                // A patch the release already carries has nothing to send
+                // upstream; only a re-roll that produced nothing does.
+                $where = $fromUrl && !$row->isMerged() ? self::upstream($declaredSource) : '';
+                $refused[] = self::refusal($row, $row->source, self::whyNoReroll($row).$where);
                 continue;
             }
             if (null === $declaredSource) {
