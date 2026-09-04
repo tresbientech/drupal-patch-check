@@ -39,8 +39,13 @@ class PatchRow
         public readonly string $error,
         /** Why a strict apply refused a patch a looser one accepted. */
         public readonly string $strictRefused,
-        /** An earlier patch of the package that did not apply. */
-        public readonly string $judgedWithout,
+        /**
+         * The earlier patches of the package that did not apply whole and
+         * left part of themselves in the tree this one was judged against.
+         *
+         * @var list<string>
+         */
+        public readonly array $judgedWithout,
         /** The first file the patch failed on, and why. */
         private readonly string $failedHunk,
         /**
@@ -81,6 +86,7 @@ class PatchRow
         $result = (array) ($data['result'] ?? []);
         $failed = (array) ($result['hunks_failed'] ?? []);
         $shipped = (array) ($result['hunks_shipped'] ?? []);
+        $without = (array) ($result['judged_without'] ?? []);
 
         return new self(
             $package,
@@ -93,7 +99,7 @@ class PatchRow
             (string) ($data['note'] ?? ''),
             (string) ($result['error'] ?? ''),
             (string) ($result['strict_refused'] ?? ''),
-            (string) ($result['judged_without'] ?? ''),
+            \array_values(\array_filter($without, \is_string(...))),
             [] === $failed ? '' : self::hunk($failed[0]),
             \array_values(\array_map(static fn (array $hunk): string => (string) ($hunk['file'] ?? ''), $shipped)),
             (string) ($data['decided_by'] ?? ''),

@@ -318,11 +318,28 @@ class Report
         if ('' !== $row->strictRefused) {
             $out[] = $row->strictRefused;
         }
-        if ('' !== $row->judgedWithout) {
-            $out[] = 'judged with only the part of '.self::cited($row->judgedWithout, $numbers).' that applied';
+        if ([] !== $row->judgedWithout) {
+            $out[] = self::judgedWithoutNote($row->judgedWithout, $numbers);
         }
 
         return \array_merge($out, self::coreReferenceLines($row));
+    }
+
+    /**
+     * The earlier patches a row was judged behind, as it cites them.
+     *
+     * @param list<string>       $labels
+     * @param array<string, int> $numbers
+     */
+    private static function judgedWithoutNote(array $labels, array $numbers): string
+    {
+        $cited = \array_map(static fn (string $label): string => self::cited($label, $numbers), $labels);
+        if (1 === \count($cited)) {
+            return 'judged with only the part of '.$cited[0].' that applied';
+        }
+        $last = \array_pop($cited);
+
+        return 'judged with only the parts of '.\implode(', ', $cited).' and '.$last.' that applied';
     }
 
     /**
@@ -422,7 +439,7 @@ class Report
         }
         $changes = $outcomes->changes();
         if ([] === $changes) {
-            return ['', '  nothing to change: no patch is already in the release and none was re-rolled cleanly'];
+            return ['', \sprintf('  nothing to change in %s: no patch to remove, and every re-roll landed where its entry points', $outcomes->declaration())];
         }
         $lines = ['', '  '.$outcomes->declaration().':'];
         foreach ($changes as $change) {

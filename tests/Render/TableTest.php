@@ -434,7 +434,7 @@ class TableTest extends TestCase
     {
         $plan = $this->planFrom(['patches' => [
             $this->row(['title' => 'Earlier', 'verdict' => 'conflicts']),
-            $this->row(['title' => 'Later', 'verdict' => 'conflicts', 'result' => ['judged_without' => 'Earlier']]),
+            $this->row(['title' => 'Later', 'verdict' => 'conflicts', 'result' => ['judged_without' => ['Earlier']]]),
         ]]);
 
         $lines = self::table($plan);
@@ -446,13 +446,33 @@ class TableTest extends TestCase
         );
     }
 
+    // A row behind several failures names them all, so a reader knows the
+    // whole of what the tree carried when it was judged.
+    public function testCitesEveryEarlierPatchARowWasJudgedWithout(): void
+    {
+        $plan = $this->planFrom(['patches' => [
+            $this->row(['title' => 'First', 'verdict' => 'conflicts']),
+            $this->row(['title' => 'Second', 'verdict' => 'conflicts']),
+            $this->row(['title' => 'Third', 'verdict' => 'conflicts']),
+            $this->row(['title' => 'Later', 'verdict' => 'applies', 'result' => ['judged_without' => ['First', 'Second', 'Third']]]),
+        ]]);
+
+        $lines = self::table($plan);
+        $row = self::rowWith($lines, '· applies   Later');
+
+        self::assertSame(
+            '                    <fg=cyan>judged with only the parts of #1, #2 and #3 that applied</>',
+            $lines[$row + 1]
+        );
+    }
+
     // The label came from the service; one no row carries is printed
     // as it came rather than dropped.
     public function testALabelNoRowCarriesIsCitedAsItCame(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row([
             'verdict' => 'conflicts',
-            'result' => ['judged_without' => 'Domain content translations permissions_files'],
+            'result' => ['judged_without' => ['Domain content translations permissions_files']],
         ])]]);
 
         $lines = self::table($plan);
@@ -559,7 +579,7 @@ class TableTest extends TestCase
     {
         $plan = $this->planFrom(['patches' => [
             $this->row(['title' => 'Earlier', 'verdict' => 'conflicts']),
-            $this->row(['title' => 'Later', 'verdict' => 'applies', 'result' => ['judged_without' => 'Earlier']]),
+            $this->row(['title' => 'Later', 'verdict' => 'applies', 'result' => ['judged_without' => ['Earlier']]]),
         ]]);
 
         $titles = self::titlesInOrder(self::table($plan));
@@ -1213,7 +1233,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row()]]);
         $lines = $this->fixRun($plan, []);
 
-        self::assertSame('  nothing to change: no patch is already in the release and none was re-rolled cleanly', $lines[\count($lines) - 1]);
+        self::assertSame('  nothing to change in composer.json: no patch to remove, and every re-roll landed where its entry points', $lines[\count($lines) - 1]);
     }
 
     public function testAFixThatChangedEntriesIsNotOfferedAgain(): void
