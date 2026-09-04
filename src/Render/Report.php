@@ -242,7 +242,7 @@ class Report
         }
 
         $lines[] = '';
-        $lines[] = '  patches: '.self::tally($plan->counts).self::afterWrite($plan, $outcomes);
+        $lines[] = '  patches: '.(null === $outcomes ? self::tally($plan->counts) : self::writeTally($plan, $outcomes));
 
         // A path the service says it never received that the run did not
         // hold back: the text was lost rather than kept back on purpose.
@@ -890,32 +890,46 @@ class Report
     }
 
     /**
-     * What the write left behind, as a re-run would tally it.
-     *
-     * A file written clean and verified is a patch that applies, so its
-     * row moves. An unverified merge and a conflict file move nothing.
+     * What a write run changed and what it left, in the terms of the work
+     * still to do rather than a second tally to compare against the first.
      */
-    private static function afterWrite(Plan $plan, ?Outcomes $outcomes): string
+    private static function writeTally(Plan $plan, Outcomes $outcomes): string
     {
-        if (null === $outcomes) {
-            return '';
-        }
         $fixed = [];
         foreach ($outcomes->written() as $file) {
             if (PatchRow::CONFLICTS !== $file['status'] && $file['verified']) {
                 $fixed[PatchRow::keyOf($file['package'], $file['title'])] = true;
             }
         }
-        if ([] === $fixed) {
-            return '';
-        }
         $counts = [];
         foreach ($plan->patches as $row) {
             $verdict = isset($fixed[$row->key()]) ? PatchRow::APPLIES : $row->verdict;
             $counts[$verdict] = ($counts[$verdict] ?? 0) + 1;
         }
+        $parts = [];
+        if ([] !== $fixed) {
+            $parts[] = \count($fixed).' now appl'.(1 === \count($fixed) ? 'ies' : 'y');
+        }
+        foreach ([PatchRow::CONFLICTS => ' conflicts left', PatchRow::UNKNOWN => ' unknown'] as $verdict => $what) {
+            if (($n = $counts[$verdict] ?? 0) > 0) {
+                $parts[] = $n.$what;
+            }
+        }
+        // A fix run has already dropped the entries it could, so what is
+        // left to drop is what it did not touch.
+        $dropped = 0;
+        foreach ($outcomes->changes() as $change) {
+            if ('dropped' === $change['action']) {
+                ++$dropped;
+            }
+        }
+        if (($drop = ($counts[PatchRow::MERGED] ?? 0) - $dropped) > 0) {
+            $parts[] = $drop.' to drop';
+        }
 
-        return ' → '.self::tally($counts);
+        // A run that changed nothing and left nothing to do still owes the
+        // reader a count.
+        return [] === $parts ? self::tally($counts) : \implode(', ', $parts);
     }
 
     /**

@@ -572,7 +572,7 @@ class TableTest extends TestCase
 
         $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
 
-        self::assertStringContainsString('  patches: 2 conflicts → 1 applies, 1 conflicts', $out);
+        self::assertStringContainsString('  patches: 1 now applies, 1 conflicts left', $out);
     }
 
     // A merge nothing applied is not yet a patch that works, so it moves
@@ -590,8 +590,8 @@ class TableTest extends TestCase
 
         $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => $written, 'refused' => []]), 100));
 
-        self::assertStringContainsString('  patches: 2 conflicts', $out);
-        self::assertStringNotContainsString('→', $out);
+        self::assertStringContainsString('  patches: 2 conflicts left', $out);
+        self::assertStringNotContainsString('now appl', $out);
     }
 
     // A plain run does not ask for a re-roll, so it cannot know the
@@ -622,6 +622,23 @@ class TableTest extends TestCase
         $out = \implode("\n", self::table($plan));
 
         self::assertStringNotContainsString('run --write', $out);
+    }
+
+    // A fix run drops the entries the release already carries, so the
+    // tally stops asking for what it just did.
+    public function testAFixRunDoesNotAskToDropWhatItDropped(): void
+    {
+        $plan = $this->planFrom(['counts' => ['merged' => 1, 'conflicts' => 1], 'patches' => [
+            $this->row(['title' => 'Menu cache', 'verdict' => 'merged']),
+            $this->row(['title' => 'Fix b', 'verdict' => 'conflicts']),
+        ]]);
+        $outcomes = Outcomes::fromWrite(['written' => [], 'refused' => []]);
+        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '']], 'composer.json');
+
+        $out = \implode("\n", self::whole($plan, $outcomes, 100));
+
+        self::assertStringContainsString('  patches: 1 conflicts left', $out);
+        self::assertStringNotContainsString('to drop', $out);
     }
 
     // git gives no line for a refusal about the file itself, so none is
