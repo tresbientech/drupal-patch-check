@@ -335,7 +335,7 @@ class Report
         // finds a patch the release carries whole. Say so where part of
         // one is already there.
         if ($row->conflicts() && [] !== $row->hunksShipped) {
-            $out[] = 'a re-roll may find the whole patch is already in the release';
+            $out[] = 'run --write to see if the release has the rest';
         }
         if ('' !== $row->mergedFrom()) {
             $out[] = self::mergedFromNote($row->mergedFrom());

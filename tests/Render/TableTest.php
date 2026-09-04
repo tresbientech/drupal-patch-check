@@ -608,7 +608,7 @@ class TableTest extends TestCase
 
         $out = \implode("\n", self::table($plan));
 
-        self::assertStringContainsString('a re-roll may find the whole patch is already in the release', $out);
+        self::assertStringContainsString('<fg=cyan>run --write to see if the release has the rest</>', $out);
     }
 
     // Nothing of it is upstream, so there is nothing to suggest.
@@ -621,7 +621,7 @@ class TableTest extends TestCase
 
         $out = \implode("\n", self::table($plan));
 
-        self::assertStringNotContainsString('a re-roll may find', $out);
+        self::assertStringNotContainsString('run --write', $out);
     }
 
     // git gives no line for a refusal about the file itself, so none is
