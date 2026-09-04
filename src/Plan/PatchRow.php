@@ -149,12 +149,65 @@ class PatchRow
      */
     public function openRegions(): int
     {
-        $count = 0;
+        return \count($this->openRegionList());
+    }
+
+    /**
+     * Every region a conflicted re-roll leaves, as the file and index a decision names it by.
+     *
+     * @return list<array{file: string, region: int}>
+     */
+    public function openRegionList(): array
+    {
+        // A merge the decisions settled keeps the conflicts it started
+        // from and reports itself clean. Nothing there is left to decide.
+        if (self::CONFLICTS !== ($this->reroll['status'] ?? '')) {
+            return [];
+        }
+        $out = [];
         foreach ((array) ($this->reroll['conflicts'] ?? []) as $conflict) {
-            $count += (int) (((array) $conflict)['regions'] ?? 0);
+            $conflict = (array) $conflict;
+            $file = (string) ($conflict['file'] ?? '');
+            if ('' === $file) {
+                continue;
+            }
+            // A file the release removed has no index entry, so the
+            // service applies no resolution to it. Offering its region
+            // would be offering a decision that decides nothing.
+            if (true === ($conflict['removed'] ?? null)) {
+                continue;
+            }
+            // The service numbers every region of the merged file, and
+            // sends the text of only the first few, so the count leads
+            // here and the hunks do not.
+            for ($region = 0; $region < (int) ($conflict['regions'] ?? 0); ++$region) {
+                $out[] = ['file' => $file, 'region' => $region];
+            }
         }
 
-        return $count;
+        return $out;
+    }
+
+    /**
+     * The files the release deleted, which a re-roll has nothing to merge into.
+     *
+     * @return list<string>
+     */
+    public function removedFiles(): array
+    {
+        if (self::CONFLICTS !== ($this->reroll['status'] ?? '')) {
+            return [];
+        }
+        $out = [];
+        foreach ((array) ($this->reroll['conflicts'] ?? []) as $conflict) {
+            $conflict = (array) $conflict;
+            $file = (string) ($conflict['file'] ?? '');
+            if ('' !== $file && true === ($conflict['removed'] ?? null)) {
+                $out[] = $file;
+            }
+        }
+
+        return $out;
     }
 
     /**

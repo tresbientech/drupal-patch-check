@@ -75,8 +75,8 @@ class PatchFiles
     /**
      * Writes one file per re-rolled patch and reports what happened.
      *
-     * @return array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}>,
-     *               refused: list<array{package: string, title: string, path: string, reason: string, lifts: string}>}
+     * @return array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}>,
+     *               refused: list<array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}>}
      */
     public function write(Plan $plan): array
     {
@@ -93,7 +93,7 @@ class PatchFiles
                 // A patch the release already carries has nothing to send
                 // upstream; only a re-roll that produced nothing does.
                 $where = $fromUrl && !$row->isMerged() ? self::upstream($declaredSource) : '';
-                $refused[] = self::refusal($row, $row->source, self::whyNoReroll($row).$where);
+                $refused[] = self::refusal($row, $row->source, self::whyNoReroll($row).$where, shipped: $row->isMerged());
                 continue;
             }
             if (null === $declaredSource) {
@@ -143,6 +143,8 @@ class PatchFiles
                 'verified' => true === ($row->reroll['verified'] ?? null),
                 'unioned' => $row->unioned(),
                 'regions' => $row->openRegions(),
+                'open' => $row->openRegionList(),
+                'removed' => $row->removedFiles(),
             ];
         }
 
@@ -175,11 +177,13 @@ class PatchFiles
     }
 
     /**
-     * @return array{package: string, title: string, path: string, reason: string, lifts: string}
+     * @param bool $shipped the release already carries the patch, so the refusal is a finished job rather than work
+     *
+     * @return array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}
      */
-    private static function refusal(PatchRow $row, string $path, string $reason, string $lifts = ''): array
+    private static function refusal(PatchRow $row, string $path, string $reason, string $lifts = '', bool $shipped = false): array
     {
-        return ['package' => $row->package, 'title' => $row->title, 'path' => $path, 'reason' => $reason, 'lifts' => $lifts];
+        return ['package' => $row->package, 'title' => $row->title, 'path' => $path, 'reason' => $reason, 'lifts' => $lifts, 'shipped' => $shipped];
     }
 
     /**
@@ -284,6 +288,9 @@ class PatchFiles
     private static function conflictText(array $conflict): string
     {
         $file = (string) ($conflict['file'] ?? '');
+        if (true === ($conflict['removed'] ?? null)) {
+            return self::removedText($conflict, $file);
+        }
         $lines = [
             '# drupatch: '.(int) ($conflict['regions'] ?? 0).' unresolved region(s) in '.$file,
             '# drupatch: keep the region and end lines; replace the text between them.',
@@ -299,6 +306,24 @@ class PatchFiles
             $lines[] = \rtrim((string) ($hunk['patch'] ?? ''), "\n");
             $lines[] = '>>>>>>> patch';
             $lines[] = self::REGION_CLOSE.$index.' '.$file;
+        }
+
+        return \implode("\n", $lines)."\n";
+    }
+
+    /**
+     * One file the release removed: what the patch did to it, and no region, because nothing here can be decided.
+     *
+     * @param array<string, mixed> $conflict
+     */
+    private static function removedText(array $conflict, string $file): string
+    {
+        $lines = [
+            '# drupatch: '.$file.' is not in the release, so there is nothing to merge into.',
+            '# drupatch: the hunks below are the patch as it was. Drop it, or aim it at where the code moved.',
+        ];
+        foreach ((array) ($conflict['hunks'] ?? []) as $hunk) {
+            $lines[] = \rtrim((string) (((array) $hunk)['patch'] ?? ''), "\n");
         }
 
         return \implode("\n", $lines)."\n";

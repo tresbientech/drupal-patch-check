@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Tests\Write;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 use TresBienTech\Drupatch\Write\Decisions;
 use TresBienTech\Drupatch\Write\PatchFiles;
@@ -138,6 +139,43 @@ class PatchFilesTest extends TestCase
         $this->writer($plan)->write($plan);
 
         self::assertSame("the working patch\n", \file_get_contents($this->root.'/patches/core/htaccess.patch'));
+    }
+
+    public function testAFileTheReleaseRemovedIsWrittenWithoutRegionsToDecide(): void
+    {
+        $this->declare('patches/core/claro.patch');
+        $plan = $this->plan([
+            'status' => 'conflicts',
+            'conflicts' => [['file' => 'themes/claro/claro.theme', 'regions' => 1, 'removed' => true, 'hunks' => [['line' => 0, 'release' => "file does not exist in the release\n", 'patch' => "-function claro_x() {}\n"]]]],
+        ], 'patches/core/claro.patch');
+
+        $result = $this->writer($plan)->write($plan);
+        $text = (string) \file_get_contents($this->root.'/patches/core/claro.conflict.patch');
+
+        self::assertStringContainsString('themes/claro/claro.theme is not in the release', $text);
+        self::assertStringContainsString('-function claro_x() {}', $text, 'the hunks stay, so the patch can be read');
+        self::assertStringNotContainsString(PatchFiles::REGION_OPEN, $text);
+        self::assertStringNotContainsString('<<<<<<<', $text);
+        self::assertStringNotContainsString(Report::REROLL, $text, 'there is nothing to send back');
+        self::assertSame(0, $result['written'][0]['regions']);
+        self::assertSame([], $result['written'][0]['open']);
+        self::assertSame(['themes/claro/claro.theme'], $result['written'][0]['removed']);
+    }
+
+    public function testAConflictedFileTheReleaseStillHasKeepsItsRegions(): void
+    {
+        $this->declare('patches/core/htaccess.patch');
+        $plan = $this->plan([
+            'status' => 'conflicts',
+            'conflicts' => [['file' => 'a.php', 'regions' => 1, 'hunks' => [['line' => 1, 'release' => "a\n", 'patch' => "b\n"]]]],
+        ], 'patches/core/htaccess.patch');
+
+        $result = $this->writer($plan)->write($plan);
+        $text = (string) \file_get_contents($this->root.'/patches/core/htaccess.conflict.patch');
+
+        self::assertStringContainsString(PatchFiles::REGION_OPEN.'0 a.php', $text);
+        self::assertSame([['file' => 'a.php', 'region' => 0]], $result['written'][0]['open']);
+        self::assertSame([], $result['written'][0]['removed']);
     }
 
     public function testADiffExtensionIsReplacedRatherThanDoubled(): void
@@ -303,6 +341,7 @@ class PatchFilesTest extends TestCase
         self::assertFalse(\is_file($this->root.'/patches/webform/webform-fix-2466553-12.patch'));
         self::assertFalse(\is_file($this->root.'/patches/webform/webform-fix-2466553-12.conflict.patch'));
         self::assertSame(PatchFiles::NOTHING_MERGED.'; the fix belongs upstream: https://www.drupal.org/i/2466553', $result['refused'][0]['reason']);
+        self::assertFalse($result['refused'][0]['shipped']);
     }
 
     public function testAUrlWhoseRerollIsUnavailablePointsAtItsMergeRequest(): void
@@ -326,6 +365,7 @@ class PatchFilesTest extends TestCase
 
         self::assertSame([], $result['written']);
         self::assertSame('the merge changes nothing: the patch is already in the release', $result['refused'][0]['reason']);
+        self::assertTrue($result['refused'][0]['shipped']);
     }
 
     public function testAUrlWithNoIssueNumberPointsAtItself(): void

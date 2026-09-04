@@ -111,10 +111,17 @@ trait PlanFactory
     }
 
     /**
-     * @return array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}
+     * A written row, its open regions numbered on one file the way the service numbers them.
+     *
+     * @return array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}
      */
-    private function writtenFile(string $path, string $status = 'clean', string $package = 'drupal/webform', string $title = 'Fix a', bool $verified = true, int $regions = 0): array
+    private function writtenFile(string $path, string $status = 'clean', string $package = 'drupal/webform', string $title = 'Fix a', bool $verified = true, int $regions = 0, string $file = 'src/A.php'): array
     {
-        return ['path' => $path, 'status' => $status, 'package' => $package, 'title' => $title, 'verified' => $verified, 'unioned' => [], 'regions' => $regions];
+        $open = [];
+        for ($region = 0; $region < $regions; ++$region) {
+            $open[] = ['file' => $file, 'region' => $region];
+        }
+
+        return ['path' => $path, 'status' => $status, 'package' => $package, 'title' => $title, 'verified' => $verified, 'unioned' => [], 'regions' => $regions, 'open' => $open, 'removed' => []];
     }
 }

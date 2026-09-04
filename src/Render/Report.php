@@ -54,6 +54,12 @@ class Report
     /** The header a run that judged nothing carries instead of a count. */
     private const NOTHING_CHECKED = self::LABEL.': no patch could be checked; the reasons are below';
 
+    /** Over a shipped patch whose declaration the site still carries. */
+    private const SHIPPED_KEPT = 'already in the release, drop it:';
+
+    /** Over a shipped patch whose declaration this run removed. */
+    private const SHIPPED_DROPPED = 'already in the release, dropped:';
+
     /** What the footer is introduced by. */
     private const NEXT = 'Next:';
 
@@ -181,6 +187,7 @@ class Report
     {
         return \array_merge(
             self::lines($plan, $coverage, $width, $outcomes),
+            self::shipped($outcomes),
             self::written($outcomes),
             self::refused($outcomes),
             self::rewrite($outcomes),
@@ -192,7 +199,7 @@ class Report
     /**
      * The table a person reads: what the run held back, then patches grouped under their package with the release each verdict is about, and the tallies underneath.
      *
-     * @param Outcomes|null $outcomes set for a run that wrote, so an applies row with nothing under it is left out
+     * @param Outcomes|null $outcomes set for a run that wrote, which prints neither the rows nor the skipped packages
      *
      * @return list<string>
      */
@@ -225,7 +232,9 @@ class Report
         if ([] !== $loose) {
             $blocks[] = \array_map(self::warning(...), $loose);
         }
-        $unjudged = $coverage->unjudged(\array_keys($grouped));
+        // The skipped packages are the plain run's to list. A run that
+        // writes did nothing about them, unless they are all it has to say.
+        $unjudged = null === $outcomes || $coverage->isVacuous() ? $coverage->unjudged(\array_keys($grouped)) : [];
         if ([] !== $unjudged) {
             $blocks[] = \array_map(static fn (string $line): string => '  '.self::caveat($line), $unjudged);
         }
@@ -246,7 +255,9 @@ class Report
             }
         }
 
-        $lines[] = '';
+        if ([] !== $blocks) {
+            $lines[] = '';
+        }
         $lines[] = '  patches: '.(null === $outcomes ? self::tally($plan->counts) : self::writeTally($plan, $outcomes));
 
         // A path the service says it never received that the run did not
@@ -388,6 +399,46 @@ class Report
     }
 
     /**
+     * The patches the release already carries, under the heading that says whether the run dropped the declaration: what is left to remove, then what it removed. Each entry names the source the site declared.
+     *
+     * @return list<string>
+     */
+    public static function shipped(?Outcomes $outcomes): array
+    {
+        if (null === $outcomes) {
+            return [];
+        }
+        $dropped = [];
+        foreach ($outcomes->changes() as $change) {
+            if ('dropped' === $change['action']) {
+                $dropped[PatchRow::keyOf($change['package'], $change['title'])] = true;
+            }
+        }
+        $groups = [self::SHIPPED_KEPT => [], self::SHIPPED_DROPPED => []];
+        foreach ($outcomes->refused() as $refusal) {
+            if (!$refusal['shipped']) {
+                continue;
+            }
+            $heading = isset($dropped[PatchRow::keyOf($refusal['package'], $refusal['title'])]) ? self::SHIPPED_DROPPED : self::SHIPPED_KEPT;
+            $groups[$heading][] = $refusal;
+        }
+        $lines = [];
+        foreach ($groups as $heading => $items) {
+            if ([] === $items) {
+                continue;
+            }
+            $lines[] = '';
+            $lines[] = '  '.$heading;
+            foreach ($items as $item) {
+                $lines[] = '    '.$item['package'].': '.$item['title'];
+                $lines[] = '      '.$item['path'];
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
      * The files a re-roll wrote, in two groups: the patches the site can
      * use, and the conflict files a person still has to decide.
      *
@@ -414,7 +465,7 @@ class Report
     /**
      * One group of written files under its heading.
      *
-     * @param list<array{path: string, status: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}> $files
+     * @param list<array{path: string, status: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}> $files
      *
      * @return list<string>
      */
@@ -426,6 +477,18 @@ class Report
         $lines = ['', '  '.$heading];
         foreach ($files as $file) {
             $lines[] = \sprintf('    %s  (%s)', $file['path'], self::status($file));
+            // A decision names its region by file and index, so the two
+            // are printed for every region the run left open.
+            foreach ($file['open'] as $region) {
+                $lines[] = '      '.$region['file'].' region '.$region['region'];
+            }
+            // With regions of its own to show, the status line names the
+            // count, so a removed file needs its own line here.
+            if ($file['regions'] > 0) {
+                foreach ($file['removed'] as $gone) {
+                    $lines[] = '      the release removed '.$gone;
+                }
+            }
             if ([] !== $file['unioned']) {
                 $lines[] = '      '.self::unionNote(\count($file['unioned'])).':';
                 foreach ($file['unioned'] as $region) {
@@ -440,11 +503,17 @@ class Report
     /**
      * A written file's status: usable and whether the server verified it, or how many regions a person has to decide.
      *
-     * @param array{status: string, verified: bool, regions: int} $file
+     * @param array{status: string, verified: bool, regions: int, removed: list<string>} $file
      */
     private static function status(array $file): string
     {
         if (PatchRow::CONFLICTS === $file['status']) {
+            // A file the release removed leaves no region anyone can
+            // decide, so the file itself is the answer.
+            if (0 === $file['regions'] && [] !== $file['removed']) {
+                return 'the release removed '.\implode(', ', $file['removed']);
+            }
+
             return \sprintf('%d region%s to decide', $file['regions'], 1 === $file['regions'] ? '' : 's');
         }
 
@@ -454,7 +523,7 @@ class Report
     }
 
     /**
-     * What a re-roll run would not write, grouped by reason.
+     * What a re-roll run would not write, grouped by reason in the order the site declares the patches; a patch the release already carries is not among them.
      *
      * @return list<string>
      */
@@ -466,14 +535,20 @@ class Report
         }
         $groups = [];
         foreach ($refused as $refusal) {
+            // A shipped patch has its own block above; here is the work.
+            if ($refusal['shipped']) {
+                continue;
+            }
             $groups[$refusal['reason']][] = $refusal;
         }
-        \ksort($groups);
+        if ([] === $groups) {
+            return [];
+        }
         $lines = ['', '  not re-rolled:'];
-        // The reason heads its group. Printed after the patches it
-        // explains, it reads as though the ones above it have none.
+        // The reason heads its group, placed where its first patch falls
+        // in the site's own order. Printed after the patches it explains,
+        // it reads as though the ones above it have none.
         foreach ($groups as $reason => $items) {
-            \usort($items, static fn (array $a, array $b): int => [$a['package'], $a['title']] <=> [$b['package'], $b['title']]);
             $lines[] = '    '.$reason;
             foreach ($items as $item) {
                 $lines[] = \sprintf('      %s  %s: %s', $item['path'], $item['package'], $item['title']);

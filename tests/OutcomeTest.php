@@ -165,9 +165,9 @@ class OutcomeTest extends TestCase
             ['package' => 'drupal/token', 'title' => 'Cache', 'result' => ['reroll' => ['status' => 'clean', 'patch' => "refused diff\n"]]],
         ]], 'summary' => ['exit_code' => 1]];
         $outcomes = Outcomes::fromWrite(['written' => [
-            ['path' => 'patches/webform/fix.patch', 'status' => 'clean', 'package' => 'drupal/webform', 'title' => 'Fix', 'verified' => true, 'unioned' => [], 'regions' => 0],
-            ['path' => 'patches/webform/menu.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'Menu', 'verified' => false, 'unioned' => [], 'regions' => 1],
-        ], 'refused' => [['package' => 'drupal/token', 'title' => 'Cache', 'path' => 'patches/token/cache.patch', 'reason' => 'changed', 'lifts' => '--force']]]);
+            ['path' => 'patches/webform/fix.patch', 'status' => 'clean', 'package' => 'drupal/webform', 'title' => 'Fix', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => []],
+            ['path' => 'patches/webform/menu.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'Menu', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => []],
+        ], 'refused' => [['package' => 'drupal/token', 'title' => 'Cache', 'path' => 'patches/token/cache.patch', 'reason' => 'changed', 'lifts' => '--force', 'shipped' => false]]]);
 
         $document = $outcomes->intoDocument($raw);
 

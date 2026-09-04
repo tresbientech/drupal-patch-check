@@ -326,6 +326,30 @@ class RerollCommandTest extends TestCase
         self::assertStringNotContainsString('+resolved', $site->read('patches/webform/fix.patch'));
     }
 
+    public function testAFileTheReleaseRemovedDoesNotRefuseTheDocumentThatDecidesTheRest(): void
+    {
+        $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
+        $site->write('decisions.json', self::document());
+
+        // One region decided and applied, beside a file the release
+        // removed. The removed file asks nothing, so the count the guard
+        // compares against is the one region.
+        $tester = $this->drive($site, ['--decisions' => $site->root().'/decisions.json', '--force' => true], self::plan('conflicts', [
+            'status' => 'conflicts',
+            'patch' => "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+resolved\n",
+            'conflicts' => [
+                ['file' => 'src/Form.php', 'regions' => 1, 'hunks' => [['line' => 1, 'release' => "a\n", 'patch' => "b\n"]]],
+                ['file' => 'src/Gone.php', 'regions' => 1, 'removed' => true, 'hunks' => [['line' => 0, 'release' => "file does not exist in the release\n", 'patch' => "-old\n"]]],
+            ],
+            'resolutions_applied' => 1,
+        ]));
+
+        self::assertStringNotContainsString('named no conflicted region', $tester->getDisplay());
+        $written = $site->read('patches/webform/fix.conflict.patch');
+        self::assertStringContainsString('+resolved', $written);
+        self::assertStringContainsString('src/Gone.php is not in the release', $written);
+    }
+
     public function testADecisionTheServiceAppliedIsWritten(): void
     {
         $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');

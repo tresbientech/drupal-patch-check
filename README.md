@@ -52,7 +52,8 @@ takes the two that write.
 Patches are grouped under their package, worst package first. Each row has
 the patch's number in its package, a mark, the verdict, the patch title and
 the file it came from. The number is the order composer applies the patches
-in. A package the run skipped is listed before the groups.
+in. A package the run skipped is listed before the groups; a re-roll run
+leaves that list to `drupatch:check` and prints what it wrote.
 
 ```
 Drupal Patch Check: 5 patches for a move from core 11.3.2 to 11.4.5
@@ -188,6 +189,27 @@ are the release side and the patch side as merge markers. Replace the text
 between the two sentinel lines with the code you want, or leave it empty to
 drop the region. Then run `composer drupatch:reroll` again. The finished
 patch replaces the file the site declares.
+
+The report prints the coordinates of every open region under the file it
+wrote, one line per region, so a decision can be written without opening the
+conflict file:
+
+```
+  re-rolled with conflicts:
+    patches/webform/fix.conflict.patch  (2 regions to decide)
+      src/Form.php region 0
+      src/Batch.php region 0
+```
+
+When the release removed the file a patch changes, there is nothing to merge
+into and no region to decide. The conflict file then holds the patch's hunks
+and no markers, and the report names the file:
+
+```
+    patchs/claro.conflict.patch  (the release removed core/themes/claro/claro.theme)
+```
+
+Drop the patch, or aim it at wherever the code moved.
 
 A script or an agent can decide the same regions without editing the file.
 `--decisions` takes a JSON document, one object with a `decisions` list. Each

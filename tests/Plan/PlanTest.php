@@ -393,6 +393,71 @@ class PlanTest extends TestCase
         self::assertSame('', $plan->patches[1]->decidedBy, 'a row that names no source says nothing');
     }
 
+    public function testEveryOpenRegionIsNamedByItsFileAndIndex(): void
+    {
+        $row = self::conflictedOn([
+            ['file' => 'src/Manager.php', 'regions' => 2],
+            ['file' => 'config/services.yml', 'regions' => 1],
+        ]);
+
+        self::assertSame([
+            ['file' => 'src/Manager.php', 'region' => 0],
+            ['file' => 'src/Manager.php', 'region' => 1],
+            ['file' => 'config/services.yml', 'region' => 0],
+        ], $row->openRegionList());
+        self::assertSame(3, $row->openRegions(), 'the count is the size of the list');
+    }
+
+    public function testARegionIsNamedEvenWhenItsTextWasNotSent(): void
+    {
+        $row = self::conflictedOn([['file' => 'src/Manager.php', 'regions' => 7, 'hunks' => [['line' => 4]]]]);
+
+        self::assertCount(7, $row->openRegionList(), 'the service caps the text it sends, not the regions it numbers');
+        self::assertSame(6, $row->openRegionList()[6]['region']);
+    }
+
+    public function testACleanRerollLeavesNoRegion(): void
+    {
+        $plan = Plan::fromArray(['plan' => ['patches' => [[
+            'package' => 'drupal/webform', 'title' => 'Fix a', 'verdict' => 'conflicts',
+            'result' => ['reroll' => ['status' => 'clean', 'patch' => "diff\n"]],
+        ]]]]);
+
+        self::assertSame([], $plan->patches[0]->openRegionList());
+        self::assertSame(0, $plan->patches[0]->openRegions());
+    }
+
+    public function testAMergeTheDecisionsSettledLeavesNoRegion(): void
+    {
+        // The service keeps the conflicts the merge started from and
+        // reports the resolved merge clean.
+        $plan = Plan::fromArray(['plan' => ['patches' => [[
+            'package' => 'drupal/webform', 'title' => 'Fix a', 'verdict' => 'conflicts',
+            'result' => ['reroll' => [
+                'status' => 'clean', 'patch' => "diff\n", 'resolutions_applied' => 1,
+                'conflicts' => [['file' => 'src/Manager.php', 'regions' => 1]],
+            ]],
+        ]]]]);
+
+        self::assertSame([], $plan->patches[0]->openRegionList());
+        self::assertSame([], $plan->patches[0]->removedFiles());
+    }
+
+    /**
+     * One row whose re-roll conflicts on the files given.
+     *
+     * @param list<array<string, mixed>> $conflicts
+     */
+    private static function conflictedOn(array $conflicts): PatchRow
+    {
+        $plan = Plan::fromArray(['plan' => ['patches' => [[
+            'package' => 'drupal/webform', 'title' => 'Fix a', 'verdict' => 'conflicts',
+            'result' => ['reroll' => ['status' => 'conflicts', 'conflicts' => $conflicts]],
+        ]]]]);
+
+        return $plan->patches[0];
+    }
+
     private function wholeSite(): Plan
     {
         return Plan::fromArray([

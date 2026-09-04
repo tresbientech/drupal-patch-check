@@ -11,10 +11,10 @@ use TresBienTech\Drupatch\Plan\PatchRow;
  */
 class Outcomes
 {
-    /** @var list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}> */
+    /** @var list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}> */
     private array $written = [];
 
-    /** @var list<array{package: string, title: string, path: string, reason: string, lifts: string}> */
+    /** @var list<array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}> */
     private array $refused = [];
 
     /** @var list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}> */
@@ -26,8 +26,8 @@ class Outcomes
     private string $declaration = '';
 
     /**
-     * @param array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}>,
-     *              refused: list<array{package: string, title: string, path: string, reason: string, lifts: string}>} $result
+     * @param array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}>,
+     *              refused: list<array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}>} $result
      */
     public static function fromWrite(array $result): self
     {
@@ -51,7 +51,7 @@ class Outcomes
     }
 
     /**
-     * @return list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}>
+     * @return list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}>
      */
     public function written(): array
     {
@@ -59,7 +59,7 @@ class Outcomes
     }
 
     /**
-     * @return list<array{package: string, title: string, path: string, reason: string, lifts: string}>
+     * @return list<array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}>
      */
     public function refused(): array
     {
@@ -122,7 +122,9 @@ class Outcomes
     {
         $count = 0;
         foreach ($this->written as $file) {
-            if (PatchRow::CONFLICTS === $file['status']) {
+            // A conflict file holding only a removed file asks nothing, so
+            // offering to send its decisions would point at no work.
+            if (PatchRow::CONFLICTS === $file['status'] && $file['regions'] > 0) {
                 ++$count;
             }
         }
