@@ -40,8 +40,8 @@ class PatchFiles
 
     public const NOTHING_MERGED = 'no hunk of its re-roll merged, so there is nothing to fetch';
 
-    /** Where an adopted URL patch goes, under the project it is on. */
-    private const ADOPTED_DIRECTORY = 'patches';
+    /** Where an adopted URL patch goes when the site names no directory. */
+    public const ADOPTED_DIRECTORY = 'patches';
 
     public function __construct(
         private readonly string $root,
@@ -55,6 +55,8 @@ class PatchFiles
         private readonly array $declared,
         /** Whether a patch declared as a URL is written locally. `--update`. */
         private readonly bool $adopt = false,
+        /** Where an adopted URL patch is written, from `extra.drupal-patch-check.patch-directory`. */
+        private readonly string $directory = self::ADOPTED_DIRECTORY,
     ) {
     }
 
@@ -112,7 +114,7 @@ class PatchFiles
                 continue;
             }
             $target = PatchConfig::isUrl($declaredSource)
-                ? self::adoptedPath($row->package, $row->project, $declaredSource)
+                ? self::adoptedPath($row->package, $row->project, $declaredSource, $this->directory)
                 : $declaredSource;
             if ('' === $target) {
                 $refused[] = self::refusal($row, $declaredSource, self::NO_FILE_NAME);
@@ -199,9 +201,9 @@ class PatchFiles
     }
 
     /**
-     * Where a patch declared as a URL is adopted to: the project's own patch directory, under the name the URL ends in.
+     * Where a patch declared as a URL is adopted to: the project's own directory under the site's patch directory, named as the URL ends.
      */
-    public static function adoptedPath(string $package, string $project, string $source): string
+    public static function adoptedPath(string $package, string $project, string $source, string $directory = self::ADOPTED_DIRECTORY): string
     {
         $project = '' !== $project ? $project : \str_replace('drupal/', '', $package);
         $path = \parse_url($source, \PHP_URL_PATH);
@@ -215,7 +217,7 @@ class PatchFiles
             return '';
         }
 
-        return self::ADOPTED_DIRECTORY.'/'.$project.'/'.$name;
+        return $directory.'/'.$project.'/'.$name;
     }
 
     /**

@@ -83,19 +83,55 @@ class FixCommandTest extends TestCase
         self::assertSame(['Fix' => 'patches/webform/fix.patch'], $declared, 'the merged entry is gone, the re-rolled one stays');
     }
 
-    public function testADirtyDeclarationFilePrintsTheReportThenTheError(): void
+    public function testAnEditedPatchDeclarationPrintsTheReportThenTheError(): void
     {
         $tester = $this->drive(['--update' => true], static function (SiteFixture $site): void {
-            $root = \escapeshellarg($site->root());
-            \exec("cd $root && git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init 2>&1", $out, $code);
-            self::assertSame(0, $code, \implode("\n", $out));
-            $site->write('composer.json', $site->read('composer.json')."\n");
+            self::commit($site);
+            $decoded = (array) \json_decode((string) $site->read('composer.json'), true);
+            $decoded['extra']['patches']['drupal/webform']['Fix'] = 'patches/webform/other.patch';
+            $site->write('composer.json', (string) \json_encode($decoded, \JSON_PRETTY_PRINT));
         });
 
         self::assertSame(Plan::FAILED, $tester->getStatusCode());
         $display = $tester->getDisplay();
         self::assertStringContainsString('patches: ', $display, 'the report still prints');
-        self::assertStringContainsString('composer.json has uncommitted changes; commit them or pass --force', $display);
+        self::assertStringContainsString('composer.json has uncommitted changes to its patches; commit them or pass --force', $display);
         self::assertGreaterThan(\strpos($display, 'Menu cache'), \strpos($display, 'uncommitted changes'));
+    }
+
+    public function testAnEditElsewhereInTheFileDoesNotStopTheRewrite(): void
+    {
+        // Reaching a new core means editing constraints, so a run that
+        // refused on any change to the file would refuse on every real one.
+        $tester = $this->drive(['--update' => true], static function (SiteFixture $site): void {
+            self::commit($site);
+            $decoded = (array) \json_decode((string) $site->read('composer.json'), true);
+            $decoded['description'] = 'edited while reaching the new core';
+            $site->write('composer.json', (string) \json_encode($decoded, \JSON_PRETTY_PRINT));
+        });
+
+        self::assertStringNotContainsString('uncommitted changes', $tester->getDisplay());
+        self::assertStringContainsString('composer.json:', $tester->getDisplay(), 'the rewrite ran');
+    }
+
+    public function testARepositoryWithNoCommitYetIsRefused(): void
+    {
+        // git status reports the file, and `git show HEAD:` has nothing to
+        // answer with, so the run cannot tell what the patches were.
+        $tester = $this->drive(['--update' => true], static function (SiteFixture $site): void {
+            $root = \escapeshellarg($site->root());
+            \exec("cd $root && git init -q && git add -A 2>&1", $out, $code);
+            self::assertSame(0, $code, \implode("\n", $out));
+        });
+
+        self::assertSame(Plan::FAILED, $tester->getStatusCode());
+        self::assertStringContainsString('composer.json has uncommitted changes to its patches; commit them or pass --force', $tester->getDisplay());
+    }
+
+    private static function commit(SiteFixture $site): void
+    {
+        $root = \escapeshellarg($site->root());
+        \exec("cd $root && git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init 2>&1", $out, $code);
+        self::assertSame(0, $code, \implode("\n", $out));
     }
 }

@@ -178,6 +178,22 @@ class PatchFilesTest extends TestCase
         self::assertSame([], $result['written'][0]['removed']);
     }
 
+    public function testAnAdoptedUrlGoesToTheDirectoryTheSiteNames(): void
+    {
+        self::assertSame(
+            'patchs/webform/c.patch',
+            PatchFiles::adoptedPath('drupal/webform', 'webform', 'https://example.test/c.patch', 'patchs'),
+        );
+    }
+
+    public function testASiteThatNamesNoDirectoryGetsPatches(): void
+    {
+        self::assertSame(
+            'patches/webform/c.patch',
+            PatchFiles::adoptedPath('drupal/webform', 'webform', 'https://example.test/c.patch'),
+        );
+    }
+
     public function testADiffExtensionIsReplacedRatherThanDoubled(): void
     {
         $this->declare('patches/core/10023.diff');

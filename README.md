@@ -145,6 +145,19 @@ When every patch applies it prints nothing. Only a literal `true` turns the
 hook on. The command works either way, and `composer update --no-plugins`
 skips the hook for one run.
 
+## Where an adopted patch is written
+
+`drupatch:reroll --update` can take a patch the site declares as a URL and
+write it into the site, under `patches/<project>/`. Sites that keep their
+patches somewhere else say so:
+
+```json
+{ "extra": { "drupal-patch-check": { "patch-directory": "patchs" } } }
+```
+
+An adopted patch then lands in `patchs/<project>/`. The value is used as
+written, so a site with no such key gets `patches`.
+
 ## Running it in CI
 
 The useful run is scheduled and forward-looking: do the patches still work
@@ -209,7 +222,9 @@ and no markers, and the report names the file:
     patchs/claro.conflict.patch  (the release removed core/themes/claro/claro.theme)
 ```
 
-Drop the patch, or aim it at wherever the code moved.
+The code is often still there under a new name. Core 11.4 moved the claro
+theme's hooks from `claro.theme` into `src/Hook/ClaroHooks.php`, so that patch
+needs aiming at the new file rather than dropping.
 
 A script or an agent can decide the same regions without editing the file.
 `--decisions` takes a JSON document, one object with a `decisions` list. Each

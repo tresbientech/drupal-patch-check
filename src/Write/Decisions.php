@@ -26,14 +26,14 @@ class Decisions
      *
      * @return array<int, list<array{file: string, region: int, text?: string, delete?: bool}>>
      */
-    public static function onDisk(string $root, array $patches, Scope $scope): array
+    public static function onDisk(string $root, array $patches, Scope $scope, string $directory = PatchFiles::ADOPTED_DIRECTORY): array
     {
         $out = [];
         foreach ($patches as $i => $patch) {
             if (!$scope->has($patch['package'], $patch['source'])) {
                 continue;
             }
-            $path = self::conflictFile($patch['package'], $patch['source']);
+            $path = self::conflictFile($patch['package'], $patch['source'], $directory);
             if (null === $path) {
                 continue;
             }
@@ -226,9 +226,9 @@ class Decisions
     /**
      * The conflict file this declaration's re-roll would have been written to, or null when the declaration names no file under the site root.
      */
-    private static function conflictFile(string $package, string $source): ?string
+    private static function conflictFile(string $package, string $source, string $directory): ?string
     {
-        $declared = PatchConfig::isUrl($source) ? PatchFiles::adoptedPath($package, '', $source) : $source;
+        $declared = PatchConfig::isUrl($source) ? PatchFiles::adoptedPath($package, '', $source, $directory) : $source;
         if ('' === $declared) {
             return null;
         }

@@ -59,7 +59,8 @@ class RerollCommand extends PatchCommand
         try {
             $run = new Run($this->requireComposer(), $this->getIO(), $notes, $target, self::scope($input));
             $patches = $run->site->patches()->patches;
-            $decided = Decisions::onDisk($run->site->root(), $patches, self::scope($input));
+            $directory = Plugin::patchDirectory($this->requireComposer()->getPackage()->getExtra());
+            $decided = Decisions::onDisk($run->site->root(), $patches, self::scope($input), $directory);
             $fromDocument = [];
             $document = $input->getOption('decisions');
             if (\is_string($document) && '' !== $document) {
@@ -78,7 +79,7 @@ class RerollCommand extends PatchCommand
             $plan = $run->plan(true, $decided);
             self::refuseStaleDecisions($plan, $patches, $fromDocument, $decided);
             $tree = $force ? null : new WorkingTree(new ProcessExecutor($this->getIO()));
-            $result = (new PatchFiles($run->site->root(), $tree, $run->site->patches()->patches, $update))->write($plan);
+            $result = (new PatchFiles($run->site->root(), $tree, $run->site->patches()->patches, $update, $directory))->write($plan);
         } catch (Throwable $e) {
             $notes->writeln('<error>drupatch: '.$e->getMessage().'</error>');
 
@@ -154,6 +155,24 @@ class RerollCommand extends PatchCommand
     }
 
     /**
+     * The patch declarations a file holds, or null when it does not decode to an array.
+     *
+     * @return array<mixed>|null
+     */
+    private static function patchesOf(string $text, string $file): ?array
+    {
+        $decoded = \json_decode($text, true);
+        if (!\is_array($decoded)) {
+            return null;
+        }
+        if ('' === $file) {
+            return (array) ($decoded['extra']['patches'] ?? []);
+        }
+
+        return \is_array($decoded['patches'] ?? null) ? $decoded['patches'] : $decoded;
+    }
+
+    /**
      * Rewrites the site's declarations and returns what changed, empty when nothing did.
      *
      * @param list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}> $written
@@ -169,27 +188,31 @@ class RerollCommand extends PatchCommand
 
         $file = $site->patches()->file;
         [$path] = self::declaration($site);
-        if (!$force && (new WorkingTree(new ProcessExecutor($this->getIO())))->isModified($site->root(), $path)) {
-            throw new RuntimeException($path.' has uncommitted changes; commit them or pass --force');
-        }
-
         $full = $site->root().\DIRECTORY_SEPARATOR.$path;
         $text = @\file_get_contents($full);
         if (false === $text) {
             throw new RuntimeException($path.' is not readable');
         }
-        $decoded = \json_decode($text, true);
-        if (!\is_array($decoded)) {
+        $declared = self::patchesOf($text, $file);
+        if (null === $declared) {
             throw new RuntimeException($path.' is not readable JSON');
         }
-
-        if ('' === $file) {
-            $declared = (array) ($decoded['extra']['patches'] ?? []);
-            $updated = ConfigRewriter::intoComposerJson($text, ConfigRewriter::apply($declared, $changes));
-        } else {
-            $declared = \is_array($decoded['patches'] ?? null) ? $decoded['patches'] : $decoded;
-            $updated = ConfigRewriter::intoPatchesFile($text, ConfigRewriter::apply($declared, $changes));
+        if (!$force) {
+            $tree = new WorkingTree(new ProcessExecutor($this->getIO()));
+            if ($tree->isModified($site->root(), $path)) {
+                // A run reaches the rewrite with the rest of the file already
+                // edited: the constraints it bumped to reach the new core.
+                // Comparing the whole file would refuse nearly every real run.
+                $committed = $tree->committed($site->root(), $path);
+                if (null === $committed || $declared !== self::patchesOf($committed, $file)) {
+                    throw new RuntimeException($path.' has uncommitted changes to its patches; commit them or pass --force');
+                }
+            }
         }
+        $rewritten = ConfigRewriter::apply($declared, $changes);
+        $updated = '' === $file
+            ? ConfigRewriter::intoComposerJson($text, $rewritten)
+            : ConfigRewriter::intoPatchesFile($text, $rewritten);
         if (false === \file_put_contents($full, $updated)) {
             throw new RuntimeException($path.' could not be written');
         }

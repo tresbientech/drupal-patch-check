@@ -17,16 +17,17 @@ use Composer\Plugin\Capable;
 use Composer\Plugin\PluginInterface;
 use Composer\Script\Event;
 use Composer\Script\ScriptEvents;
+use RuntimeException;
 use Throwable;
 use TresBienTech\Drupatch\Render\HookReport;
 use TresBienTech\Drupatch\Render\Report;
+use TresBienTech\Drupatch\Write\PatchFiles;
 
 /**
  * Prints a patch verdict tally after a composer update the site opted into.
  */
 class Plugin implements PluginInterface, EventSubscriberInterface, Capable
 {
-    /** The root package's extra key holding `hook`. */
     private const EXTRA = 'drupal-patch-check';
 
     private const NOTICE = [
@@ -80,6 +81,26 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     public static function hookEnabled(array $extra): bool
     {
         return true === ($extra[self::EXTRA]['hook'] ?? null);
+    }
+
+    /**
+     * Reads the directory an adopted URL patch goes to, or the default when the site names none.
+     *
+     * @param array<mixed> $extra the root package's extra
+     *
+     * @throws RuntimeException when the key is set to anything but a non-empty string
+     */
+    public static function patchDirectory(array $extra): string
+    {
+        if (!isset($extra[self::EXTRA]['patch-directory'])) {
+            return PatchFiles::ADOPTED_DIRECTORY;
+        }
+        $directory = $extra[self::EXTRA]['patch-directory'];
+        if (!\is_string($directory) || '' === \trim($directory)) {
+            throw new RuntimeException('extra.'.self::EXTRA.'.patch-directory is where an adopted patch is written; it has to be a directory under the site root');
+        }
+
+        return \trim($directory);
     }
 
     /**

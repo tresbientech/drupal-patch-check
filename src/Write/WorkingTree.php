@@ -48,6 +48,20 @@ class WorkingTree
     }
 
     /**
+     * The file as the last commit has it, or null when git cannot produce it.
+     */
+    public function committed(string $root, string $path): ?string
+    {
+        $output = '';
+        $status = $this->process->execute(['git', 'show', 'HEAD:./'.$path], $output, $root);
+        if (0 !== $status || !\is_string($output)) {
+            return null;
+        }
+
+        return $output;
+    }
+
+    /**
      * The porcelain line for one path, or null when git did not answer.
      */
     private function status(string $root, string $path): ?string
