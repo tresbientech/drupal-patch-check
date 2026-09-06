@@ -30,6 +30,21 @@ class OutcomeTest extends TestCase
         self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode());
     }
 
+    // A patch that applied and left a file PHP cannot compile keeps the
+    // verdict it earned. The run still has to wake someone: the site
+    // installs and the module is dead.
+    public function testAPatchThatAppliedAndBrokeAFileNeedsAction(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->row([
+            'verdict' => 'applies',
+            'result' => ['failure_mode' => 'broken syntax', 'syntax_errors' => ['src/A.php: unexpected } on line 4']],
+        ])]]);
+
+        self::assertSame('applies', $plan->patches[0]->verdict);
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode());
+        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode(true));
+    }
+
     // A patch the service could not judge is as often a mirror that lags
     // a release as a real problem, and neither is the repository's to fix.
     public function testAPatchThatCouldNotBeJudgedDoesNotFailByItself(): void
@@ -165,8 +180,8 @@ class OutcomeTest extends TestCase
             ['package' => 'drupal/token', 'title' => 'Cache', 'result' => ['reroll' => ['status' => 'clean', 'patch' => "refused diff\n"]]],
         ]], 'summary' => ['exit_code' => 1]];
         $outcomes = Outcomes::fromWrite(['written' => [
-            ['path' => 'patches/webform/fix.patch', 'status' => 'clean', 'package' => 'drupal/webform', 'title' => 'Fix', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => []],
-            ['path' => 'patches/webform/menu.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'Menu', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => []],
+            ['path' => 'patches/webform/fix.patch', 'status' => 'clean', 'package' => 'drupal/webform', 'title' => 'Fix', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'from' => ''],
+            ['path' => 'patches/webform/menu.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'Menu', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'from' => ''],
         ], 'refused' => [['package' => 'drupal/token', 'title' => 'Cache', 'path' => 'patches/token/cache.patch', 'reason' => 'changed', 'lifts' => '--force', 'shipped' => false]]]);
 
         $document = $outcomes->intoDocument($raw);

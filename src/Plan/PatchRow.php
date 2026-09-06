@@ -27,6 +27,9 @@ class PatchRow
 
     public const CONFLICTS = 'conflicts';
 
+    /** The failure mode the server sends for a patch that applied and left a file that does not parse. */
+    public const BROKEN_SYNTAX = 'broken syntax';
+
     private function __construct(
         public readonly string $package,
         public readonly string $project,
@@ -81,6 +84,18 @@ class PatchRow
          * @var array<string, mixed>
          */
         public readonly array $coreReferences,
+        /**
+         * What is wrong with a patch that applied, empty when nothing is.
+         * The verdict stays what it was: the patch did apply.
+         */
+        public readonly string $failureMode,
+        /**
+         * The files behind the failure mode, `path: message` as the server
+         * wrote them.
+         *
+         * @var list<string>
+         */
+        public readonly array $syntaxErrors,
     ) {
     }
 
@@ -117,6 +132,8 @@ class PatchRow
             (string) ($data['decided_by'] ?? ''),
             \is_array($result['reroll'] ?? null) ? $result['reroll'] : null,
             \is_array($result['core_references'] ?? null) ? $result['core_references'] : [],
+            (string) ($result['failure_mode'] ?? ''),
+            \array_values(\array_filter((array) ($result['syntax_errors'] ?? []), \is_string(...))),
         );
     }
 
@@ -125,7 +142,7 @@ class PatchRow
      */
     public function needsAction(): bool
     {
-        return !\in_array($this->verdict, self::CLEAN_VERDICTS, true);
+        return '' !== $this->failureMode || !\in_array($this->verdict, self::CLEAN_VERDICTS, true);
     }
 
     /**
@@ -295,7 +312,7 @@ class PatchRow
             return $this->needsAction();
         }
 
-        return !\in_array($this->verdict, self::TOLERATED_VERDICTS, true);
+        return '' !== $this->failureMode || !\in_array($this->verdict, self::TOLERATED_VERDICTS, true);
     }
 
     /**
@@ -303,7 +320,7 @@ class PatchRow
      */
     public function needsMention(): bool
     {
-        return self::APPLIES !== $this->verdict || $this->flaggedCoreReferences() > 0;
+        return self::APPLIES !== $this->verdict || '' !== $this->failureMode || $this->flaggedCoreReferences() > 0;
     }
 
     /**
@@ -359,6 +376,15 @@ class PatchRow
     public function reason(): string
     {
         return '' !== $this->note ? $this->note : $this->error;
+    }
+
+    /**
+     * What the row reads as: the verdict, or the failure mode when the patch
+     * applied and left something broken.
+     */
+    public function status(): string
+    {
+        return '' !== $this->failureMode ? $this->failureMode : $this->verdict;
     }
 
     /**

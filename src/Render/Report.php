@@ -12,6 +12,8 @@ use TresBienTech\Drupatch\RerollCommand;
 
 /**
  * The command's output: the table a person reads, the JSON summary a job reads, and the workflow annotations a runner reads.
+ *
+ * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Render\Outcomes
  */
 class Report
 {
@@ -66,12 +68,19 @@ class Report
     /** Flagged core references printed under a row before the rest is counted. */
     private const CORE_LINES = 3;
 
+    /** Broken lines printed under a row before the rest is counted. One lost brace cascades into every method below it. */
+    private const SYNTAX_LINES = 3;
+
+    /** Printed once while a row still conflicts: the verdict answers what the release has, the installed files do not. */
+    private const ON_DISK = 'composer applied these patches at install, so the files on disk show them';
+
     /**
-     * Mark, colour tag and sort rank per verdict, worst first. An unknown verdict gets the fallback and sorts with the work.
+     * Mark, colour tag and sort rank per row status, worst first. A status is the verdict, or the failure mode when the patch applied and left something broken. An unrecognised one gets the fallback and sorts with the work.
      *
      * @var array<string, array{string, string, int}>
      */
-    private const VERDICTS = [
+    private const STATUSES = [
+        PatchRow::BROKEN_SYNTAX => ['!', 'error', 0],
         'conflicts' => ['!', 'error', 0],
         'unknown' => ['?', 'comment', 1],
         'applies' => ['·', '', 2],
@@ -81,45 +90,46 @@ class Report
     /** @var array{string, string, int} */
     private const UNRECOGNISED = ['*', 'comment', 1];
 
-    /** The annotation level each verdict is written at. */
+    /** The annotation level each row status is written at. */
     private const ANNOTATION_LEVELS = [
+        PatchRow::BROKEN_SYNTAX => 'error',
         PatchRow::CONFLICTS => 'error',
         PatchRow::UNKNOWN => 'warning',
         PatchRow::MERGED => 'notice',
     ];
 
-    public static function mark(string $verdict): string
+    public static function mark(string $status): string
     {
-        return (self::VERDICTS[$verdict] ?? self::UNRECOGNISED)[0];
+        return (self::STATUSES[$status] ?? self::UNRECOGNISED)[0];
     }
 
     /**
      * The composer output tag the mark is written with, empty for none.
      */
-    public static function tag(string $verdict): string
+    public static function tag(string $status): string
     {
-        return (self::VERDICTS[$verdict] ?? self::UNRECOGNISED)[1];
+        return (self::STATUSES[$status] ?? self::UNRECOGNISED)[1];
     }
 
     /**
-     * Where the verdict sorts; lower comes first, so the work is at the top.
+     * Where the status sorts; lower comes first, so the work is at the top.
      */
-    public static function rank(string $verdict): int
+    public static function rank(string $status): int
     {
-        return (self::VERDICTS[$verdict] ?? self::UNRECOGNISED)[2];
+        return (self::STATUSES[$status] ?? self::UNRECOGNISED)[2];
     }
 
-    public static function isKnown(string $verdict): bool
+    public static function isKnown(string $status): bool
     {
-        return isset(self::VERDICTS[$verdict]);
+        return isset(self::STATUSES[$status]);
     }
 
     /**
      * The mark ready to print, wrapped in its colour when it has one.
      */
-    public static function marked(string $verdict): string
+    public static function marked(string $status): string
     {
-        [$mark, $tag] = self::VERDICTS[$verdict] ?? self::UNRECOGNISED;
+        [$mark, $tag] = self::STATUSES[$status] ?? self::UNRECOGNISED;
 
         return '' === $tag ? $mark : '<'.$tag.'>'.$mark.'</'.$tag.'>';
     }
@@ -258,7 +268,10 @@ class Report
         if ([] !== $blocks) {
             $lines[] = '';
         }
-        $lines[] = '  patches: '.(null === $outcomes ? self::tally($plan->counts) : self::writeTally($plan, $outcomes));
+        $lines[] = '  patches: '.(null === $outcomes ? self::tally(self::headlineCounts($plan)) : self::writeTally($plan, $outcomes));
+        if (self::conflictsLeft($plan, $outcomes) > 0) {
+            $lines[] = self::caveat('  '.self::ON_DISK);
+        }
 
         // A path the service says it never received that the run did not
         // hold back: the text was lost rather than kept back on purpose.
@@ -294,7 +307,7 @@ class Report
             $lines[] = \rtrim(\sprintf(
                 '    %'.self::NUMBER_WIDTH.'s %s %-9s %s  %s',
                 '#'.($i + 1),
-                self::marked($row->verdict),
+                self::marked($row->status()),
                 $row->verdict,
                 self::pad(self::fit($row->label(), $titleWidth), $titleWidth),
                 self::fileName($row),
@@ -322,6 +335,13 @@ class Report
         $out = [];
         if ('' !== $row->reason()) {
             $out[] = $row->reason();
+        }
+        foreach (\array_slice($row->syntaxErrors, 0, self::SYNTAX_LINES) as $error) {
+            $out[] = $row->failureMode.': '.$error;
+        }
+        $more = \count($row->syntaxErrors) - self::SYNTAX_LINES;
+        if ($more > 0) {
+            $out[] = '+'.$more.' more broken line'.(1 === $more ? '' : 's');
         }
         $shipped = \array_flip($row->hunksShipped);
         foreach ($row->failures() as $place => $failure) {
@@ -465,7 +485,7 @@ class Report
     /**
      * One group of written files under its heading.
      *
-     * @param list<array{path: string, status: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}> $files
+     * @param list<array{path: string, status: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>, from: string}> $files
      *
      * @return list<string>
      */
@@ -488,6 +508,10 @@ class Report
                 foreach ($file['removed'] as $gone) {
                     $lines[] = '      the release removed '.$gone;
                 }
+            }
+            // The site did not have this file before the run put it there.
+            if ('' !== $file['from']) {
+                $lines[] = '      copied into the site from '.$file['from'];
             }
             if ([] !== $file['unioned']) {
                 $lines[] = '      '.self::unionNote(\count($file['unioned'])).':';
@@ -646,11 +670,11 @@ class Report
         if ($deprecated > 0) {
             $out[] = 'core deprecated: '.$deprecated.' reference'.(1 === $deprecated ? '' : 's').', still present at '.(string) ($block['target'] ?? '');
         }
-        // A conflicts row already says the patch does not apply, so the
-        // note that the references went unchecked for that reason is not
-        // repeated under it.
+        // A conflicts row already says the patch does not apply, and a
+        // broken row already printed the parse errors this note repeats,
+        // so neither takes it.
         $note = (string) ($block['note'] ?? '');
-        if ('' !== $note && !$row->conflicts()) {
+        if ('' !== $note && !$row->conflicts() && '' === $row->failureMode) {
             $out[] = $note;
         }
 
@@ -796,7 +820,7 @@ class Report
     {
         $counts = [];
         foreach ($plan->patches as $row) {
-            $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) + 1;
+            $counts[$row->status()] = ($counts[$row->status()] ?? 0) + 1;
         }
         \ksort($counts);
 
@@ -815,6 +839,7 @@ class Report
             'conflicts' => self::packagesWith($plan, PatchRow::CONFLICTS),
             'unclear' => self::packagesWith($plan, PatchRow::UNKNOWN),
             'merged' => self::packagesWith($plan, PatchRow::MERGED),
+            'broken' => self::packagesWith($plan, PatchRow::BROKEN_SYNTAX),
             'blocked' => $plan->noRelease,
             'decided_by' => $sources,
             'exit_code' => $plan->exitCode($strict, $vacuous),
@@ -841,7 +866,7 @@ class Report
     {
         $out = [];
         foreach ($plan->patches as $row) {
-            $level = self::ANNOTATION_LEVELS[$row->verdict] ?? null;
+            $level = self::ANNOTATION_LEVELS[$row->status()] ?? null;
             if (null === $level) {
                 continue;
             }
@@ -849,7 +874,9 @@ class Report
             // What a re-roll must fix, or why a row has no verdict.
             // One line per annotation, so the first failure stands for the rest.
             $failures = $row->failures();
-            $detail = \reset($failures) ?: $row->reason();
+            $detail = '' !== $row->failureMode
+                ? $row->failureMode.': '.($row->syntaxErrors[0] ?? '')
+                : (\reset($failures) ?: $row->reason());
             if ('' !== $detail) {
                 $message .= '; '.$detail;
             }
@@ -954,7 +981,7 @@ class Report
     {
         $counts = [];
         foreach ($rows as $row) {
-            $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) + 1;
+            $counts[$row->status()] = ($counts[$row->status()] ?? 0) + 1;
         }
         \uksort($counts, static fn (string $a, string $b): int => [self::rank($a), $a] <=> [self::rank($b), $b]);
 
@@ -982,7 +1009,12 @@ class Report
      * What a write run changed and what it left, in the terms of the work
      * still to do rather than a second tally to compare against the first.
      */
-    private static function writeTally(Plan $plan, Outcomes $outcomes): string
+    /**
+     * The patches a write turned into something that applies, keyed as a row is.
+     *
+     * @return array<string, true>
+     */
+    private static function fixedByWrite(Outcomes $outcomes): array
     {
         $fixed = [];
         foreach ($outcomes->written() as $file) {
@@ -990,10 +1022,36 @@ class Report
                 $fixed[PatchRow::keyOf($file['package'], $file['title'])] = true;
             }
         }
+
+        return $fixed;
+    }
+
+    /**
+     * How many patches still conflict, counting what a write has already settled.
+     */
+    private static function conflictsLeft(Plan $plan, ?Outcomes $outcomes): int
+    {
+        if (null === $outcomes) {
+            return $plan->counts[PatchRow::CONFLICTS] ?? 0;
+        }
+        $fixed = self::fixedByWrite($outcomes);
+        $left = 0;
+        foreach ($plan->patches as $row) {
+            if (PatchRow::CONFLICTS === $row->verdict && !isset($fixed[$row->key()])) {
+                ++$left;
+            }
+        }
+
+        return $left;
+    }
+
+    private static function writeTally(Plan $plan, Outcomes $outcomes): string
+    {
+        $fixed = self::fixedByWrite($outcomes);
         $counts = [];
         foreach ($plan->patches as $row) {
-            $verdict = isset($fixed[$row->key()]) ? PatchRow::APPLIES : $row->verdict;
-            $counts[$verdict] = ($counts[$verdict] ?? 0) + 1;
+            $status = isset($fixed[$row->key()]) ? PatchRow::APPLIES : $row->status();
+            $counts[$status] = ($counts[$status] ?? 0) + 1;
         }
         $parts = [];
         if ([] !== $fixed) {
@@ -1022,6 +1080,25 @@ class Report
     }
 
     /**
+     * The plan's counts with the broken patches taken out of their verdict and counted as what is wrong with them. The verdict they keep is the one the server sent.
+     *
+     * @return array<string, int>
+     */
+    private static function headlineCounts(Plan $plan): array
+    {
+        $counts = $plan->counts;
+        foreach ($plan->patches as $row) {
+            if ('' === $row->failureMode) {
+                continue;
+            }
+            $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) - 1;
+            $counts[$row->failureMode] = ($counts[$row->failureMode] ?? 0) + 1;
+        }
+
+        return $counts;
+    }
+
+    /**
      * @param array<string, int> $counts
      */
     private static function tally(array $counts): string
@@ -1037,15 +1114,15 @@ class Report
     }
 
     /**
-     * The packages carrying at least one row of a verdict, in plan order and named once each.
+     * The packages carrying at least one row of a status, in plan order and named once each.
      *
      * @return list<string>
      */
-    private static function packagesWith(Plan $plan, string $verdict): array
+    private static function packagesWith(Plan $plan, string $status): array
     {
         $seen = [];
         foreach ($plan->patches as $row) {
-            if ($row->verdict === $verdict) {
+            if ($row->status() === $status) {
                 $seen[$row->package] = true;
             }
         }

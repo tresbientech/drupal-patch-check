@@ -8,10 +8,12 @@ use TresBienTech\Drupatch\Plan\PatchRow;
 
 /**
  * What a run did: the files it wrote, the ones it would not, the declarations it rewrote, and the counts the footer needs.
+ *
+ * @phpstan-type WrittenRow array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>, from: string}
  */
 class Outcomes
 {
-    /** @var list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}> */
+    /** @var list<WrittenRow> */
     private array $written = [];
 
     /** @var list<array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}> */
@@ -26,7 +28,7 @@ class Outcomes
     private string $declaration = '';
 
     /**
-     * @param array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}>,
+     * @param array{written: list<WrittenRow>,
      *              refused: list<array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}>} $result
      */
     public static function fromWrite(array $result): self
@@ -51,7 +53,7 @@ class Outcomes
     }
 
     /**
-     * @return list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}>
+     * @return list<WrittenRow>
      */
     public function written(): array
     {

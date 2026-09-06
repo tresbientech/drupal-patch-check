@@ -13,6 +13,8 @@ use TresBienTech\Drupatch\Render\Report;
 
 /**
  * Writes the re-rolled diffs a plan carries.
+ *
+ * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Render\Outcomes
  */
 class PatchFiles
 {
@@ -77,7 +79,7 @@ class PatchFiles
     /**
      * Writes one file per re-rolled patch and reports what happened.
      *
-     * @return array{written: list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}>,
+     * @return array{written: list<WrittenRow>,
      *               refused: list<array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}>}
      */
     public function write(Plan $plan): array
@@ -147,6 +149,7 @@ class PatchFiles
                 'regions' => $row->openRegions(),
                 'open' => $row->openRegionList(),
                 'removed' => $row->removedFiles(),
+                'from' => $fromUrl ? $declaredSource : '',
             ];
         }
 

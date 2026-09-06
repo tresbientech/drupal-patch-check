@@ -22,9 +22,9 @@ class HookReport
     private const MAX_ROWS = 20;
 
     /**
-     * The verdicts the headline counts, worst first, in the words the report's tally uses.
+     * The statuses the headline counts, worst first, in the words the report's tally uses.
      */
-    private const MENTION_ORDER = ['conflicts', 'unknown', 'merged'];
+    private const MENTION_ORDER = [PatchRow::BROKEN_SYNTAX, 'conflicts', 'unknown', 'merged'];
 
     /**
      * @return list<string>
@@ -55,15 +55,18 @@ class HookReport
                 break;
             }
             ++$shown;
-            $lines[] = \sprintf('  %s %-9s %s %s  %s', Report::marked($row->verdict), $row->verdict, $row->package, $row->version, $row->label());
+            $lines[] = \sprintf('  %s %-9s %s %s  %s', Report::marked($row->status()), $row->verdict, $row->package, $row->version, $row->label());
             // An unclear row is the one case where the verdict alone
             // says nothing.
             if ('' !== $row->reason()) {
                 $lines[] = self::DETAIL_INDENT.$row->reason();
             }
+            foreach ($row->syntaxErrors as $error) {
+                $lines[] = self::DETAIL_INDENT.$row->failureMode.': '.$error;
+            }
             // An applying row is here for what it references, so that
             // is its one line.
-            if (PatchRow::APPLIES === $row->verdict) {
+            if (PatchRow::APPLIES === $row->status()) {
                 $lines[] = self::DETAIL_INDENT.self::coreLine($row);
             }
         }
@@ -114,21 +117,21 @@ class HookReport
         $counts = [];
         $referencing = 0;
         foreach ($rows as $row) {
-            if (PatchRow::APPLIES === $row->verdict) {
+            if (PatchRow::APPLIES === $row->status()) {
                 ++$referencing;
                 continue;
             }
-            $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) + 1;
+            $counts[$row->status()] = ($counts[$row->status()] ?? 0) + 1;
         }
         $parts = [];
-        foreach (self::MENTION_ORDER as $verdict) {
-            if (($counts[$verdict] ?? 0) > 0) {
-                $parts[] = $counts[$verdict].' '.$verdict;
-                unset($counts[$verdict]);
+        foreach (self::MENTION_ORDER as $status) {
+            if (($counts[$status] ?? 0) > 0) {
+                $parts[] = $counts[$status].' '.$status;
+                unset($counts[$status]);
             }
         }
-        foreach ($counts as $verdict => $count) {
-            $parts[] = $count.' '.$verdict;
+        foreach ($counts as $status => $count) {
+            $parts[] = $count.' '.$status;
         }
         if ($referencing > 0) {
             $parts[] = $referencing.' with core references to check';

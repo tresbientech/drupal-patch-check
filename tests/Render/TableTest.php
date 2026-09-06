@@ -12,6 +12,9 @@ use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
+/**
+ * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Render\Outcomes
+ */
 class TableTest extends TestCase
 {
     use PlanFactory;
@@ -1558,8 +1561,8 @@ class TableTest extends TestCase
     }
 
     /**
-     * @param list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}>                                                                                                                                    $changes
-     * @param list<array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}> $written
+     * @param list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}> $changes
+     * @param list<WrittenRow>                                                                         $written
      *
      * @return list<string>
      */
@@ -1650,8 +1653,70 @@ class TableTest extends TestCase
         $lines = self::whole($plan, null, 100);
         $tally = self::indexOfLineContaining($lines, 'patches: ');
 
-        self::assertSame('', $lines[$tally + 1]);
-        self::assertStringContainsString('Next:', $lines[$tally + 2]);
+        // The conflicts note goes here. The target must appear nowhere below.
+        $below = \implode("\n", \array_slice($lines, $tally + 1));
+        self::assertStringNotContainsString('11.4.5', $below);
+        self::assertStringNotContainsString('11.3.12', $below);
+        self::assertStringContainsString('Next:', $below);
+    }
+
+    public function testAConflictSaysTheFilesOnDiskAlreadyShowThePatch(): void
+    {
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row(['verdict' => 'conflicts'])]]);
+
+        self::assertStringContainsString(
+            '  composer applied these patches at install, so the files on disk show them',
+            \implode("\n", self::whole($plan, null, 100)),
+        );
+    }
+
+    public function testAWriteThatSettledEveryConflictSaysNothingAboutTheFilesOnDisk(): void
+    {
+        // The scan counted a conflict; the write fixed it. The note is about
+        // what is left, so it goes when the last conflict does.
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'patch' => "diff\n", 'verified' => true], ['title' => 'Fix a'])]]);
+        $written = $this->writtenFile('patches/webform/fix.patch', 'clean', 'drupal/webform', 'Fix a');
+        $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
+
+        self::assertStringContainsString('1 now applies', $out);
+        self::assertStringNotContainsString('files on disk', $out);
+    }
+
+    public function testARunWithNoConflictSaysNothingAboutTheFilesOnDisk(): void
+    {
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row(['verdict' => 'applies'])]]);
+
+        self::assertStringNotContainsString('files on disk', \implode("\n", self::whole($plan, null, 100)));
+    }
+
+    public function testAPatchCopiedFromAUrlIsNamedWithItsOrigin(): void
+    {
+        $written = $this->writtenFile('patches/redirect/45.patch', 'clean', 'drupal/redirect', 'Alias guidance');
+        $written['from'] = 'https://git.drupalcode.org/project/redirect/-/merge_requests/45.patch';
+        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+
+        self::assertStringContainsString('    patches/redirect/45.patch  (verified against the release)', $out);
+        self::assertStringContainsString('      copied into the site from https://git.drupalcode.org/project/redirect/-/merge_requests/45.patch', $out);
+    }
+
+    public function testAPatchTheSiteAlreadyDeclaredAsAFileIsNotCalledCopied(): void
+    {
+        $written = $this->writtenFile('patchs/webform/fix.patch');
+        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+
+        self::assertStringNotContainsString('copied into the site', $out);
+    }
+
+    public function testTheWholeReportShowsWhereACopiedPatchCameFrom(): void
+    {
+        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'patch' => "diff\n", 'verified' => true], ['title' => 'Fix a'])]]);
+        $written = $this->writtenFile('patches/webform/fix.patch', 'clean', 'drupal/webform', 'Fix a');
+        $written['from'] = 'https://example.test/fix.patch';
+
+        self::assertStringContainsString(
+            '      copied into the site from https://example.test/fix.patch',
+            \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100)),
+        );
     }
 
     public function testAReportThatWroteEverythingSuggestsNoRerollFlag(): void
@@ -1750,5 +1815,66 @@ class TableTest extends TestCase
         )]]);
 
         self::assertStringNotContainsString('merged from', \implode("\n", self::table($plan)));
+    }
+
+    /**
+     * A patch that applied and left a file PHP cannot compile.
+     */
+    private function brokenPlan(): Plan
+    {
+        return $this->planFrom([
+            'counts' => ['applies' => 2],
+            'patches' => [
+                $this->row(['title' => 'Fix a', 'result' => [
+                    'failure_mode' => 'broken syntax',
+                    'syntax_errors' => ['src/A.php: Cannot use A\\C as C because the name is already in use on line 118'],
+                ]]),
+                $this->row(['title' => 'Fix b']),
+            ],
+        ]);
+    }
+
+    public function testAPatchThatBrokeAFileKeepsItsVerdictAndSaysWhatIsWrongUnderTheRow(): void
+    {
+        $lines = self::table($this->brokenPlan());
+        $at = self::indexOf($lines, 'Fix a');
+
+        self::assertStringContainsString('<error>!</error> applies', $lines[$at], 'the cell keeps the verdict, the mark says there is work');
+        self::assertSame(
+            Report::detailIndent().'<fg=cyan>broken syntax: src/A.php: Cannot use A\\C as C because the name is already in use on line 118</>',
+            $lines[$at + 1],
+        );
+    }
+
+    // One lost brace makes the parser fail at every method below it, so a
+    // row would print six lines about one file.
+    public function testABrokenFileNamesItsFirstLinesAndCountsTheRest(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->row(['title' => 'Fix a', 'result' => [
+            'failure_mode' => 'broken syntax',
+            'syntax_errors' => [
+                'src/A.php: unexpected $x on line 118',
+                'src/A.php: unexpected public on line 132',
+                'src/A.php: unexpected public on line 139',
+                'src/A.php: unexpected private on line 163',
+                'src/A.php: unexpected } on line 173',
+            ],
+            // The service says the same thing again in the note it writes
+            // about the references it could not read.
+            'core_references' => ['note' => 'parse errors: src/A.php: unexpected $x on line 118'],
+        ]])]]);
+        $lines = self::table($plan);
+        $at = self::indexOf($lines, 'Fix a');
+
+        self::assertStringEndsWith('+2 more broken lines</>', $lines[$at + 4]);
+        self::assertStringNotContainsString('parse errors', \implode("\n", $lines));
+    }
+
+    public function testABrokenPatchIsCountedApartFromTheOnesThatWork(): void
+    {
+        $lines = self::table($this->brokenPlan());
+
+        self::assertStringContainsString('1 broken syntax, 1 applies', $lines[self::indexOf($lines, 'drupal/webform')]);
+        self::assertSame('  patches: 1 applies, 1 broken syntax', $lines[\count($lines) - 1]);
     }
 }

@@ -65,7 +65,7 @@ class SummaryTest extends TestCase
 
     public function testNamesResolveAfterARunWroteAConflictFile(): void
     {
-        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => []]], 'refused' => []];
+        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'from' => '']], 'refused' => []];
 
         self::assertSame(['', '--update'], \array_column(Report::summary($this->plan(), false, false, Outcomes::fromWrite($wrote))['next'], 'flag'));
     }
@@ -164,6 +164,23 @@ class SummaryTest extends TestCase
         self::assertSame([], Report::summary($this->plan())['decided_by'] ?? []);
     }
 
+    // The verdict alone says the patch applied, so a job that reads only
+    // the counts would call a broken site clean.
+    public function testAPatchThatBrokeAFileIsCountedAndNamedApart(): void
+    {
+        $summary = Report::summary($this->planFrom(['patches' => [
+            $this->row(['package' => 'drupal/domain', 'result' => [
+                'failure_mode' => 'broken syntax',
+                'syntax_errors' => ['src/A.php: unexpected } on line 4'],
+            ]]),
+            $this->row(['title' => 'Fix b']),
+        ]]));
+
+        self::assertSame(['applies' => 1, 'broken syntax' => 1], $summary['counts']);
+        self::assertSame(['drupal/domain'], $summary['broken']);
+        self::assertSame(Plan::ACTION_NEEDED, $summary['exit_code']);
+    }
+
     public function testASiteWithNothingToSayStillCarriesAShape(): void
     {
         $summary = Report::summary($this->planFrom());
@@ -186,6 +203,7 @@ class SummaryTest extends TestCase
                 'conflicts',
                 'unclear',
                 'merged',
+                'broken',
                 'blocked',
                 'decided_by',
                 'exit_code',

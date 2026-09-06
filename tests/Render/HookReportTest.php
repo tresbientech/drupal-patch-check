@@ -325,4 +325,20 @@ class HookReportTest extends TestCase
     {
         self::assertSame([], HookReport::lines($this->planFrom(['patches' => []])));
     }
+
+    // Composer already applied this patch, so the hook is the first place
+    // a reader learns the file it left will not compile.
+    public function testAPatchThatBrokeAFileLeadsTheHookAndSaysWhichFile(): void
+    {
+        $lines = HookReport::lines($this->planFrom(['patches' => [
+            $this->row(['title' => 'Fix a', 'result' => [
+                'failure_mode' => 'broken syntax',
+                'syntax_errors' => ['src/A.php: unexpected } on line 4'],
+            ]]),
+        ]]));
+
+        self::assertStringContainsString('1 broken syntax', $lines[0]);
+        self::assertStringContainsString('<error>!</error> applies  ', $lines[1], 'the mark says work, the column keeps the verdict');
+        self::assertStringEndsWith('broken syntax: src/A.php: unexpected } on line 4', $lines[2]);
+    }
 }

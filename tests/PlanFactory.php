@@ -11,6 +11,9 @@ use TresBienTech\Drupatch\Plan\Plan;
  * through the same parse the server's JSON goes through, so a test can
  * never assert on a shape the boundary would refuse.
  */
+/**
+ * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Render\Outcomes
+ */
 trait PlanFactory
 {
     /**
@@ -113,7 +116,7 @@ trait PlanFactory
     /**
      * A written row, its open regions numbered on one file the way the service numbers them.
      *
-     * @return array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>}
+     * @return WrittenRow
      */
     private function writtenFile(string $path, string $status = 'clean', string $package = 'drupal/webform', string $title = 'Fix a', bool $verified = true, int $regions = 0, string $file = 'src/A.php'): array
     {
@@ -122,6 +125,6 @@ trait PlanFactory
             $open[] = ['file' => $file, 'region' => $region];
         }
 
-        return ['path' => $path, 'status' => $status, 'package' => $package, 'title' => $title, 'verified' => $verified, 'unioned' => [], 'regions' => $regions, 'open' => $open, 'removed' => []];
+        return ['path' => $path, 'status' => $status, 'package' => $package, 'title' => $title, 'verified' => $verified, 'unioned' => [], 'regions' => $regions, 'open' => $open, 'removed' => [], 'from' => ''];
     }
 }

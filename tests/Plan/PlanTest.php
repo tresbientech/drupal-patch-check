@@ -43,6 +43,35 @@ class PlanTest extends TestCase
         $this->assertSame([], $row->hunksShipped);
     }
 
+    public function testCarriesTheFailureModeOfAPatchThatAppliedAndBrokeAFile(): void
+    {
+        $row = PatchRow::fromArray([
+            'package' => 'drupal/domain',
+            'verdict' => 'applies',
+            'result' => [
+                'failure_mode' => 'broken syntax',
+                'syntax_errors' => ['src/DomainManager.php: Cannot use A\\C as C because the name is already in use on line 118'],
+            ],
+        ]);
+
+        $this->assertSame('applies', $row->verdict);
+        $this->assertSame('broken syntax', $row->failureMode);
+        $this->assertSame('broken syntax', $row->status());
+        $this->assertTrue($row->fails(false));
+        $this->assertTrue($row->needsMention());
+        $this->assertCount(1, $row->syntaxErrors);
+    }
+
+    public function testAServerThatSendsNoFailureModeLeavesTheRowAsItWas(): void
+    {
+        $row = PatchRow::fromArray(['package' => 'drupal/webform', 'verdict' => 'applies']);
+
+        $this->assertSame('', $row->failureMode);
+        $this->assertSame('applies', $row->status());
+        $this->assertSame([], $row->syntaxErrors);
+        $this->assertFalse($row->fails(true));
+    }
+
     public function testReadsThePlanTheApiSends(): void
     {
         $plan = Plan::fromArray([

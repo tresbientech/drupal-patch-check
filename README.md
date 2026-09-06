@@ -190,6 +190,18 @@ verdicts on the lines that declare the patches.
 | `unknown` | The patch was sent and came back without a verdict, and the row says why. The lock does not install the package, it has no release for the target, or the release tag is not on the service's mirror yet. |
 | `skipped` | The patch was never sent, so it has no verdict. Its package has no drupal.org release, or the run could not turn its source into a patch. |
 
+A patch can apply and still leave a file PHP cannot compile, which a merge
+that keeps a duplicate import does. The verdict stays `applies`, because the
+patch applied. A note under the row opens with `broken syntax` and names the
+file and the line. The headline counts those patches apart from the ones
+that work, and the run exits non-zero.
+
+```
+  drupal/domain 1.0.0 → 1.0.1   1 broken syntax, 1 applies
+     #1 ! applies    Handle path alias for multiple domains       domain-alias.patch
+                     broken syntax: src/DomainManager.php: Cannot use A\C as C because the name is already in use on line 118
+```
+
 A re-roll that merges cleanly is written as `.patch`. One that leaves
 conflict markers is written as `.conflict.patch` and is never referenced
 from the patch declarations.

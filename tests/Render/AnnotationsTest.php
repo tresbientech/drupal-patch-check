@@ -207,4 +207,22 @@ final class AnnotationsTest extends TestCase
     {
         return Report::annotations($plan, 'composer.json', self::DOCUMENT);
     }
+
+    // The exit code fails on this row, so a CI reader gets a marker on the
+    // line that declares it. The word stays the verdict the patch earned.
+    public function testAPatchThatBrokeAFileIsAnnotatedOnItsDeclaration(): void
+    {
+        $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row([
+            'title' => 'Style fix', 'source' => 'patchs/webform-style.patch',
+            'result' => [
+                'failure_mode' => 'broken syntax',
+                'syntax_errors' => ['src/A.php: unexpected } on line 4'],
+            ],
+        ])]]);
+
+        self::assertSame(
+            ['::error file=composer.json,line=5::applies drupal/webform 6.2.9: Style fix; broken syntax: src/A.php: unexpected } on line 4'],
+            $this->lines($plan),
+        );
+    }
 }
