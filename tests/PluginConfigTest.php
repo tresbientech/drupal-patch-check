@@ -15,10 +15,12 @@ use TresBienTech\Drupatch\Plugin;
 #[CoversClass(Plugin::class)]
 class PluginConfigTest extends TestCase
 {
-    public function testASiteThatNamesNoDirectoryGetsPatches(): void
+    // Singular, so an adopted patch does not land in a `patches`
+    // directory the site already manages by hand.
+    public function testASiteThatNamesNoDirectoryGetsPatch(): void
     {
-        self::assertSame('patches', Plugin::patchDirectory([]));
-        self::assertSame('patches', Plugin::patchDirectory(['drupal-patch-check' => ['hook' => true]]));
+        self::assertSame('patch', Plugin::patchDirectory([]));
+        self::assertSame('patch', Plugin::patchDirectory(['drupal-patch-check' => ['hook' => true]]));
     }
 
     public function testTheNamedDirectoryIsReadAsWritten(): void

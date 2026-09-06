@@ -45,8 +45,8 @@ class PatchFiles
     /** A clean re-roll the service could not parse afterwards. Writing it would hand over a patch known to break the site. */
     public const BROKEN_SYNTAX = 'its re-roll leaves a file that does not parse: ';
 
-    /** Where an adopted URL patch goes when the site names no directory. */
-    public const ADOPTED_DIRECTORY = 'patches';
+    /** Where an adopted URL patch goes when the site names no directory. Singular, so it does not land in a `patches` directory the site already manages by hand. */
+    public const ADOPTED_DIRECTORY = 'patch';
 
     public function __construct(
         private readonly string $root,

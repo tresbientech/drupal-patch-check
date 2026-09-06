@@ -209,10 +209,10 @@ class PatchFilesTest extends TestCase
         );
     }
 
-    public function testASiteThatNamesNoDirectoryGetsPatches(): void
+    public function testASiteThatNamesNoDirectoryGetsPatch(): void
     {
         self::assertSame(
-            'patches/webform/c.patch',
+            'patch/webform/c.patch',
             PatchFiles::adoptedPath('drupal/webform', 'webform', 'https://example.test/c.patch'),
         );
     }
@@ -317,7 +317,7 @@ class PatchFilesTest extends TestCase
 
         $result = $this->adopter($plan)->write($plan);
 
-        self::assertSame('patches/webform/pathauto-3131794-15.patch', $result['written'][0]['path']);
+        self::assertSame('patch/webform/pathauto-3131794-15.patch', $result['written'][0]['path']);
         self::assertSame([], $result['refused']);
     }
 
@@ -325,7 +325,7 @@ class PatchFilesTest extends TestCase
     {
         $plan = $this->plan(['status' => 'clean', 'patch' => "diff\n"], 'https://example.test/files/a.patch?id=7&raw=1');
 
-        self::assertSame('patches/webform/a.patch', $this->adopter($plan)->write($plan)['written'][0]['path']);
+        self::assertSame('patch/webform/a.patch', $this->adopter($plan)->write($plan)['written'][0]['path']);
     }
 
     public function testAnAdoptedUrlWithNoProjectUsesThePackageName(): void
@@ -335,7 +335,7 @@ class PatchFilesTest extends TestCase
             ['package' => 'drupal/menu_item_extras', 'project' => '', 'source' => 'https://example.test/a.patch']
         )]]);
 
-        self::assertSame('patches/menu_item_extras/a.patch', $this->adopter($plan)->write($plan)['written'][0]['path']);
+        self::assertSame('patch/menu_item_extras/a.patch', $this->adopter($plan)->write($plan)['written'][0]['path']);
     }
 
     // The service names the project, so a separator in it would pick the
@@ -363,7 +363,7 @@ class PatchFilesTest extends TestCase
 
         $result = $this->adopter($plan)->write($plan);
 
-        self::assertSame('patches/webform/a.conflict.patch', $result['written'][0]['path']);
+        self::assertSame('patch/webform/a.conflict.patch', $result['written'][0]['path']);
         self::assertFalse('clean' === $result['written'][0]['status']);
     }
 

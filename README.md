@@ -148,15 +148,16 @@ skips the hook for one run.
 ## Where an adopted patch is written
 
 `drupatch:reroll --update` can take a patch the site declares as a URL and
-write it into the site, under `patches/<project>/`. Sites that keep their
-patches somewhere else say so:
+write it into the site, under `patch/<project>/`. The name is singular so
+that these files stay apart from a `patches` directory the site already
+manages by hand. Sites that want them elsewhere say so:
 
 ```json
 { "extra": { "drupal-patch-check": { "patch-directory": "patchs" } } }
 ```
 
 An adopted patch then lands in `patchs/<project>/`. The value is used as
-written, so a site with no such key gets `patches`.
+written, so a site with no such key gets `patch`.
 
 ## Running it in CI
 
