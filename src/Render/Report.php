@@ -379,6 +379,9 @@ class Report
         if ([] !== $row->unioned()) {
             $out[] = self::unionNote(\count($row->unioned()));
         }
+        if ([] !== $row->deduplicated()) {
+            $out[] = self::dedupeNote(\count($row->deduplicated()));
+        }
         if ('' !== $row->strictRefused) {
             $out[] = $row->strictRefused;
         }
@@ -638,6 +641,18 @@ class Report
             'the release and the patch both added lines in %d region%s; the merge kept both additions, check them',
             $regions,
             1 === $regions ? '' : 's'
+        );
+    }
+
+    /**
+     * What the merge would have duplicated, in one line.
+     */
+    public static function dedupeNote(int $lines): string
+    {
+        return \sprintf(
+            'the release and the patch added the same import in %d place%s; the re-roll keeps one, since PHP refuses the second',
+            $lines,
+            1 === $lines ? '' : 's'
         );
     }
 

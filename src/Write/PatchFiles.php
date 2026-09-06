@@ -42,6 +42,9 @@ class PatchFiles
 
     public const NOTHING_MERGED = 'no hunk of its re-roll merged, so there is nothing to fetch';
 
+    /** A clean re-roll the service could not parse afterwards. Writing it would hand over a patch known to break the site. */
+    public const BROKEN_SYNTAX = 'its re-roll leaves a file that does not parse: ';
+
     /** Where an adopted URL patch goes when the site names no directory. */
     public const ADOPTED_DIRECTORY = 'patches';
 
@@ -98,6 +101,13 @@ class PatchFiles
                 // upstream; only a re-roll that produced nothing does.
                 $where = $fromUrl && !$row->isMerged() ? self::upstream($declaredSource) : '';
                 $refused[] = self::refusal($row, $row->source, self::whyNoReroll($row).$where, shipped: $row->isMerged());
+                continue;
+            }
+            // A merge that produced code the service cannot parse is not
+            // a patch to hand anybody, whatever the site declared.
+            $broken = $row->rerollSyntaxErrors();
+            if ([] !== $broken) {
+                $refused[] = self::refusal($row, $declaredSource ?? $row->source, self::BROKEN_SYNTAX.$broken[0]);
                 continue;
             }
             if (null === $declaredSource) {

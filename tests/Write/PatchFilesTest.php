@@ -107,6 +107,29 @@ class PatchFilesTest extends TestCase
         self::assertSame("new diff\n", \file_get_contents($this->root.'/patches/core/htaccess.patch'));
     }
 
+    // The service parsed the merged file and it will not compile. Writing
+    // the diff would hand over a patch known to break the site.
+    public function testARerollThatLeavesABrokenFileIsNotWritten(): void
+    {
+        $this->declare('patches/core/htaccess.patch');
+        $plan = $this->plan([
+            'status' => 'clean',
+            'patch' => "new diff\n",
+            'verified' => false,
+            'syntax_errors' => ['src/Form.php: unexpected } on line 4'],
+        ], 'patches/core/htaccess.patch');
+
+        $result = $this->writer($plan)->write($plan);
+
+        self::assertSame([], $result['written']);
+        self::assertCount(1, $result['refused']);
+        self::assertSame(
+            PatchFiles::BROKEN_SYNTAX.'src/Form.php: unexpected } on line 4',
+            $result['refused'][0]['reason'],
+        );
+        self::assertSame("old diff\n", \file_get_contents($this->root.'/patches/core/htaccess.patch'), 'the file the site declares is untouched');
+    }
+
     public function testAConflictedRerollIsWrittenBesideTheFileItCameFrom(): void
     {
         $this->declare('patches/core/htaccess.patch');

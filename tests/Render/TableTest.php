@@ -1846,6 +1846,22 @@ class TableTest extends TestCase
         );
     }
 
+    // The merge takes both sides when they add the same import at
+    // different offsets, so the re-roll drops the second.
+    public function testARerollThatDroppedADuplicateImportSaysSo(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->rerolledRow([
+            'status' => 'clean',
+            'patch' => "diff\n",
+            'deduplicated' => [['file' => 'src/A.php', 'line' => 6]],
+        ], ['title' => 'Fix a'])]]);
+
+        self::assertStringContainsString(
+            'the release and the patch added the same import in 1 place; the re-roll keeps one, since PHP refuses the second',
+            \implode("\n", self::table($plan)),
+        );
+    }
+
     // One lost brace makes the parser fail at every method below it, so a
     // row would print six lines about one file.
     public function testABrokenFileNamesItsFirstLinesAndCountsTheRest(): void

@@ -154,6 +154,18 @@ class PatchRow
     }
 
     /**
+     * What the re-rolled patch leaves unparseable, `path: message` as the
+     * server wrote it. Only a clean merge is read for this, so a conflict
+     * file a person still has to edit is never judged by it.
+     *
+     * @return list<string>
+     */
+    public function rerollSyntaxErrors(): array
+    {
+        return \array_values(\array_filter((array) ($this->reroll['syntax_errors'] ?? []), \is_string(...)));
+    }
+
+    /**
      * The patch the merge ran on, when the server did not use the declared one.
      */
     public function mergedFrom(): string
@@ -234,8 +246,28 @@ class PatchRow
      */
     public function unioned(): array
     {
+        return self::regionsOf($this->reroll['unioned'] ?? []);
+    }
+
+    /**
+     * The import lines the merge left twice and the re-roll dropped.
+     *
+     * @return list<array{file: string, line: int}>
+     */
+    public function deduplicated(): array
+    {
+        return self::regionsOf($this->reroll['deduplicated'] ?? []);
+    }
+
+    /**
+     * A server list of file-and-line entries, as the plugin reads them.
+     *
+     * @return list<array{file: string, line: int}>
+     */
+    private static function regionsOf(mixed $list): array
+    {
         $out = [];
-        foreach ((array) ($this->reroll['unioned'] ?? []) as $region) {
+        foreach ((array) $list as $region) {
             $region = (array) $region;
             $file = (string) ($region['file'] ?? '');
             if ('' !== $file) {

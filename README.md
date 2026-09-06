@@ -190,9 +190,10 @@ verdicts on the lines that declare the patches.
 | `unknown` | The patch was sent and came back without a verdict, and the row says why. The lock does not install the package, it has no release for the target, or the release tag is not on the service's mirror yet. |
 | `skipped` | The patch was never sent, so it has no verdict. Its package has no drupal.org release, or the run could not turn its source into a patch. |
 
-A patch can apply and still leave a file PHP cannot compile, which a merge
-that keeps a duplicate import does. The verdict stays `applies`, because the
-patch applied. A note under the row opens with `broken syntax` and names the
+A patch can apply and still leave a file the site cannot load, which a merge
+that keeps a duplicate import does. PHP, YAML, JSON, JavaScript and Twig are all
+read, so a broken `services.yml` counts too. The verdict stays `applies`, because the patch
+applied. A note under the row opens with `broken syntax` and names the
 file and the line. The headline counts those patches apart from the ones
 that work, and the run exits non-zero.
 
