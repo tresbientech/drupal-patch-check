@@ -221,7 +221,7 @@ final class ReaderTest extends TestCase
         self::assertSame(['patches/local.patch'], \array_keys($resolution->files));
         self::assertCount(2, $resolution->patches);
         self::assertSame(
-            [['package' => 'drupal/webform', 'title' => 'Second', 'source' => 'patches/second.patch', 'reason' => 'no room left under the service body limit']],
+            [['package' => 'drupal/webform', 'title' => 'Second', 'source' => 'patches/second.patch', 'reason' => 'the request was full; narrow with --package to check it']],
             $resolution->unsent,
         );
     }

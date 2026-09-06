@@ -166,7 +166,7 @@ class Client
 
         $decoded = \json_decode((string) $response->getBody(), true);
         if (!\is_array($decoded)) {
-            throw new RuntimeException('the plan could not be read');
+            throw new RuntimeException('the service answered with something that is not JSON');
         }
 
         return Plan::fromArray($decoded);

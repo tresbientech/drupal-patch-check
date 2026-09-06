@@ -180,37 +180,33 @@ class TableTest extends TestCase
     }
 
     // A patch taken from a merge request is shared work, so the re-roll
-    // belongs where the people who share it will get it.
-    public function testAConflictingMergeRequestPatchPointsAtTheRequest(): void
+    // belongs where the people who share it will get it. The line sits
+    // under the file the run wrote, since that is the re-roll to send.
+    public function testARerollFromAMergeRequestSaysToSendItThere(): void
+    {
+        $written = $this->writtenFile('patch/webform/22.patch', 'clean', 'drupal/webform', 'Fix a');
+        $written['from'] = 'https://git.drupalcode.org/project/webform/-/merge_requests/22.patch';
+        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+
+        self::assertStringContainsString('      copied into the site from https://git.drupalcode.org/project/webform/-/merge_requests/22.patch', $out);
+        self::assertStringContainsString('      send your re-roll to that merge request and every site using it is fixed', $out);
+    }
+
+    // Nothing was written for it, so there is no re-roll to send anywhere.
+    public function testARunThatWroteNothingSaysNothingAboutTheMergeRequest(): void
     {
         $out = \implode("\n", self::whole($this->fromMergeRequest('conflicts'), self::wrote(), 100));
 
-        self::assertStringContainsString('drupal/webform takes this patch from a merge request', $out);
-        self::assertStringContainsString('https://git.drupalcode.org/project/webform/-/merge_requests/22', $out);
+        self::assertStringNotContainsString('merge request', $out);
     }
 
-    public function testAnApplyingMergeRequestPatchPointsNowhere(): void
+    // A file the site already declared came from nowhere upstream.
+    public function testARerollOfALocalPatchPointsNowhere(): void
     {
-        self::assertStringNotContainsString(
-            'merge request',
-            \implode("\n", self::whole($this->fromMergeRequest('applies'), self::wrote(), 100)),
-        );
-    }
+        $written = $this->writtenFile('patchs/webform/fix.patch');
+        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
 
-    // A plain run makes no re-roll, so it has none to send upstream.
-    public function testAPlainRunPointsNowhere(): void
-    {
-        self::assertStringNotContainsString(
-            'merge request',
-            \implode("\n", self::whole($this->fromMergeRequest('conflicts'), null, 100)),
-        );
-    }
-
-    public function testAConflictingLocalPatchPointsNowhere(): void
-    {
-        self::assertSame([], Report::upstream($this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [
-            $this->row(['verdict' => 'conflicts', 'source' => 'patches/webform/fix.patch']),
-        ]]), self::wrote()));
+        self::assertStringNotContainsString('merge request', $out);
     }
 
     private static function wrote(): Outcomes
@@ -487,7 +483,7 @@ class TableTest extends TestCase
         $row = self::rowWith($lines, '<error>!</error> conflicts Later');
 
         self::assertSame(
-            '                    <fg=cyan>judged with only the part of #1 that applied</>',
+            '                    <fg=cyan>judged after #1 applied in part</>',
             $lines[$row + 1]
         );
     }
@@ -507,7 +503,7 @@ class TableTest extends TestCase
         $row = self::rowWith($lines, '· applies   Later');
 
         self::assertSame(
-            '                    <fg=cyan>judged with only the parts of #1, #2 and #3 that applied</>',
+            '                    <fg=cyan>judged after #1, #2 and #3 applied in part</>',
             $lines[$row + 1]
         );
     }
@@ -711,7 +707,7 @@ class TableTest extends TestCase
         $row = self::rowWith($lines, '<error>!</error> conflicts Fix the alter hook');
 
         self::assertSame(
-            '                    <fg=cyan>judged with only the part of "Domain content translations permissions_files" that applied</>',
+            '                    <fg=cyan>judged after "Domain content translations permissions_files" applied in part</>',
             $lines[$row + 1]
         );
     }
@@ -1665,28 +1661,33 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row(['verdict' => 'conflicts'])]]);
 
         self::assertStringContainsString(
-            '  composer applied these patches at install, so the files on disk show them',
+            '  composer already applied these patches to your files',
             \implode("\n", self::whole($plan, null, 100)),
         );
     }
 
-    public function testAWriteThatSettledEveryConflictSaysNothingAboutTheFilesOnDisk(): void
+    // A write run has just put re-rolls on disk that composer has applied
+    // nothing of, so the caveat about the installed files belongs to the
+    // table a plain run prints, even while conflicts are left.
+    public function testAWriteRunSaysNothingAboutWhatComposerApplied(): void
     {
-        // The scan counted a conflict; the write fixed it. The note is about
-        // what is left, so it goes when the last conflict does.
-        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'patch' => "diff\n", 'verified' => true], ['title' => 'Fix a'])]]);
+        $plan = $this->planFrom(['counts' => ['conflicts' => 2], 'patches' => [
+            $this->rerolledRow(['status' => 'clean', 'patch' => "diff\n", 'verified' => true], ['title' => 'Fix a']),
+            $this->rerolledRow(['status' => 'conflicts', 'patch' => "diff\n"], ['title' => 'Fix b']),
+        ]]);
         $written = $this->writtenFile('patches/webform/fix.patch', 'clean', 'drupal/webform', 'Fix a');
         $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
 
         self::assertStringContainsString('1 now applies', $out);
-        self::assertStringNotContainsString('files on disk', $out);
+        self::assertStringContainsString('conflicts left', $out, 'a conflict is still open, and the caveat still stays out');
+        self::assertStringNotContainsString('composer already applied', $out);
     }
 
     public function testARunWithNoConflictSaysNothingAboutTheFilesOnDisk(): void
     {
         $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row(['verdict' => 'applies'])]]);
 
-        self::assertStringNotContainsString('files on disk', \implode("\n", self::whole($plan, null, 100)));
+        self::assertStringNotContainsString('composer already applied', \implode("\n", self::whole($plan, null, 100)));
     }
 
     public function testAPatchCopiedFromAUrlIsNamedWithItsOrigin(): void
@@ -1766,7 +1767,7 @@ class TableTest extends TestCase
         ], ['title' => 'Fix a'])]]);
 
         self::assertStringContainsString(
-            'the release and the patch both added lines in 2 regions; the merge kept both additions, check them',
+            'the merge kept both additions in 2 regions, check them',
             \implode("\n", self::table($plan))
         );
     }
@@ -1788,7 +1789,7 @@ class TableTest extends TestCase
 
         self::assertSame('  re-rolled:', $lines[1]);
         self::assertStringContainsString('patches/webform-fix-a-1234abcd.patch', $lines[2]);
-        self::assertStringContainsString('both added lines in 2 regions', $lines[3]);
+        self::assertStringContainsString('both additions in 2 regions', $lines[3]);
         self::assertSame('        src/Form.php:12', $lines[4]);
         self::assertSame('        src/Batch.php:40', $lines[5]);
     }
@@ -1802,7 +1803,7 @@ class TableTest extends TestCase
         ], ['title' => 'Fix a'])]]);
 
         self::assertStringContainsString(
-            're-rolled from merge_requests/45.diff, the merge request\'s own diff; the declared file decided the verdict',
+            'merged from merge_requests/45.diff; the verdict used your declared file',
             \implode("\n", self::table($plan))
         );
     }
@@ -1843,22 +1844,6 @@ class TableTest extends TestCase
         self::assertSame(
             Report::detailIndent().'<fg=cyan>broken syntax: src/A.php: Cannot use A\\C as C because the name is already in use on line 118</>',
             $lines[$at + 1],
-        );
-    }
-
-    // The merge takes both sides when they add the same import at
-    // different offsets, so the re-roll drops the second.
-    public function testARerollThatDroppedADuplicateImportSaysSo(): void
-    {
-        $plan = $this->planFrom(['patches' => [$this->rerolledRow([
-            'status' => 'clean',
-            'patch' => "diff\n",
-            'deduplicated' => [['file' => 'src/A.php', 'line' => 6]],
-        ], ['title' => 'Fix a'])]]);
-
-        self::assertStringContainsString(
-            'the release and the patch added the same import in 1 place; the re-roll keeps one, since PHP refuses the second',
-            \implode("\n", self::table($plan)),
         );
     }
 

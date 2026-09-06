@@ -71,8 +71,8 @@ class Report
     /** Broken lines printed under a row before the rest is counted. One lost brace cascades into every method below it. */
     private const SYNTAX_LINES = 3;
 
-    /** Printed once while a row still conflicts: the verdict answers what the release has, the installed files do not. */
-    private const ON_DISK = 'composer applied these patches at install, so the files on disk show them';
+    /** Printed once by a plain run that still has a conflict: the verdict answers what the release has, the installed files do not. */
+    private const ON_DISK = 'composer already applied these patches to your files';
 
     /**
      * Mark, colour tag and sort rank per row status, worst first. A status is the verdict, or the failure mode when the patch applied and left something broken. An unrecognised one gets the fallback and sorts with the work.
@@ -201,7 +201,6 @@ class Report
             self::written($outcomes),
             self::refused($outcomes),
             self::rewrite($outcomes),
-            self::upstream($plan, $outcomes),
             self::footer($plan, $outcomes, $scope),
         );
     }
@@ -269,7 +268,10 @@ class Report
             $lines[] = '';
         }
         $lines[] = '  patches: '.(null === $outcomes ? self::tally(self::headlineCounts($plan)) : self::writeTally($plan, $outcomes));
-        if (self::conflictsLeft($plan, $outcomes) > 0) {
+        // The caveat is about the table's verdicts, which only a plain run
+        // prints. A write run has just put re-rolls on disk that composer
+        // has applied nothing of, so saying this there reads as if it had.
+        if (null === $outcomes && ($plan->counts[PatchRow::CONFLICTS] ?? 0) > 0) {
             $lines[] = self::caveat('  '.self::ON_DISK);
         }
 
@@ -379,9 +381,6 @@ class Report
         if ([] !== $row->unioned()) {
             $out[] = self::unionNote(\count($row->unioned()));
         }
-        if ([] !== $row->deduplicated()) {
-            $out[] = self::dedupeNote(\count($row->deduplicated()));
-        }
         if ('' !== $row->strictRefused) {
             $out[] = $row->strictRefused;
         }
@@ -402,11 +401,11 @@ class Report
     {
         $cited = \array_map(static fn (string $label): string => self::cited($label, $numbers), $labels);
         if (1 === \count($cited)) {
-            return 'judged with only the part of '.$cited[0].' that applied';
+            return 'judged after '.$cited[0].' applied in part';
         }
         $last = \array_pop($cited);
 
-        return 'judged with only the parts of '.\implode(', ', $cited).' and '.$last.' that applied';
+        return 'judged after '.\implode(', ', $cited).' and '.$last.' applied in part';
     }
 
     /**
@@ -515,6 +514,11 @@ class Report
             // The site did not have this file before the run put it there.
             if ('' !== $file['from']) {
                 $lines[] = '      copied into the site from '.$file['from'];
+                // A patch taken from a merge request is shared work, so the
+                // re-roll belongs where the people who share it will get it.
+                if ('' !== PatchText::mergeRequest($file['from'])) {
+                    $lines[] = '      send your re-roll to that merge request and every site using it is fixed';
+                }
             }
             if ([] !== $file['unioned']) {
                 $lines[] = '      '.self::unionNote(\count($file['unioned'])).':';
@@ -629,7 +633,7 @@ class Report
     {
         $tail = \substr($url, false === \strrpos($url, '/-/') ? 0 : \strrpos($url, '/-/') + 3);
 
-        return 're-rolled from '.('' === $tail ? $url : $tail).', the merge request\'s own diff; the declared file decided the verdict';
+        return 'merged from '.('' === $tail ? $url : $tail).'; the verdict used your declared file';
     }
 
     /**
@@ -638,21 +642,10 @@ class Report
     public static function unionNote(int $regions): string
     {
         return \sprintf(
-            'the release and the patch both added lines in %d region%s; the merge kept both additions, check them',
+            'the merge kept both additions in %d region%s, check %s',
             $regions,
-            1 === $regions ? '' : 's'
-        );
-    }
-
-    /**
-     * What the merge would have duplicated, in one line.
-     */
-    public static function dedupeNote(int $lines): string
-    {
-        return \sprintf(
-            'the release and the patch added the same import in %d place%s; the re-roll keeps one, since PHP refuses the second',
-            $lines,
-            1 === $lines ? '' : 's'
+            1 === $regions ? '' : 's',
+            1 === $regions ? 'it' : 'them'
         );
     }
 
@@ -694,38 +687,6 @@ class Report
         }
 
         return $out;
-    }
-
-    /**
-     * Where the re-roll of a conflicting patch belongs when the site took
-     * that patch from a merge request. Only a run that wrote has one.
-     *
-     * @return list<string>
-     */
-    public static function upstream(Plan $plan, ?Outcomes $outcomes): array
-    {
-        // The line asks for a re-roll to be sent. A plain run makes none,
-        // so it has nothing to send.
-        if (null === $outcomes) {
-            return [];
-        }
-        $requests = [];
-        foreach ($plan->patches as $row) {
-            $request = PatchText::mergeRequest($row->source);
-            if ($row->conflicts() && '' !== $request) {
-                $requests[$request] = $row->package;
-            }
-        }
-        if ([] === $requests) {
-            return [];
-        }
-        $lines = [''];
-        foreach ($requests as $request => $package) {
-            $lines[] = '  '.$package.' takes this patch from a merge request. Send the re-roll there and';
-            $lines[] = '  every site using it is fixed: '.$request;
-        }
-
-        return $lines;
     }
 
     /**
@@ -1039,25 +1000,6 @@ class Report
         }
 
         return $fixed;
-    }
-
-    /**
-     * How many patches still conflict, counting what a write has already settled.
-     */
-    private static function conflictsLeft(Plan $plan, ?Outcomes $outcomes): int
-    {
-        if (null === $outcomes) {
-            return $plan->counts[PatchRow::CONFLICTS] ?? 0;
-        }
-        $fixed = self::fixedByWrite($outcomes);
-        $left = 0;
-        foreach ($plan->patches as $row) {
-            if (PatchRow::CONFLICTS === $row->verdict && !isset($fixed[$row->key()])) {
-                ++$left;
-            }
-        }
-
-        return $left;
     }
 
     private static function writeTally(Plan $plan, Outcomes $outcomes): string

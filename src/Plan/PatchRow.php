@@ -250,16 +250,6 @@ class PatchRow
     }
 
     /**
-     * The import lines the merge left twice and the re-roll dropped.
-     *
-     * @return list<array{file: string, line: int}>
-     */
-    public function deduplicated(): array
-    {
-        return self::regionsOf($this->reroll['deduplicated'] ?? []);
-    }
-
-    /**
      * A server list of file-and-line entries, as the plugin reads them.
      *
      * @return list<array{file: string, line: int}>

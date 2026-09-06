@@ -108,7 +108,7 @@ class PatchConfig
             }
             $patches[] = ['package' => $package, 'title' => $title, 'source' => $source];
             if ($spent + $cost > $textBudget) {
-                $unsent[] = self::withheld($package, $title, $source, 'no room left under the service body limit');
+                $unsent[] = self::withheld($package, $title, $source, 'the request was full; narrow with --package to check it');
                 continue;
             }
             $spent += $cost;

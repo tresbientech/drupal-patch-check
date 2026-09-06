@@ -32,7 +32,7 @@ class PatchFiles
 
     public const OUTSIDE_ROOT = 'its path points outside the site';
 
-    public const NO_REROLL = 'the service returned no re-roll and gave no reason';
+    public const NO_REROLL = 'the service sent no re-roll and no reason for it';
 
     public const URL_DECLARED = 'it is declared as a URL, so there is no file to replace';
 
