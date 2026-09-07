@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch;
 
 use Composer\Command\BaseCommand;
-use Symfony\Component\Console\Exception\ExceptionInterface as ConsoleException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
@@ -24,14 +23,6 @@ abstract class PatchCommand extends BaseCommand
     /** Output shapes, in the order the help text lists them. */
     private const FORMATS = ['table', 'json', 'github'];
 
-    /** The options one command carried before the split, and what does each job now. */
-    private const REMOVED = [
-        '--write' => 'run '.Report::REROLL,
-        '--resolve' => 'run '.Report::REROLL.', which reads the conflict files on every run',
-        '--fix' => 'run '.Report::REROLL.' --update',
-        '--strict' => 'a patch the service could not judge no longer fails the run',
-    ];
-
     /**
      * The options both commands take.
      */
@@ -46,25 +37,6 @@ abstract class PatchCommand extends BaseCommand
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print the request that would be sent and stop. Nothing is asked of the service and nothing is written.');
 
         return $this;
-    }
-
-    /**
-     * A run passing an option the split removed is told what replaced it, before the console's own refusal.
-     */
-    public function run(InputInterface $input, OutputInterface $output): int
-    {
-        try {
-            return parent::run($input, $output);
-        } catch (ConsoleException $e) {
-            foreach (self::REMOVED as $flag => $now) {
-                if (\str_contains($e->getMessage(), '"'.$flag.'"')) {
-                    $output->writeln('<error>drupatch: '.$flag.' is gone; '.$now.'</error>');
-
-                    return Plan::FAILED;
-                }
-            }
-            throw $e;
-        }
     }
 
     /**

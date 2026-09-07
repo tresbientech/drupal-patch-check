@@ -4,12 +4,8 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Tests\Command;
 
-use Composer\Console\Application;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\Console\Tester\CommandTester;
 use TresBienTech\Drupatch\CheckCommand;
-use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Render\HookReport;
 use TresBienTech\Drupatch\RerollCommand;
 
@@ -50,30 +46,6 @@ final class CheckCommandTest extends TestCase
         foreach (['write', 'fix', 'resolve', 'strict'] as $option) {
             self::assertFalse($definition->hasOption($option), $option.' came back');
         }
-    }
-
-    /**
-     * @return iterable<string, array{string, string}>
-     */
-    public static function removedOptions(): iterable
-    {
-        yield 'write' => ['--write', 'run composer drupatch:reroll'];
-        yield 'resolve' => ['--resolve', 'run composer drupatch:reroll, which reads the conflict files on every run'];
-        yield 'fix' => ['--fix', 'run composer drupatch:reroll --update'];
-        yield 'strict' => ['--strict', 'a patch the service could not judge no longer fails the run'];
-    }
-
-    #[DataProvider('removedOptions')]
-    public function testARemovedOptionNamesWhatReplacedIt(string $flag, string $replacement): void
-    {
-        $command = new CheckCommand();
-        $command->setApplication(new Application());
-        $tester = new CommandTester($command);
-
-        $code = $tester->execute([$flag => true]);
-
-        self::assertSame(Plan::FAILED, $code);
-        self::assertStringContainsString($flag.' is gone; '.$replacement, $tester->getDisplay());
     }
 
     // A reviewer approving the plugin for CI reads the request rather
