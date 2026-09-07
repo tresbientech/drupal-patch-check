@@ -26,9 +26,10 @@ abstract class PatchCommand extends BaseCommand
 
     /** The options one command carried before the split, and what does each job now. */
     private const REMOVED = [
-        '--write' => Report::REROLL,
-        '--resolve' => Report::REROLL.', which reads the conflict files on every run',
-        '--fix' => Report::REROLL.' --update',
+        '--write' => 'run '.Report::REROLL,
+        '--resolve' => 'run '.Report::REROLL.', which reads the conflict files on every run',
+        '--fix' => 'run '.Report::REROLL.' --update',
+        '--strict' => 'a patch the service could not judge no longer fails the run',
     ];
 
     /**
@@ -40,7 +41,6 @@ abstract class PatchCommand extends BaseCommand
             ->addOption('target', null, InputOption::VALUE_REQUIRED, 'Core version to plan against, e.g. 11.4.5, or `latest` for the newest core your own constraint allows. Without it the installed releases are checked.')
             ->addOption('package', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only this package, repeatable: drupal/webform or webform. Narrows the report, what is written, and the exit code.')
             ->addOption('patch', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only this patch, named by the source the site declares, a path or a URL. Repeatable, and combines with --package.')
-            ->addOption('strict', null, InputOption::VALUE_NONE, 'Also fail on a patch that could not be judged, and on a run that declared patches and judged none')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Print the plan as one JSON object. The same as --format=json.')
             ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output shape: '.\implode(', ', self::FORMATS).'. Defaults to table.')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print the request that would be sent and stop. Nothing is asked of the service and nothing is written.');
@@ -58,7 +58,7 @@ abstract class PatchCommand extends BaseCommand
         } catch (ConsoleException $e) {
             foreach (self::REMOVED as $flag => $now) {
                 if (\str_contains($e->getMessage(), '"'.$flag.'"')) {
-                    $output->writeln('<error>drupatch: '.$flag.' is gone; run '.$now.'</error>');
+                    $output->writeln('<error>drupatch: '.$flag.' is gone; '.$now.'</error>');
 
                     return Plan::FAILED;
                 }
@@ -150,11 +150,10 @@ abstract class PatchCommand extends BaseCommand
      */
     protected function render(InputInterface $input, OutputInterface $output, string $format, Run $run, Plan $plan, ?Outcomes $outcomes): void
     {
-        $strict = true === $input->getOption('strict');
         if ('json' === $format) {
             $raw = null === $outcomes ? $plan->raw : $outcomes->intoDocument($plan->raw);
             $output->writeln((string) \json_encode($raw + [
-                'summary' => Report::summary($plan, $strict, $run->coverage->isVacuous(), $outcomes),
+                'summary' => Report::summary($plan, $outcomes),
             ] + ['written' => \array_map(
                 static fn (array $file): array => ['path' => $file['path'], 'status' => $file['status']],
                 null === $outcomes ? [] : $outcomes->written()

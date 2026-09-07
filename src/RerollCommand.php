@@ -106,7 +106,7 @@ class RerollCommand extends PatchCommand
             return Plan::FAILED;
         }
 
-        return $plan->exitCode(true === $input->getOption('strict'), $run->coverage->isVacuous());
+        return $plan->exitCode();
     }
 
     /**

@@ -32,10 +32,10 @@ final class CheckCommandTest extends TestCase
     {
         $definition = (new CheckCommand())->getDefinition();
 
-        foreach (['target', 'package', 'strict', 'json', 'format', 'dry-run'] as $option) {
+        foreach (['target', 'package', 'json', 'format', 'dry-run'] as $option) {
             self::assertTrue($definition->hasOption($option), $option.' is not an option');
         }
-        foreach (['write', 'fix', 'resolve', 'force', 'update', 'decisions'] as $option) {
+        foreach (['write', 'fix', 'resolve', 'strict', 'force', 'update', 'decisions'] as $option) {
             self::assertFalse($definition->hasOption($option), $option.' is an option of the read command');
         }
     }
@@ -44,10 +44,10 @@ final class CheckCommandTest extends TestCase
     {
         $definition = (new RerollCommand())->getDefinition();
 
-        foreach (['target', 'package', 'strict', 'json', 'format', 'dry-run', 'update', 'force'] as $option) {
+        foreach (['target', 'package', 'json', 'format', 'dry-run', 'update', 'force'] as $option) {
             self::assertTrue($definition->hasOption($option), $option.' is not an option');
         }
-        foreach (['write', 'fix', 'resolve'] as $option) {
+        foreach (['write', 'fix', 'resolve', 'strict'] as $option) {
             self::assertFalse($definition->hasOption($option), $option.' came back');
         }
     }
@@ -60,6 +60,7 @@ final class CheckCommandTest extends TestCase
         yield 'write' => ['--write', 'run composer drupatch:reroll'];
         yield 'resolve' => ['--resolve', 'run composer drupatch:reroll, which reads the conflict files on every run'];
         yield 'fix' => ['--fix', 'run composer drupatch:reroll --update'];
+        yield 'strict' => ['--strict', 'a patch the service could not judge no longer fails the run'];
     }
 
     #[DataProvider('removedOptions')]

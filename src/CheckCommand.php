@@ -61,6 +61,6 @@ class CheckCommand extends PatchCommand
 
         $this->render($input, $output, $format, $run, $plan, null);
 
-        return $plan->exitCode(true === $input->getOption('strict'), $run->coverage->isVacuous());
+        return $plan->exitCode();
     }
 }

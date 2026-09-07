@@ -241,17 +241,12 @@ class Plan
     public const FAILED = 2;
 
     /**
-     * The exit code: fails on a patch whose verdict is none of merged,
-     * applies or unknown. Strict fails on any row needing action, and on
-     * a vacuous run.
+     * The exit code: fails on a patch whose verdict is none of merged, applies or unknown.
      */
-    public function exitCode(bool $strict = false, bool $vacuous = false): int
+    public function exitCode(): int
     {
-        if ($strict && $vacuous) {
-            return self::ACTION_NEEDED;
-        }
         foreach ($this->patches as $row) {
-            if ($row->fails($strict)) {
+            if ($row->fails()) {
                 return self::ACTION_NEEDED;
             }
         }

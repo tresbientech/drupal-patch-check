@@ -57,7 +57,7 @@ class PlanTest extends TestCase
         $this->assertSame('applies', $row->verdict);
         $this->assertSame('broken syntax', $row->failureMode);
         $this->assertSame('broken syntax', $row->status());
-        $this->assertTrue($row->fails(false));
+        $this->assertTrue($row->fails());
         $this->assertTrue($row->needsMention());
         $this->assertCount(1, $row->syntaxErrors);
     }
@@ -69,7 +69,7 @@ class PlanTest extends TestCase
         $this->assertSame('', $row->failureMode);
         $this->assertSame('applies', $row->status());
         $this->assertSame([], $row->syntaxErrors);
-        $this->assertFalse($row->fails(true));
+        $this->assertFalse($row->fails());
     }
 
     public function testReadsThePlanTheApiSends(): void

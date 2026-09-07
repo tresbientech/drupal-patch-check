@@ -16,7 +16,7 @@ class PatchRow
      */
     public const CLEAN_VERDICTS = [self::MERGED, self::APPLIES];
 
-    /** Verdicts a non-strict run reports without failing. */
+    /** Verdicts the run reports without failing. */
     public const TOLERATED_VERDICTS = [self::MERGED, self::APPLIES, self::UNKNOWN];
 
     public const UNKNOWN = 'unknown';
@@ -326,14 +326,10 @@ class PatchRow
     }
 
     /**
-     * Whether the row fails the run; strict adds the unclear verdicts.
+     * Whether the row fails the run.
      */
-    public function fails(bool $strict): bool
+    public function fails(): bool
     {
-        if ($strict) {
-            return $this->needsAction();
-        }
-
         return '' !== $this->failureMode || !\in_array($this->verdict, self::TOLERATED_VERDICTS, true);
     }
 

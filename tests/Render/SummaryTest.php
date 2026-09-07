@@ -67,7 +67,7 @@ class SummaryTest extends TestCase
     {
         $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'from' => '']], 'refused' => []];
 
-        self::assertSame(['', '--update'], \array_column(Report::summary($this->plan(), false, false, Outcomes::fromWrite($wrote))['next'], 'flag'));
+        self::assertSame(['', '--update'], \array_column(Report::summary($this->plan(), Outcomes::fromWrite($wrote))['next'], 'flag'));
     }
 
     public function testAPackageIsNamedOnceHoweverManyRowsItHas(): void
@@ -85,12 +85,13 @@ class SummaryTest extends TestCase
         $plan = $this->plan();
 
         self::assertSame($plan->exitCode(), Report::summary($plan)['exit_code']);
-        self::assertSame($plan->exitCode(true), Report::summary($plan, true)['exit_code']);
     }
 
     // Strict is off unless asked for, and a plan whose only findings are
     // tolerable is where that shows.
-    public function testStrictIsOffByDefault(): void
+    // A patch the service could not judge is as often a mirror that lags a
+    // release as a real problem, and neither is the repository's to fix.
+    public function testAnUnclearRowDoesNotFailTheRun(): void
     {
         $plan = $this->planFrom([
             'no_release' => ['drupal/autotitle'],
@@ -98,7 +99,6 @@ class SummaryTest extends TestCase
         ]);
 
         self::assertSame(Plan::CLEAN, Report::summary($plan)['exit_code']);
-        self::assertSame(Plan::ACTION_NEEDED, Report::summary($plan, true)['exit_code']);
     }
 
     public function testSaysWhatTheRunWasAbout(): void

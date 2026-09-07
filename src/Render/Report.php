@@ -793,7 +793,7 @@ class Report
      *
      * @return array<string, mixed>
      */
-    public static function summary(Plan $plan, bool $strict = false, bool $vacuous = false, ?Outcomes $outcomes = null): array
+    public static function summary(Plan $plan, ?Outcomes $outcomes = null): array
     {
         $counts = [];
         foreach ($plan->patches as $row) {
@@ -819,7 +819,7 @@ class Report
             'broken' => self::packagesWith($plan, PatchRow::BROKEN_SYNTAX),
             'blocked' => $plan->noRelease,
             'decided_by' => $sources,
-            'exit_code' => $plan->exitCode($strict, $vacuous),
+            'exit_code' => $plan->exitCode(),
         ];
         if ('' !== $plan->targetFrom) {
             $summary['target_from'] = $plan->targetFrom;
