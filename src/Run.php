@@ -71,7 +71,7 @@ class Run
      */
     public function body(bool $reroll, array $decided): array
     {
-        return Client::body($this->site->composerJson(), $this->site->composerLock(), $this->site->patches(), $this->target, $reroll, $this->candidates, $this->declared, $decided);
+        return Client::body($this->site->composerJson(), $this->site->composerLock(), $this->site->patches(), $this->site->private(), $this->target, $reroll, $this->candidates, $this->declared, $decided);
     }
 
     /**
@@ -84,7 +84,7 @@ class Run
     public function plan(bool $reroll, array $decided): Plan
     {
         $plan = Client::fromComposer($this->composer, $this->io)
-            ->plan($this->site->composerJson(), $this->site->composerLock(), $this->site->patches(), $this->target, $reroll, $this->candidates, $this->declared, $decided);
+            ->plan($this->site->composerJson(), $this->site->composerLock(), $this->site->patches(), $this->site->private(), $this->target, $reroll, $this->candidates, $this->declared, $decided);
         // The whole site is sent because the server needs the whole lock;
         // the narrowing happens here, so everything after it is about the
         // packages that were asked for.

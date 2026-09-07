@@ -582,6 +582,24 @@ class TableTest extends TestCase
         self::assertStringNotContainsString('more failed hunk', $out);
     }
 
+    // A merge resolved the hunks the patch failed on, so the count of
+    // them is about a list the row no longer prints.
+    public function testAMergedRowSaysNothingAboutTheHunksItResolved(): void
+    {
+        $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row([
+            'verdict' => 'merged',
+            'result' => [
+                'hunks_failed' => [['file' => 'm.module', 'line' => 6, 'reason' => 'patch failed']],
+                'hunks_failed_total' => 1,
+            ],
+        ])]]);
+
+        $out = \implode("\n", self::table($plan));
+
+        self::assertStringNotContainsString('more failed hunk', $out);
+        self::assertStringNotContainsString('m.module:6', $out);
+    }
+
     // A write run is about the files it wrote. The table is the plain
     // run's answer and repeating it buries the part that is new.
     public function testAWriteRunPrintsNoTable(): void

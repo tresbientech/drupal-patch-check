@@ -354,10 +354,11 @@ class Report
                 : $failure;
         }
         $failed = $row->failures();
-        // Server JSON is the boundary: a total below what it sent prints
-        // nothing rather than a negative count.
+        // The count says what the list left out, and only a conflicting
+        // row lists hunks. Server JSON is the boundary: a total below
+        // what it sent prints nothing rather than a negative count.
         $more = $row->failedTotal - \count($failed);
-        if ($more > 0) {
+        if ($row->conflicts() && $more > 0) {
             $out[] = '+'.$more.' more failed hunk'.(1 === $more ? '' : 's');
         }
         foreach ($row->hunksShipped as $place) {

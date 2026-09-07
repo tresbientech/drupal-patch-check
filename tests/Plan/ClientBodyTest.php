@@ -7,6 +7,7 @@ namespace TresBienTech\Drupatch\Tests\Plan;
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Client;
 use TresBienTech\Drupatch\PatchConfig;
+use TresBienTech\Drupatch\PrivateDeclarations;
 
 /**
  * The body is what `--dry-run` prints, so a case here is a case about
@@ -16,7 +17,7 @@ final class ClientBodyTest extends TestCase
 {
     public function testTheBodyCarriesTheDocumentsItWasGiven(): void
     {
-        $body = Client::body('{"require":{}}', '{"packages":[]}', $this->resolution());
+        $body = self::body('{"require":{}}', '{"packages":[]}');
 
         self::assertSame('{"require":{}}', $body['composer_json']);
         self::assertSame('{"packages":[]}', $body['composer_lock']);
@@ -25,15 +26,16 @@ final class ClientBodyTest extends TestCase
 
     public function testTheBodyCarriesTheResolvedPatchesAndTheirText(): void
     {
-        $body = Client::body('{}', '{}', $this->resolution());
+        $body = self::body('{}', '{}', $this->resolution());
 
-        self::assertSame([['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/a.patch']], $body['patch_config']);
+        // The title stays at home; the service echoes it and nothing more.
+        self::assertSame([['package' => 'drupal/webform', 'source' => 'patches/a.patch']], $body['patch_config']);
         self::assertSame(['patches/a.patch' => "diff --git a/x b/x\n"], (array) $body['patch_files']);
     }
 
     public function testABareRunCarriesNoTargetAndNoCandidate(): void
     {
-        $body = Client::body('{}', '{}', $this->resolution());
+        $body = self::body('{}', '{}');
 
         self::assertSame('', $body['target_core']);
         self::assertFalse($body['reroll']);
@@ -44,7 +46,7 @@ final class ClientBodyTest extends TestCase
     // this, so it travels with every call.
     public function testTheBodyNamesTheClientAndItsVersion(): void
     {
-        $body = Client::body('{}', '{}', $this->resolution());
+        $body = self::body('{}', '{}');
 
         self::assertSame(Client::agent(), $body['client']);
         self::assertStringStartsWith('drupal-patch-check/', (string) $body['client']);
@@ -52,7 +54,7 @@ final class ClientBodyTest extends TestCase
 
     public function testATargetedRunCarriesWhatComposerPicked(): void
     {
-        $body = Client::body('{}', '{}', $this->resolution(), '11.4.5', true, ['drupal/webform' => '6.3.1']);
+        $body = self::body('{}', '{}', $this->resolution(), '11.4.5', true, ['drupal/webform' => '6.3.1']);
 
         self::assertSame('11.4.5', $body['target_core']);
         self::assertTrue($body['reroll']);
@@ -61,7 +63,7 @@ final class ClientBodyTest extends TestCase
 
     public function testEmptyMapsStayObjectsSoTheServiceCanReadThem(): void
     {
-        $body = Client::body('{}', '{}', new PatchConfig([], [], [], '', [], []));
+        $body = self::body('{}', '{}', new PatchConfig([], [], [], '', [], []));
 
         $encoded = (string) \json_encode($body);
 
@@ -74,9 +76,25 @@ final class ClientBodyTest extends TestCase
     // the site has on disk cannot lag, so it travels with every run.
     public function testTheBodyCarriesWhatEachInstalledReleaseDeclares(): void
     {
-        $body = Client::body('{}', '{}', $this->resolution(), '', false, [], ['drupal/webform' => '^10.3 || ^11']);
+        $body = self::body('{}', '{}', $this->resolution(), '', false, [], ['drupal/webform' => '^10.3 || ^11']);
 
         self::assertSame(['drupal/webform' => '^10.3 || ^11'], (array) $body['installed_core']);
+    }
+
+    /**
+     * The request, with the declarations object built from the same config the request carries.
+     *
+     * @param array<string, string>                  $candidates
+     * @param array<string, string>                  $declared
+     * @param array<int, list<array<string, mixed>>> $resolutions
+     *
+     * @return array<string, mixed>
+     */
+    private static function body(string $json, string $lock, ?PatchConfig $patches = null, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = []): array
+    {
+        $patches ??= new PatchConfig([], [], [], '', [], []);
+
+        return Client::body($json, $lock, $patches, PrivateDeclarations::of($patches, false), $targetCore, $reroll, $candidates, $declared, $resolutions);
     }
 
     private function resolution(): PatchConfig
@@ -93,13 +111,12 @@ final class ClientBodyTest extends TestCase
 
     public function testAPatchWithDecidedRegionsCarriesThem(): void
     {
-        $body = Client::body('{}', '{}', $this->resolution(), '', true, [], [], [
+        $body = self::body('{}', '{}', $this->resolution(), '', true, [], [], [
             0 => [['file' => 'src/Form.php', 'region' => 1, 'text' => '  $decided = TRUE;']],
         ]);
 
         self::assertSame([[
             'package' => 'drupal/webform',
-            'title' => 'Alter hook',
             'source' => 'patches/a.patch',
             'resolutions' => [['file' => 'src/Form.php', 'region' => 1, 'text' => '  $decided = TRUE;']],
         ]], $body['patch_config']);
@@ -107,13 +124,12 @@ final class ClientBodyTest extends TestCase
 
     public function testAnEmptiedRegionIsCarriedAsADelete(): void
     {
-        $body = Client::body('{}', '{}', $this->resolution(), '', true, [], [], [
+        $body = self::body('{}', '{}', $this->resolution(), '', true, [], [], [
             0 => [['file' => 'src/Form.php', 'region' => 0, 'delete' => true]],
         ]);
 
         self::assertSame([[
             'package' => 'drupal/webform',
-            'title' => 'Alter hook',
             'source' => 'patches/a.patch',
             'resolutions' => [['file' => 'src/Form.php', 'region' => 0, 'delete' => true]],
         ]], $body['patch_config']);
@@ -121,10 +137,10 @@ final class ClientBodyTest extends TestCase
 
     public function testAPatchWithNoDecidedRegionCarriesNoResolutionsKey(): void
     {
-        $body = Client::body('{}', '{}', $this->resolution(), '', true, [], [], []);
+        $body = self::body('{}', '{}', $this->resolution(), '', true, [], [], []);
 
         self::assertSame(
-            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/a.patch']],
+            [['package' => 'drupal/webform', 'source' => 'patches/a.patch']],
             $body['patch_config']
         );
     }

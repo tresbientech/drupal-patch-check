@@ -87,7 +87,7 @@ final class FilteredTest extends TestCase
         self::assertStringNotContainsString('acquia/cohesion', $request['json']);
     }
 
-    public function testTheRequestCarriesFiveKeysAndNoOthers(): void
+    public function testTheRequestCarriesFourKeysAndNoOthers(): void
     {
         $json = [
             'name' => 'acme/site',
@@ -115,12 +115,27 @@ final class FilteredTest extends TestCase
 
         $sent = \json_decode($request['json'], true);
         self::assertIsArray($sent);
-        self::assertSame(['require', 'require-dev', 'minimum-stability', 'prefer-stable', 'extra'], \array_keys($sent));
+        self::assertSame(['require', 'require-dev', 'minimum-stability', 'prefer-stable'], \array_keys($sent));
         self::assertSame(['drupal/webform' => '^6.2'], $sent['require']);
         self::assertSame(['drupal/devel' => '^5'], $sent['require-dev']);
-        self::assertSame(['patches' => ['drupal/webform' => ['Alter hook' => 'patches/webform.patch']]], $sent['extra']);
         self::assertStringNotContainsString('acme-internal', $request['json']);
         self::assertStringNotContainsString('deploy.sh', $request['json']);
+    }
+
+    public function testASitePrivateDeclarationsDropsExtraPatchesFromTheJson(): void
+    {
+        $json = [
+            'require' => ['drupal/webform' => '^6.2'],
+            'extra' => ['patches' => ['drupal/webform' => ['CUP-1341' => 'patch/acme/CUP-1341.patch']]],
+        ];
+        $lock = ['packages' => [['name' => 'drupal/webform', 'version' => '6.2.9', 'notification-url' => self::DRUPAL]]];
+
+        $request = Client::filter(
+            \json_encode($json, \JSON_THROW_ON_ERROR),
+            \json_encode($lock, \JSON_THROW_ON_ERROR),
+        );
+
+        self::assertSame(['require' => ['drupal/webform' => '^6.2']], \json_decode($request['json'], true));
     }
 
     public function testTheLockCarriesNamesVersionsAndTheCommitOnly(): void

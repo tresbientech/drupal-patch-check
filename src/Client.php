@@ -23,7 +23,7 @@ class Client
     public const PACKAGE = 'tresbientech/drupal-patch-check';
 
     /** What agent() reports when composer has no release to name. */
-    public const VERSION = '0.14.0';
+    public const VERSION = '0.18.0';
 
     public const DEFAULT_ENDPOINT = 'https://api.tresbien.tech/v1/composer/scan';
 
@@ -140,12 +140,13 @@ class Client
      * @param array<string, string>                  $candidates  composer name to the release composer would install
      * @param array<string, string>                  $declared    composer name to the core requirement its installed release declares
      * @param array<int, list<array<string, mixed>>> $resolutions regions a person decided, by patch position
+     * @param PrivateDeclarations                    $private     what the request may not carry of the site's own words
      *
      * @throws RuntimeException when the call or the answer failed
      */
-    public function plan(string $composerJson, string $composerLock, PatchConfig $patches, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = []): Plan
+    public function plan(string $composerJson, string $composerLock, PatchConfig $patches, PrivateDeclarations $private, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = []): Plan
     {
-        $body = \json_encode(self::body($composerJson, $composerLock, $patches, $targetCore, $reroll, $candidates, $declared, $resolutions), \JSON_THROW_ON_ERROR);
+        $body = \json_encode(self::body($composerJson, $composerLock, $patches, $private, $targetCore, $reroll, $candidates, $declared, $resolutions), \JSON_THROW_ON_ERROR);
 
         try {
             $response = $this->downloader->get($this->endpoint, [
@@ -169,7 +170,7 @@ class Client
             throw new RuntimeException('the service answered with something that is not JSON');
         }
 
-        return Plan::fromArray($decoded);
+        return Plan::fromArray($private->reveal($decoded));
     }
 
     /**
@@ -178,10 +179,11 @@ class Client
      * @param array<string, string>                  $candidates
      * @param array<string, string>                  $declared
      * @param array<int, list<array<string, mixed>>> $resolutions regions a person decided, by patch position
+     * @param PrivateDeclarations                    $private     what the request may not carry of the site's own words
      *
      * @return array<string, mixed>
      */
-    public static function body(string $composerJson, string $composerLock, PatchConfig $patches, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = []): array
+    public static function body(string $composerJson, string $composerLock, PatchConfig $patches, PrivateDeclarations $private, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = []): array
     {
         $config = [];
         foreach ($patches->patches as $i => $patch) {
@@ -196,8 +198,8 @@ class Client
             'composer_lock' => $composerLock,
             'client' => self::agent(),
             'patches' => true,
-            'patch_files' => (object) $patches->files,
-            'patch_config' => $config,
+            'patch_files' => (object) $private->files($patches->files),
+            'patch_config' => $private->config($config),
             'target_core' => $targetCore,
             'reroll' => $reroll,
             // What composer itself picked, when it was in reach. The
@@ -283,10 +285,6 @@ class Client
         }
         if (\is_bool($json['prefer-stable'] ?? null)) {
             $out['prefer-stable'] = $json['prefer-stable'];
-        }
-        $narrowedPatches = self::onlyPackages($json['extra']['patches'] ?? null, $packages);
-        if ([] !== $narrowedPatches) {
-            $out['extra'] = ['patches' => $narrowedPatches];
         }
 
         return $out;

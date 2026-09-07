@@ -33,6 +33,7 @@ class Site
         private readonly array $installed,
         private readonly PatchConfig $patches,
         private readonly array $constraints,
+        private readonly PrivateDeclarations $private,
     ) {
     }
 
@@ -72,6 +73,7 @@ class Site
 
         // What the service can judge decides the whole request: the two
         // documents, the patches resolved, and the candidates asked for.
+        $extra = $composer->getPackage()->getExtra();
         $request = Client::filter($json, $lock);
         $budget = \max(0, self::BODY_LIMIT - self::ENVELOPE_BYTES
             - \strlen(\json_encode($request['json'], \JSON_THROW_ON_ERROR))
@@ -81,7 +83,7 @@ class Site
             PatchText::fromComposer($composer, $io, $root),
             $budget,
             $request['packages'],
-            $composer->getPackage()->getExtra(),
+            $extra,
             $vendor,
         );
 
@@ -93,6 +95,7 @@ class Site
             $request['locked'],
             $patches,
             \array_intersect_key($constraints, $request['packages']),
+            PrivateDeclarations::of($patches, Plugin::privatePaths($extra)),
         );
     }
 
@@ -153,6 +156,14 @@ class Site
     public function patches(): PatchConfig
     {
         return $this->patches;
+    }
+
+    /**
+     * What the request may not carry of the site's own words.
+     */
+    public function private(): PrivateDeclarations
+    {
+        return $this->private;
     }
 
     public function hasPatches(): bool

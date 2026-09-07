@@ -84,6 +84,16 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     }
 
     /**
+     * Whether the site keeps the paths it holds its patches at off the wire; only a literal true turns it on.
+     *
+     * @param array<mixed> $extra the root package's extra
+     */
+    public static function privatePaths(array $extra): bool
+    {
+        return true === ($extra[self::EXTRA]['private-paths'] ?? null);
+    }
+
+    /**
      * Reads the directory an adopted URL patch goes to, or the default when the site names none.
      *
      * @param array<mixed> $extra the root package's extra
@@ -174,7 +184,7 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
                 return;
             }
             $client = Client::fromComposer($this->composer, $this->io);
-            $plan = $client->plan($site->composerJson(), $site->composerLock(), $site->patches(), '', false, [], Candidates::declaredCore($this->composer, $site->checkable()));
+            $plan = $client->plan($site->composerJson(), $site->composerLock(), $site->patches(), $site->private(), '', false, [], Candidates::declaredCore($this->composer, $site->checkable()));
             foreach (HookReport::lines($plan) as $line) {
                 $this->io->write($line);
             }

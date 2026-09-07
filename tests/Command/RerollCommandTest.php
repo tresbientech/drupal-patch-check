@@ -249,12 +249,17 @@ class RerollCommandTest extends TestCase
         self::assertSame("new diff\n", $site->read('patches/webform/fix.patch'));
     }
 
+    // Every row the site declared is answered with the site's own title and
+    // source, so an invented path can only ride on a row past the end of the
+    // declarations. That row is what decides where a file is written.
     public function testARowNamingAPatchTheSiteNeverDeclaredIsRefused(): void
     {
         $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
         $plan = self::plan('conflicts', ['status' => 'clean', 'patch' => "new diff\n", 'verified' => true]);
-        $plan['plan']['patches'][0]['title'] = 'Not what the site declared';
-        $plan['plan']['patches'][0]['source'] = 'web/sites/default/settings.php';
+        $extra = $plan['plan']['patches'][0];
+        $extra['title'] = 'Not what the site declared';
+        $extra['source'] = 'web/sites/default/settings.php';
+        $plan['plan']['patches'][] = $extra;
 
         $tester = $this->drive($site, [], $plan);
 
