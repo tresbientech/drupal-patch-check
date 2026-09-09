@@ -161,17 +161,20 @@ class PlanTest extends TestCase
         self::assertSame('echoed.patch', $plan->patches[0]->source);
     }
 
-    // A service that still echoes what it was sent decides nothing here.
-    public function testAnEchoedWordWinsOverTheDeclaration(): void
+    // The service answers an empty source on purpose, since the request
+    // carries none. Reading it would cost the row its file name and the
+    // merge request note that hangs off it.
+    public function testTheDeclarationWinsOverWhatTheServiceAnswers(): void
     {
         $declared = [['package' => 'drupal/webform', 'title' => 'from the site', 'source' => 'site.patch']];
         $answer = ['plan' => ['patches' => [
-            ['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'title' => 'echoed', 'source' => 'echoed.patch', 'verdict' => 'applies'],
+            ['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'title' => 'echoed', 'source' => '', 'verdict' => 'applies'],
         ]]];
 
         $plan = Plan::fromArray($answer, $declared);
 
-        self::assertSame('echoed', $plan->patches[0]->title);
+        self::assertSame('from the site', $plan->patches[0]->title);
+        self::assertSame('site.patch', $plan->patches[0]->source);
     }
 
     public function testAFieldTheServerAddsLaterIsIgnored(): void

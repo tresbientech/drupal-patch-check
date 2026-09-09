@@ -66,12 +66,14 @@ class Plan
         $patches = [];
         foreach ($plan['patches'] ?? [] as $i => $row) {
             // The request carries no title and no path of the site's own, so
-            // a row takes both from the declaration it was built from. The
-            // service answers one row per declaration, in the order it was
-            // sent them, and a row past the end has none to read.
+            // a row takes both from the declaration it was built from, over
+            // anything the service answers for them. The service answers one
+            // row per declaration, in the order it was sent them, and a row
+            // past the end has none to read.
             $own = $declared[$i] ?? null;
             if (\is_array($row) && null !== $own) {
-                $row += ['title' => $own['title'], 'source' => $own['source']];
+                $row['title'] = $own['title'];
+                $row['source'] = $own['source'];
             }
             $patches[] = PatchRow::fromArray($row);
         }
