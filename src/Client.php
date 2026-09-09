@@ -361,12 +361,12 @@ class Client
 
                 return Text::t(
                     '' === $reason ? '@host answered @status, patches not checked' : '@host answered @status (@reason), patches not checked',
-                    ['host' => $host, 'status' => $status, 'reason' => $reason]
+                    ['@host' => $host, '@status' => $status, '@reason' => $reason]
                 );
             }
         }
 
-        return Text::t('@host did not answer (@why), patches not checked', ['host' => $host, 'why' => self::clip($e->getMessage())]);
+        return Text::t('@host did not answer (@why), patches not checked', ['@host' => $host, '@why' => self::clip($e->getMessage())]);
     }
 
     /**

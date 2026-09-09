@@ -40,9 +40,11 @@ class NextCommandTest extends TestCase
             'core_installed' => '10.6.9',
             'target_is_installed' => true,
             'counts' => [],
+            // The service answers no title and an empty source, since the
+            // request carries neither; the run puts its own back by position.
             'plan' => ['counts' => ['conflicts' => 1], 'patches' => [[
                 'package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9',
-                'title' => 'Fix', 'source' => 'patches/webform/fix.patch', 'verdict' => 'conflicts',
+                'source' => '', 'verdict' => 'conflicts',
             ]]],
         ]);
         $composer = $this->site->enter($this->server->endpoint);

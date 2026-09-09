@@ -93,6 +93,30 @@ class PinCommandTest extends TestCase
         self::assertSame(['3521733: bfcache' => self::MR], $this->declared());
     }
 
+    // Every declaration names a file in the site now, so there is nothing
+    // left for somebody to push to.
+    public function testARunThatRepointedEveryDeclarationWarnsAboutNone(): void
+    {
+        $tester = $this->drive([]);
+
+        self::assertStringNotContainsString('merge request URL', $tester->getDisplay());
+    }
+
+    public function testADryRunSaysTheDeclarationsStillNameTheRequest(): void
+    {
+        $tester = $this->drive(['--dry-run' => true]);
+
+        self::assertStringContainsString('1 patch is declared as a merge request URL', $tester->getDisplay());
+    }
+
+    public function testTheWarningGoesToStderrWhenStdoutCarriesTheDocument(): void
+    {
+        $tester = $this->drive(['--dry-run' => true, '--format' => 'json']);
+
+        self::assertIsArray(\json_decode($tester->getDisplay(), true, 512, \JSON_THROW_ON_ERROR));
+        self::assertStringContainsString('1 patch is declared as a merge request URL', $tester->getErrorOutput());
+    }
+
     public function testTheJsonSaysWhatItDid(): void
     {
         $tester = $this->drive(['--format' => 'json']);

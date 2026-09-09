@@ -74,12 +74,13 @@ class RerollCommandTest extends TestCase
             'rows' => [],
             'plan' => [
                 'counts' => [],
+                // The service answers no title and an empty source, since
+                // the request carries neither; the run puts its own back.
                 'patches' => [[
                     'package' => 'drupal/webform',
                     'project' => 'webform',
                     'version' => '6.2.9',
-                    'title' => 'Fix',
-                    'source' => 'patches/webform/fix.patch',
+                    'source' => '',
                     'verdict' => $verdict,
                     'result' => null === $reroll ? [] : ['reroll' => $reroll],
                 ]],

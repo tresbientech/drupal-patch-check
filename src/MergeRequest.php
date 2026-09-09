@@ -34,6 +34,25 @@ class MergeRequest
     }
 
     /**
+     * The declarations naming a merge request, in the order the site wrote them. Reads the sources alone, so a caller with no plan and no service answer can ask.
+     *
+     * @param list<array<string, string>> $declarations each carrying the source the site declared
+     *
+     * @return list<array<string, string>>
+     */
+    public static function among(array $declarations): array
+    {
+        $out = [];
+        foreach ($declarations as $declaration) {
+            if (null !== self::of($declaration['source'])) {
+                $out[] = $declaration;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Where the request's commits are read. The endpoint answers without credentials for a public project.
      */
     public function api(): string

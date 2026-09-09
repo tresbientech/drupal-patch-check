@@ -93,7 +93,7 @@ class PatchConfig
         }
 
         if (isset($extra[Plugin::EXTRA]['private-paths'])) {
-            $notes[] = Text::t('extra.@key.private-paths is no longer read: no path of your own leaves the site', ['key' => Plugin::EXTRA]);
+            $notes[] = Text::t('extra.@key.private-paths is no longer read: no path of your own leaves the site', ['@key' => Plugin::EXTRA]);
         }
 
         return new self($patches, $files, \array_values(\array_unique($notes)), $skipped, $unsent);

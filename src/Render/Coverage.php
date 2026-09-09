@@ -109,7 +109,7 @@ class Coverage
             $out[] = self::skippedNote($count, $reason);
         }
         foreach ($this->unsentGroups[$package] ?? [] as $reason => $count) {
-            $out[] = Text::plural($count, '@count patch text not sent (@reason)', '@count patch texts not sent (@reason)', ['reason' => $reason]);
+            $out[] = Text::plural($count, '@count patch text not sent (@reason)', '@count patch texts not sent (@reason)', ['@reason' => $reason]);
         }
 
         return $out;
@@ -133,9 +133,9 @@ class Coverage
             // A site can declare a patch for a package it does not
             // install, and then there is no release to name.
             $version = $this->versions[$package] ?? '';
-            $heading = '' === $version ? $package : Text::t('@package @version', ['package' => $package, 'version' => $version]);
+            $heading = '' === $version ? $package : Text::t('@package @version', ['@package' => $package, '@version' => $version]);
             foreach ($groups as $reason => $count) {
-                $out[] = Text::t('@heading   @skipped', ['heading' => $heading, 'skipped' => self::skippedNote($count, $reason)]);
+                $out[] = Text::t('@heading   @skipped', ['@heading' => $heading, '@skipped' => self::skippedNote($count, $reason)]);
             }
         }
 
@@ -167,7 +167,7 @@ class Coverage
      */
     private static function skippedNote(int $count, string $reason): string
     {
-        return Text::plural($count, '@count patch skipped (@reason)', '@count patches skipped (@reason)', ['reason' => $reason]);
+        return Text::plural($count, '@count patch skipped (@reason)', '@count patches skipped (@reason)', ['@reason' => $reason]);
     }
 
     /**

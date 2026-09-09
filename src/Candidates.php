@@ -111,7 +111,7 @@ class Candidates
             try {
                 $found = $this->set->findPackages('drupal/core', (new VersionParser())->parseConstraints($constraint));
             } catch (Throwable $e) {
-                $this->notes[] = Text::t('no core release found for @package @constraint: @why', ['package' => $name, 'constraint' => $constraint, 'why' => $e->getMessage()]);
+                $this->notes[] = Text::t('no core release found for @package @constraint: @why', ['@package' => $name, '@constraint' => $constraint, '@why' => $e->getMessage()]);
                 continue;
             }
             foreach ($found as $package) {
@@ -144,7 +144,7 @@ class Candidates
             $parser = new VersionParser();
             $found = $this->set->findPackages($name, '' === $constraint ? null : $parser->parseConstraints($constraint));
         } catch (Throwable $e) {
-            $this->notes[] = Text::t('no release found for @package @constraint: @why', ['package' => $name, 'constraint' => '' === $constraint ? '*' : $constraint, 'why' => $e->getMessage()]);
+            $this->notes[] = Text::t('no release found for @package @constraint: @why', ['@package' => $name, '@constraint' => '' === $constraint ? '*' : $constraint, '@why' => $e->getMessage()]);
 
             return null;
         }
@@ -162,7 +162,7 @@ class Candidates
             if (true !== $supports || true !== $runnable) {
                 if ('' !== $reason && !$unread) {
                     $unread = true;
-                    $this->notes[] = Text::t('@package @version was left out: @why', ['package' => $name, 'version' => $package->getPrettyVersion(), 'why' => $reason]);
+                    $this->notes[] = Text::t('@package @version was left out: @why', ['@package' => $name, '@version' => $package->getPrettyVersion(), '@why' => $reason]);
                 }
                 continue;
             }

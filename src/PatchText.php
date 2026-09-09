@@ -92,10 +92,10 @@ class PatchText
         try {
             $answer = ($this->fetch)($url);
         } catch (Throwable $e) {
-            return Text::t('it could not be reached: @why', ['why' => $e->getMessage()]);
+            return Text::t('it could not be reached: @why', ['@why' => $e->getMessage()]);
         }
         if (200 !== $answer['status']) {
-            return Text::t('the host answered @status', ['status' => $answer['status']]);
+            return Text::t('the host answered @status', ['@status' => $answer['status']]);
         }
 
         return \strlen($answer['body']) > self::MAX_BYTES ? self::tooBig() : $answer;
@@ -132,7 +132,7 @@ class PatchText
         // An issue number is seven digits, and file names put it at the
         // start, the end or the middle; about half carry none.
         if (\is_string($path) && 1 === \preg_match('/(?<!\d)(\d{7})(?!\d)/', \basename($path), $found)) {
-            return Text::t('https://www.drupal.org/i/@issue', ['issue' => $found[1]]);
+            return Text::t('https://www.drupal.org/i/@issue', ['@issue' => $found[1]]);
         }
 
         return '';
@@ -183,10 +183,10 @@ class PatchText
         try {
             $answer = ($this->fetch)($url);
         } catch (Throwable $e) {
-            return self::refused(Text::t('it could not be reached: @why', ['why' => $e->getMessage()]));
+            return self::refused(Text::t('it could not be reached: @why', ['@why' => $e->getMessage()]));
         }
         if (200 !== $answer['status']) {
-            return self::refused(Text::t('the host answered @status', ['status' => $answer['status']]));
+            return self::refused(Text::t('the host answered @status', ['@status' => $answer['status']]));
         }
         if (\strlen($answer['body']) > self::MAX_BYTES) {
             return self::held(self::tooBig());
@@ -282,7 +282,7 @@ class PatchText
      */
     private static function tooBig(): string
     {
-        return Text::t('above the @mb MB cap', ['mb' => self::MAX_BYTES >> 20]);
+        return Text::t('above the @mb MB cap', ['@mb' => self::MAX_BYTES >> 20]);
     }
 
     /**

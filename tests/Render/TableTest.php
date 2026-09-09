@@ -193,11 +193,13 @@ class TableTest extends TestCase
     }
 
     // Nothing was written for it, so there is no re-roll to send anywhere.
-    public function testARunThatWroteNothingSaysNothingAboutTheMergeRequest(): void
+    // The declaration warning below the tally is about the declaration.
+    public function testARunThatWroteNothingSaysNothingAboutSendingIt(): void
     {
         $out = \implode("\n", self::whole($this->fromMergeRequest('conflicts'), self::wrote(), 100));
 
-        self::assertStringNotContainsString('merge request', $out);
+        self::assertStringNotContainsString('send your re-roll', $out);
+        self::assertStringNotContainsString('copied into the site from', $out);
     }
 
     // A file the site already declared came from nowhere upstream.
@@ -476,7 +478,7 @@ class TableTest extends TestCase
     {
         $plan = $this->planFrom(['patches' => [
             $this->row(['title' => 'Earlier', 'verdict' => 'conflicts']),
-            $this->row(['title' => 'Later', 'verdict' => 'conflicts', 'result' => ['judged_without' => ['Earlier']]]),
+            $this->row(['title' => 'Later', 'verdict' => 'conflicts', 'result' => ['judged_without' => ['#1']]]),
         ]]);
 
         $lines = self::table($plan);
@@ -496,7 +498,7 @@ class TableTest extends TestCase
             $this->row(['title' => 'First', 'verdict' => 'conflicts']),
             $this->row(['title' => 'Second', 'verdict' => 'conflicts']),
             $this->row(['title' => 'Third', 'verdict' => 'conflicts']),
-            $this->row(['title' => 'Later', 'verdict' => 'applies', 'result' => ['judged_without' => ['First', 'Second', 'Third']]]),
+            $this->row(['title' => 'Later', 'verdict' => 'applies', 'result' => ['judged_without' => ['#1', '#2', '#3']]]),
         ]]);
 
         $lines = self::table($plan);
@@ -712,9 +714,10 @@ class TableTest extends TestCase
         self::assertStringContainsString('gone.php: does not exist in index', $out);
     }
 
-    // The label came from the service; one no row carries is printed
-    // as it came rather than dropped.
-    public function testALabelNoRowCarriesIsCitedAsItCame(): void
+    // The service names an earlier patch by its place in the package.
+    // Anything else came from the service too, so it prints as it came
+    // rather than being dropped.
+    public function testANameThatIsNotARowNumberIsCitedAsItCame(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row([
             'verdict' => 'conflicts',
@@ -811,7 +814,7 @@ class TableTest extends TestCase
     {
         $plan = $this->planFrom(['patches' => [
             $this->row(['title' => 'Earlier', 'verdict' => 'conflicts']),
-            $this->row(['title' => 'Later', 'verdict' => 'applies', 'result' => ['judged_without' => ['Earlier']]]),
+            $this->row(['title' => 'Later', 'verdict' => 'applies', 'result' => ['judged_without' => ['#1']]]),
         ]]);
 
         $titles = self::titlesInOrder(self::table($plan));
@@ -1628,7 +1631,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row()]]);
         $lines = $this->fixRun($plan, []);
 
-        self::assertSame('  nothing to change in composer.json: no patch to remove, and every re-roll landed where its entry points', $lines[\count($lines) - 1]);
+        self::assertSame('  composer.json is unchanged: nothing to delete, and every re-roll was saved over the old file', $lines[\count($lines) - 1]);
     }
 
     public function testAFixThatChangedEntriesIsNotOfferedAgain(): void
@@ -1676,10 +1679,29 @@ class TableTest extends TestCase
 
     public function testAConflictSaysTheFilesOnDiskAlreadyShowThePatch(): void
     {
-        $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->row(['verdict' => 'conflicts'])]]);
+        $plan = $this->planFrom(['target_is_installed' => true, 'counts' => ['conflicts' => 1], 'patches' => [$this->row(['verdict' => 'conflicts'])]]);
 
         self::assertStringContainsString(
             '  composer already applied these patches to your files',
+            \implode("\n", self::whole($plan, null, 100)),
+        );
+    }
+
+    // Composer applied these patches against the releases the site
+    // installs. A target run judges a release it does not have, so nothing
+    // on disk shows those verdicts.
+    public function testATargetRunSaysNothingAboutWhatComposerApplied(): void
+    {
+        $plan = $this->planFrom([
+            'target_core' => '11.4.5',
+            'core_installed' => '11.3.12',
+            'target_is_installed' => false,
+            'counts' => ['conflicts' => 1],
+            'patches' => [$this->row(['verdict' => 'conflicts'])],
+        ]);
+
+        self::assertStringNotContainsString(
+            'composer already applied these patches',
             \implode("\n", self::whole($plan, null, 100)),
         );
     }

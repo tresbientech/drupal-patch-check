@@ -177,6 +177,21 @@ class PlanTest extends TestCase
         self::assertSame('site.patch', $plan->patches[0]->source);
     }
 
+    // A job reads the document `--format=json` prints, which is the answer
+    // as received, so the site's own words belong on those rows as well.
+    public function testTheDocumentCarriesTheSitesOwnWords(): void
+    {
+        $declared = [['package' => 'drupal/webform', 'title' => 'from the site', 'source' => 'site.patch']];
+        $answer = ['plan' => ['patches' => [
+            ['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'source' => '', 'verdict' => 'applies'],
+        ]]];
+
+        $plan = Plan::fromArray($answer, $declared);
+
+        self::assertSame('from the site', $plan->raw['plan']['patches'][0]['title']);
+        self::assertSame('site.patch', $plan->raw['plan']['patches'][0]['source']);
+    }
+
     public function testAFieldTheServerAddsLaterIsIgnored(): void
     {
         $plan = Plan::fromArray([

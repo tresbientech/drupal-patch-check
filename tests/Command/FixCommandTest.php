@@ -46,9 +46,11 @@ class FixCommandTest extends TestCase
             'core_installed' => '10.6.9',
             'target_is_installed' => true,
             'counts' => [],
+            // The service answers no title and an empty source, since the
+            // request carries neither; the run puts its own back by position.
             'plan' => ['counts' => ['merged' => 1, 'conflicts' => 1], 'patches' => [
-                ['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'title' => 'Menu cache', 'source' => 'patches/webform/menu.patch', 'verdict' => 'merged'],
-                ['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'title' => 'Fix', 'source' => 'patches/webform/fix.patch', 'verdict' => 'conflicts',
+                ['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'source' => '', 'verdict' => 'merged'],
+                ['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'source' => '', 'verdict' => 'conflicts',
                     'result' => ['reroll' => ['status' => 'clean', 'verified' => true, 'patch' => "diff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-a\n+b\n"]]],
             ]],
         ]);

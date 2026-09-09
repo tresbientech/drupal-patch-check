@@ -84,16 +84,17 @@ class UnpinnedTest extends TestCase
         self::assertStringContainsString('1 patch is declared as a merge request URL', $table);
     }
 
-    // A re-roll run reports the files it wrote. The plain run answers what
-    // the declarations point at.
-    public function testAWriteRunStaysQuiet(): void
+    // A re-roll run writes files from declarations that keep changing
+    // under the site, so it says the same thing a plain run says.
+    public function testAWriteRunSaysItToo(): void
     {
         $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [$this->mrRow()]]));
         $outcomes = Outcomes::fromWrite(['written' => [], 'refused' => []]);
 
         $out = \implode("\n", Report::lines($plan, new Coverage(1, [], [], []), 100, $outcomes));
 
-        self::assertStringNotContainsString('merge request', $out);
+        self::assertStringContainsString('1 patch is declared as a merge request URL. Anyone with a drupal.org', $out);
+        self::assertStringContainsString('change between two installs. Run: composer drupatch:pin', $out);
     }
 
     public function testAnEditedCopyIsReportedUnderItsRow(): void
@@ -134,19 +135,19 @@ class UnpinnedTest extends TestCase
         self::assertArrayNotHasKey('unpinned', Report::summary($plan));
     }
 
-    // The hook otherwise prints nothing when every patch applies, and a site
-    // carrying unpinned patches usually sits in that state.
-    public function testTheHookSaysItEvenWhenEveryPatchApplies(): void
+    // The run itself says it now, before the report the hook setting gates,
+    // so the report saying it too would say it twice.
+    public function testTheHookLeavesTheWarningToTheRun(): void
     {
         $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [
-            $this->mrRow(['title' => 'a']),
-            $this->mrRow(['title' => 'b']),
+            $this->mrRow(['title' => 'a', 'verdict' => 'conflicts']),
+            $this->mrRow(['title' => 'b', 'verdict' => 'conflicts']),
         ]]));
 
         $lines = \implode("\n", HookReport::lines($plan));
 
-        self::assertStringContainsString('2 patches load from merge request URLs, which can change at any time.', $lines);
-        self::assertStringContainsString('run `composer drupatch:pin` to copy them into the site', $lines);
+        self::assertStringContainsString('2 conflicts after this update', $lines);
+        self::assertStringNotContainsString('merge request', $lines);
     }
 
     public function testTheHookSaysNothingWithoutOne(): void

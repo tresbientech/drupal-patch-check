@@ -13,18 +13,13 @@ namespace TresBienTech\Drupatch;
 class Text
 {
     /**
-     * One sentence, with every `@name` replaced by the value under that key.
+     * One sentence, with every placeholder replaced by the value under its own name. A key is the placeholder as the template writes it, `@name` and all.
      *
      * @param array<string, string|int> $values
      */
     public static function t(string $template, array $values = []): string
     {
-        $replace = [];
-        foreach ($values as $name => $value) {
-            $replace['@'.$name] = (string) $value;
-        }
-
-        return \strtr($template, $replace);
+        return \strtr($template, \array_map(\strval(...), $values));
     }
 
     /**
@@ -34,6 +29,6 @@ class Text
      */
     public static function plural(int $count, string $one, string $many, array $values = []): string
     {
-        return self::t(1 === $count ? $one : $many, $values + ['count' => $count]);
+        return self::t(1 === $count ? $one : $many, $values + ['@count' => $count]);
     }
 }

@@ -37,6 +37,20 @@ class MergeRequestTest extends TestCase
         }
     }
 
+    // The plugin counts these on every run, with no plan and no answer
+    // from the service to read a verdict from.
+    public function testTheDeclarationsNamingARequestAreTheOnesReturned(): void
+    {
+        $declarations = [
+            ['package' => 'drupal/webform', 'title' => 'a', 'source' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940.patch'],
+            ['package' => 'drupal/webform', 'title' => 'b', 'source' => 'https://git.drupalcode.org/project/webform/-/commit/abc.diff'],
+            ['package' => 'drupal/webform', 'title' => 'c', 'source' => 'https://www.drupal.org/files/issues/2026-01-01/webform-3521733-12.patch'],
+            ['package' => 'drupal/webform', 'title' => 'd', 'source' => 'patches/webform/fix.patch'],
+        ];
+
+        self::assertSame([$declarations[0]], MergeRequest::among($declarations));
+    }
+
     public function testTheApiAnswersWithoutCredentials(): void
     {
         $mr = MergeRequest::of('https://git.drupalcode.org/project/webform/-/merge_requests/940.patch');

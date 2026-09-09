@@ -38,27 +38,19 @@ class HookReport
         // Same rule as the report: a warning about a package carrying no
         // patch is not this hook's business.
         $warnings = self::worthPrinting($plan);
-        $unpinned = Report::unpinned($plan);
         // Composer applies a package's patches during the update, and
         // this hook runs after it. A patch that still applies is
         // something composer has already proved; what composer cannot
         // say is that a patch can be deleted.
-        if ([] === $rows && [] === $unpinned && [] === $edited) {
+        if ([] === $rows && [] === $edited) {
             return [];
         }
 
-        $count = \count($unpinned);
-        $lines = ['<info>'.Report::LABEL.'</info>: '.([] === $rows ? self::opening($count, \count($edited)) : self::headline($rows))];
+        $lines = ['<info>'.Report::LABEL.'</info>: '.([] === $rows ? self::editedLine(\count($edited)) : self::headline($rows))];
         foreach ($warnings as $warning) {
-            $lines[] = '  <comment>'.Text::t('! @warning', ['warning' => $warning]).'</comment>';
+            $lines[] = '  <comment>'.Text::t('! @warning', ['@warning' => $warning]).'</comment>';
         }
-        if (0 !== $count) {
-            if ([] !== $rows) {
-                $lines[] = '  <fg=red>'.self::unpinnedLine($count).'</>';
-            }
-            $lines[] = '  <fg=red>'.Text::t('run `@command` to copy them into the site', ['command' => Report::PIN]).'</>';
-        }
-        if ([] !== $edited && ([] !== $rows || 0 !== $count)) {
+        if ([] !== $edited && [] !== $rows) {
             $lines[] = '  <fg=red>'.self::editedLine(\count($edited)).'</>';
         }
         if ([] === $rows) {
@@ -79,7 +71,7 @@ class HookReport
                 $lines[] = self::DETAIL_INDENT.$row->reason();
             }
             foreach ($row->syntaxErrors as $error) {
-                $lines[] = self::DETAIL_INDENT.Text::t('@mode: @error', ['mode' => $row->failureMode, 'error' => $error]);
+                $lines[] = self::DETAIL_INDENT.Text::t('@mode: @error', ['@mode' => $row->failureMode, '@error' => $error]);
             }
             // An applying row is here for what it references, so that
             // is its one line.
@@ -88,32 +80,12 @@ class HookReport
             }
         }
 
-        $lines[] = '  '.Text::t('run `@command` for the detail, or `--target <version>` before a core upgrade', ['command' => self::COMMAND]);
+        $lines[] = '  '.Text::t('run `@command` for the detail, or `--target <version>` before a core upgrade', ['@command' => self::COMMAND]);
         foreach (Report::nextStepLines($plan->counts) as $line) {
             $lines[] = $line;
         }
 
         return $lines;
-    }
-
-    /**
-     * How many patches this site downloads from a merge request every install.
-     */
-    private static function unpinnedLine(int $count): string
-    {
-        return Text::plural(
-            $count,
-            '@count patch loads from a merge request URL, which can change at any time.',
-            '@count patches load from merge request URLs, which can change at any time.'
-        );
-    }
-
-    /**
-     * The first line of a run with no verdict worth printing: what the site declares, or what it holds.
-     */
-    private static function opening(int $unpinned, int $edited): string
-    {
-        return 0 !== $unpinned ? self::unpinnedLine($unpinned) : self::editedLine($edited);
     }
 
     /**
@@ -139,7 +111,7 @@ class HookReport
         $out = $plan->warnings;
         foreach ($plan->packages() as $package) {
             if ('' !== ($note = $plan->rowNotes[$package] ?? '')) {
-                $out[] = Text::t('@package @note', ['package' => $package, 'note' => $note]);
+                $out[] = Text::t('@package @note', ['@package' => $package, '@note' => $note]);
             }
         }
 
@@ -155,7 +127,7 @@ class HookReport
 
         $first = Report::coreReferenceLines($row)[0] ?? '';
 
-        return $rest > 0 ? Text::t('@first (+@rest more)', ['first' => $first, 'rest' => $rest]) : $first;
+        return $rest > 0 ? Text::t('@first (+@rest more)', ['@first' => $first, '@rest' => $rest]) : $first;
     }
 
     /**
@@ -177,17 +149,17 @@ class HookReport
         $parts = [];
         foreach (self::MENTION_ORDER as $status) {
             if (($counts[$status] ?? 0) > 0) {
-                $parts[] = Text::t('@count @status', ['count' => $counts[$status], 'status' => $status]);
+                $parts[] = Text::t('@count @status', ['@count' => $counts[$status], '@status' => $status]);
                 unset($counts[$status]);
             }
         }
         foreach ($counts as $status => $count) {
-            $parts[] = Text::t('@count @status', ['count' => $count, 'status' => $status]);
+            $parts[] = Text::t('@count @status', ['@count' => $count, '@status' => $status]);
         }
         if ($referencing > 0) {
-            $parts[] = Text::t('@count with core references to check', ['count' => $referencing]);
+            $parts[] = Text::t('@count with core references to check', ['@count' => $referencing]);
         }
 
-        return Text::t('@tally after this update', ['tally' => \implode(', ', $parts)]);
+        return Text::t('@tally after this update', ['@tally' => \implode(', ', $parts)]);
     }
 }

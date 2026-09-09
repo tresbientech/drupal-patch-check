@@ -48,7 +48,7 @@ class CheckCommand extends PatchCommand
             }
             $plan = $run->plan(false, []);
         } catch (Throwable $e) {
-            $notes->writeln('<error>'.Text::t('drupatch: @message', ['message' => $e->getMessage()]).'</error>');
+            $notes->writeln('<error>'.Text::t('drupatch: @message', ['@message' => $e->getMessage()]).'</error>');
 
             return Plan::FAILED;
         }

@@ -74,6 +74,9 @@ class Plan
             if (\is_array($row) && null !== $own) {
                 $row['title'] = $own['title'];
                 $row['source'] = $own['source'];
+                // `--format=json` prints the answer as received, so a job
+                // reading it needs the site's own words on the rows too.
+                $data['plan']['patches'][$i] = $row;
             }
             $patches[] = PatchRow::fromArray($row);
         }
@@ -227,10 +230,10 @@ class Plan
             return 'against the releases this site installs';
         }
         $move = '' === $this->coreInstalled
-            ? Text::t('for a move to core @target', ['target' => $this->against()])
-            : Text::t('for a move from core @installed to @target', ['installed' => $this->coreInstalled, 'target' => $this->against()]);
+            ? Text::t('for a move to core @target', ['@target' => $this->against()])
+            : Text::t('for a move from core @installed to @target', ['@installed' => $this->coreInstalled, '@target' => $this->against()]);
         if ('' !== $this->targetFrom) {
-            return Text::t('@move (the newest @constraint allows)', ['move' => $move, 'constraint' => $this->targetFrom]);
+            return Text::t('@move (the newest @constraint allows)', ['@move' => $move, '@constraint' => $this->targetFrom]);
         }
 
         return $move;

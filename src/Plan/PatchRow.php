@@ -282,7 +282,7 @@ class PatchRow
             return $place.$reason;
         }
 
-        return Text::t('@place: @reason', ['place' => $place, 'reason' => $reason]);
+        return Text::t('@place: @reason', ['@place' => $place, '@reason' => $reason]);
     }
 
     /**
@@ -313,7 +313,7 @@ class PatchRow
         $file = (string) ($hunk['file'] ?? '');
         $line = (int) ($hunk['line'] ?? 0);
 
-        return '' === $file || $line <= 0 ? $file : Text::t('@file:@line', ['file' => $file, 'line' => $line]);
+        return '' === $file || $line <= 0 ? $file : Text::t('@file:@line', ['@file' => $file, '@line' => $line]);
     }
 
     /**

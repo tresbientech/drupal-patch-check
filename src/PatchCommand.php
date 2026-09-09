@@ -60,7 +60,7 @@ abstract class PatchCommand extends BaseCommand
             return 'table';
         }
         if (!\in_array($format, self::FORMATS, true)) {
-            throw new UnexpectedValueException(Text::t('unknown --format=@named; accepted: @accepted', ['named' => $format, 'accepted' => \implode(', ', self::FORMATS)]));
+            throw new UnexpectedValueException(Text::t('unknown --format=@named; accepted: @accepted', ['@named' => $format, '@accepted' => \implode(', ', self::FORMATS)]));
         }
 
         return $format;
@@ -77,7 +77,7 @@ abstract class PatchCommand extends BaseCommand
         try {
             $format = self::format(\is_string($chosen) ? $chosen : null);
         } catch (UnexpectedValueException $e) {
-            $output->writeln('<error>'.Text::t('drupatch: @message', ['message' => $e->getMessage()]).'</error>');
+            $output->writeln('<error>'.Text::t('drupatch: @message', ['@message' => $e->getMessage()]).'</error>');
 
             return null;
         }
@@ -123,12 +123,12 @@ abstract class PatchCommand extends BaseCommand
      */
     public static function repeated(string $target, Scope $scope): array
     {
-        $out = '' === $target ? [] : [Text::t('--target @core', ['core' => $target])];
+        $out = '' === $target ? [] : [Text::t('--target @core', ['@core' => $target])];
         foreach ($scope->packages as $package) {
-            $out[] = Text::t('--package @package', ['package' => $package]);
+            $out[] = Text::t('--package @package', ['@package' => $package]);
         }
         foreach ($scope->sources as $source) {
-            $out[] = Text::t('--patch @source', ['source' => $source]);
+            $out[] = Text::t('--patch @source', ['@source' => $source]);
         }
 
         return $out;
@@ -149,11 +149,11 @@ abstract class PatchCommand extends BaseCommand
         $full = $root.\DIRECTORY_SEPARATOR.self::DECLARATION;
         $text = @\file_get_contents($full);
         if (false === $text) {
-            throw new RuntimeException(Text::t('@file is not readable', ['file' => self::DECLARATION]));
+            throw new RuntimeException(Text::t('@file is not readable', ['@file' => self::DECLARATION]));
         }
         $declared = self::patchesOf($text);
         if (null === $declared) {
-            throw new RuntimeException(Text::t('@file is not readable JSON', ['file' => self::DECLARATION]));
+            throw new RuntimeException(Text::t('@file is not readable JSON', ['@file' => self::DECLARATION]));
         }
         if (!$force) {
             $tree = new WorkingTree(new ProcessExecutor($this->getIO()));
@@ -163,13 +163,13 @@ abstract class PatchCommand extends BaseCommand
                 // Comparing the whole file would refuse nearly every real run.
                 $committed = $tree->committed($root, self::DECLARATION);
                 if (null === $committed || $declared !== self::patchesOf($committed)) {
-                    throw new RuntimeException(Text::t('@file has uncommitted changes to its patches; commit them or pass --force', ['file' => self::DECLARATION]));
+                    throw new RuntimeException(Text::t('@file has uncommitted changes to its patches; commit them or pass --force', ['@file' => self::DECLARATION]));
                 }
             }
         }
         $updated = ConfigRewriter::intoComposerJson($text, ConfigRewriter::apply($declared, $changes));
         if (false === \file_put_contents($full, $updated)) {
-            throw new RuntimeException(Text::t('@file could not be written', ['file' => self::DECLARATION]));
+            throw new RuntimeException(Text::t('@file could not be written', ['@file' => self::DECLARATION]));
         }
     }
 
@@ -201,6 +201,10 @@ abstract class PatchCommand extends BaseCommand
                 static fn (array $refusal): array => ['path' => $refusal['path'], 'reason' => $refusal['reason']],
                 null === $outcomes ? [] : $outcomes->refused()
             )], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES));
+            $notes = self::notes($output, true);
+            foreach (Report::unpinnedWarning(\count(Report::unpinned($plan))) as $line) {
+                $notes->writeln($line);
+            }
         } else {
             $scope = self::repeated($run->target, self::scope($input));
             foreach (Report::report($plan, $run->coverage, $outcomes, Report::clamp((new Terminal())->getWidth()), $scope) as $line) {

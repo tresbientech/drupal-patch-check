@@ -69,6 +69,7 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     {
         return [
             ScriptEvents::POST_UPDATE_CMD => 'onPostUpdate',
+            ScriptEvents::POST_INSTALL_CMD => 'onPostInstall',
             PackageEvents::POST_PACKAGE_INSTALL => 'onPackageInstall',
         ];
     }
@@ -160,15 +161,37 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
         return \dirname(false === $real ? $path : $real);
     }
 
+    /**
+     * An install downloads every declared patch afresh, so it says what the site declares. The verdict report is the update's.
+     */
+    public function onPostInstall(Event $event): void
+    {
+        $this->warnUnpinned($this->composer->getPackage()->getExtra());
+    }
+
+    /**
+     * What every run says, whatever the site configured: a declaration anyone with a drupal.org account can push to. Reads the declarations alone, so it costs no call and no file.
+     *
+     * @param array<string, mixed> $extra the root package's extra
+     */
+    private function warnUnpinned(array $extra): void
+    {
+        foreach (Report::unpinnedWarning(\count(MergeRequest::among(PatchConfig::declared($extra)))) as $line) {
+            $this->io->write($line);
+        }
+    }
+
     public function onPostUpdate(Event $event): void
     {
-        if (!self::hookEnabled($this->composer->getPackage()->getExtra())) {
-            return;
-        }
         try {
+            $extra = $this->composer->getPackage()->getExtra();
+            $this->warnUnpinned($extra);
+            if (!self::hookEnabled($extra)) {
+                return;
+            }
             $site = Site::atWorkingDirectory($this->composer, $this->io);
             foreach ($site->patches()->notes as $note) {
-                $this->io->write('<comment>'.Text::t('drupatch: @message', ['message' => $note]).'</comment>');
+                $this->io->write('<comment>'.Text::t('drupatch: @message', ['@message' => $note]).'</comment>');
             }
             if (!$site->hasPatches()) {
                 return;
@@ -179,7 +202,7 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
                 $this->io->write($line);
             }
         } catch (Throwable $e) {
-            $this->io->write('<comment>'.Text::t('drupatch: @message', ['message' => $e->getMessage()]).'</comment>');
+            $this->io->write('<comment>'.Text::t('drupatch: @message', ['@message' => $e->getMessage()]).'</comment>');
         }
     }
 }

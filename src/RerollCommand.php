@@ -59,7 +59,7 @@ class RerollCommand extends PatchCommand
                 $merged = Decisions::merge($decided, $fromDocument);
                 $decided = $merged['decided'];
                 foreach ($merged['overridden'] as $region) {
-                    $notes->writeln('<comment>'.Text::t('drupatch: the document decides @file region @region of @source, over its conflict file', ['file' => $region['file'], 'region' => $region['region'], 'source' => $patches[$region['patch']]['source']]).'</comment>');
+                    $notes->writeln('<comment>'.Text::t('drupatch: the document decides @file region @region of @source, over its conflict file', ['@file' => $region['file'], '@region' => $region['region'], '@source' => $patches[$region['patch']]['source']]).'</comment>');
                 }
             }
             if ($dryRun) {
@@ -72,7 +72,7 @@ class RerollCommand extends PatchCommand
             $tree = $force ? null : new WorkingTree(new ProcessExecutor($this->getIO()));
             $result = (new PatchFiles($run->site->root(), $tree, $run->site->patches()->patches))->write($plan);
         } catch (Throwable $e) {
-            $notes->writeln('<error>'.Text::t('drupatch: @message', ['message' => $e->getMessage()]).'</error>');
+            $notes->writeln('<error>'.Text::t('drupatch: @message', ['@message' => $e->getMessage()]).'</error>');
 
             return Plan::FAILED;
         }
@@ -90,7 +90,7 @@ class RerollCommand extends PatchCommand
         $this->render($input, $output, $format, $run, $plan, $outcomes);
 
         if ('' !== $updateError) {
-            $notes->writeln('<error>'.Text::t('drupatch: @message', ['message' => $updateError]).'</error>');
+            $notes->writeln('<error>'.Text::t('drupatch: @message', ['@message' => $updateError]).'</error>');
 
             return Plan::FAILED;
         }
@@ -134,11 +134,11 @@ class RerollCommand extends PatchCommand
         }
         foreach (\array_keys($fromDocument) as $i) {
             $patch = $patches[$i];
-            $row = $rows[PatchRow::keyOf($patch['package'], $patch['title'])] ?? throw new RuntimeException(Text::t('the plan has no row for @source', ['source' => $patch['source']]));
+            $row = $rows[PatchRow::keyOf($patch['package'], $patch['title'])] ?? throw new RuntimeException(Text::t('the plan has no row for @source', ['@source' => $patch['source']]));
             $applied = (int) ($row->reroll['resolutions_applied'] ?? 0);
             $count = \count($sent[$i] ?? []);
             if ($count > $applied) {
-                throw new RuntimeException(Text::t('@undecided of the @sent decisions sent for @source named no conflicted region, so they decided nothing; nothing was written', ['undecided' => $count - $applied, 'sent' => $count, 'source' => $patch['source']]));
+                throw new RuntimeException(Text::t('@undecided of the @sent decisions sent for @source named no conflicted region, so they decided nothing; nothing was written', ['@undecided' => $count - $applied, '@sent' => $count, '@source' => $patch['source']]));
             }
         }
     }

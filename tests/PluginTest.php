@@ -43,10 +43,13 @@ final class PluginTest extends TestCase
         self::assertFalse(Plugin::hookEnabled(['drupatch' => ['hook' => true]]));
     }
 
-    public function testTheInstallNoticeIsWiredToAPackageEvent(): void
+    // Composer fires the update event for update, require and remove, and
+    // the install event for install, so the four commands are covered.
+    public function testEveryCommandThatChangesTheTreeIsSubscribedTo(): void
     {
         self::assertSame([
             'post-update-cmd' => 'onPostUpdate',
+            'post-install-cmd' => 'onPostInstall',
             'post-package-install' => 'onPackageInstall',
         ], Plugin::getSubscribedEvents());
     }

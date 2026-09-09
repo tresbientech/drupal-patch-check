@@ -13,7 +13,7 @@ Drupal Patch Check: 4 patches for a move from core 10.2.4 to 11.4.6
 
   drupal/addtoany 2.0.5 → 2.0.7   1 applies
      #1 · applies   Add SRI to script                               add_SRI_to_JS_file.patch
-                    context drifted, needed: git apply -p1 -C1 --ignore-whitespace --recount
+                    context drifted, your patch manager still applies it
 
   drupal/yoast_seo 2.0.0-alpha10 → 2.2.0   1 conflicts, 1 merged
      #1 ✓ merged    Uncaught DOMException: Failed to execute 'rem…  3394487-failed-to-execute-remov…
@@ -37,10 +37,16 @@ Drupal Patch Check: 4 patches for a move from core 10.2.4 to 11.4.6
 
 ## Remote service call
 
-The plugin cannot judge a patch on its own. Every run posts your patches to
+The plugin cannot judge a patch on its own. The check and the re-roll post your
+patches to
 [`api.tresbien.tech/v1/composer/scan`](https://api.tresbien.tech/v1/composer/scan),
 which holds a mirror of every drupal.org release and does the work. It is run
 by [Très Bien Tech](https://tresbien.tech), a long time Drupal contributor.
+
+Installing the plugin sends nothing, and nothing is sent until you run a
+command. The check and the re-roll are the only two that reach the service. The
+pin sends it nothing, and your composer.json, your lock file and your patch text
+stay on your machine.
 
 [Settings](#settings) says what the request holds and what you can leave out.
 
@@ -52,8 +58,6 @@ composer require --dev tresbientech/drupal-patch-check
 # write access is needed to reroll
 composer config allow-plugins.tresbientech/drupal-patch-check true
 ```
-
-Installing it runs nothing and sends nothing.
 
 ## The commands
 
@@ -74,8 +78,10 @@ entry per patch, its title as the key and its file or URL as the value.
 ## Patches declared as a URL
 
 A patch declared as `https://git.drupalcode.org/project/webform/-/merge_requests/940.patch`
-is downloaded on every install, and anyone with a drupal.org account can push to
-that merge request. What composer applies then changes while your site does not.
+is downloaded on every install. Every run warns you about it: the four composer
+commands that change your packages, and all three drupatch commands. No setting
+turns the warning off, and it costs no network call. A site with no merge
+request patch never sees it.
 
 `composer drupatch:pin` copies the patch into your repository and points the
 declaration at the file:
@@ -91,11 +97,17 @@ Drupal Patch Check: 1 patch copied into the site
   composer.json: 1 declaration now names a file in the site
 ```
 
+The copy is written under `patch/<project>/`, or wherever `patch-directory`
+says.
+
 The first line of the file records where the bytes came from, the two commits
 the diff was taken between, and a hash of the rest of the file. A later run
 reads it back: `check` says when the file was edited, and `pin` says when the
 merge request has new commits. `pin --refresh` takes those new commits, and
 nothing else does.
+
+Pin does not overwrite a copied patch that git reports as changed. It does not
+rewrite a composer.json that has uncommitted changes. `--force` does both.
 
 A commit URL is copied the same way, under `commit-<sha>.diff`. Any other URL is
 copied under the name it ends in.
@@ -125,29 +137,6 @@ Inside, each open region falls between a `# drupatch region N file` line and a
 to drop the region, then run `composer drupatch:reroll` again. The report gives
 every region as its file and index.
 
-A copied patch is written under `patch/<project>/`, or wherever
-`patch-directory` says.
-
-## Running it in CI
-
-The useful run is scheduled and forward-looking: do the patches still work
-against the releases this site could install today?
-
-```yaml
-# weekly
-- run: composer drupatch:check --target latest --format json > patch-check.json
-- if: always()
-  run: jq -r '.summary | "\(.counts.conflicts // 0) conflicts, exit \(.exit_code)"' patch-check.json
-- uses: actions/upload-artifact@v4
-  if: always()
-  with: { name: patch-check, path: patch-check.json }
-```
-
-Exit 0 means nothing needs work, 1 means a patch or a package does, 2 means the
-plan could not be fetched. A patch the service could not judge does not fail
-the run on its own. `--format=json` keeps stdout machine-readable and puts
-every person-facing note on stderr.
-
 ## Settings
 
 Every setting lives under `extra.drupal-patch-check` in your composer.json.
@@ -165,8 +154,10 @@ Every setting lives under `extra.drupal-patch-check` in your composer.json.
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `hook` | `false` | Check patches after every `composer update`. |
+| `hook` | `false` | Print the patch verdicts after every `composer update`. |
 | `patch-directory` | `patch` | Where a copied patch is written. |
+
+`hook` covers the verdicts alone.
 
 ### What the request holds
 

@@ -32,10 +32,11 @@ class PinReport
     /**
      * @param array{vendored: list<PinnedRow>, kept: list<PinnedRow>, moved: list<PinnedRow>, refused: list<RefusedRow>} $result
      * @param string                                                                                                     $declaration the file the run rewrote, empty when it rewrote none
+     * @param int                                                                                                        $unpinned    declarations still naming a merge request now the run is over
      *
      * @return list<string>
      */
-    public static function lines(array $result, string $declaration, int $rewritten): array
+    public static function lines(array $result, string $declaration, int $rewritten, int $unpinned): array
     {
         $lines = ['<info>'.Report::LABEL.'</info>: '.self::headline($result)];
         foreach ([[self::COPIED, $result['vendored']], [self::HELD, $result['kept']], [self::MOVED, $result['moved']]] as [$heading, $rows]) {
@@ -44,7 +45,7 @@ class PinReport
             }
         }
         if ([] !== $result['moved']) {
-            $lines[] = '  '.Text::t('run `@command --refresh` to take the new commits', ['command' => Report::PIN]);
+            $lines[] = '  '.Text::t('run `@command --refresh` to take the new commits', ['@command' => Report::PIN]);
         }
         foreach (self::refusals($result['refused']) as $line) {
             $lines[] = $line;
@@ -55,8 +56,11 @@ class PinReport
                 $rewritten,
                 '@file: @count declaration now names a file in the site',
                 '@file: @count declarations now name a file in the site',
-                ['file' => $declaration]
+                ['@file' => $declaration]
             );
+        }
+        foreach (Report::unpinnedWarning($unpinned) as $line) {
+            $lines[] = $line;
         }
 
         return $lines;
@@ -72,7 +76,7 @@ class PinReport
         $parts = [];
         foreach ([[\count($result['vendored']), 'copied into the site'], [\count($result['kept']), 'already in the site'], [\count($result['moved']), 'moved upstream'], [\count($result['refused']), 'not copied']] as [$count, $words]) {
             if ($count > 0) {
-                $parts[] = Text::plural($count, '@count patch @words', '@count patches @words', ['words' => $words]);
+                $parts[] = Text::plural($count, '@count patch @words', '@count patches @words', ['@words' => $words]);
             }
         }
 
@@ -93,7 +97,7 @@ class PinReport
         }
         $lines = ['', '  '.$heading];
         foreach ($rows as $row) {
-            $lines[] = '    '.Text::t('@package: @title', ['package' => $row['package'], 'title' => $row['title']]);
+            $lines[] = '    '.Text::t('@package: @title', ['@package' => $row['package'], '@title' => $row['title']]);
             $lines[] = '      '.$row['path'];
         }
 
@@ -119,7 +123,7 @@ class PinReport
                 $reason = $row['reason'];
                 $lines[] = '    <comment>'.$reason.'</comment>';
             }
-            $lines[] = '      '.Text::t('@package: @title', ['package' => $row['package'], 'title' => $row['title']]);
+            $lines[] = '      '.Text::t('@package: @title', ['@package' => $row['package'], '@title' => $row['title']]);
         }
 
         return $lines;

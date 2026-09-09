@@ -45,10 +45,12 @@ class PatchScopeTest extends TestCase
         $endpoint = 'http://127.0.0.1:1/never-called';
         if ($serve) {
             $rows = [];
-            foreach ([['Fix', 'patches/webform/fix.patch'], ['Menu', 'patches/webform/menu.patch'], ['Cache', 'patches/webform/cache.patch']] as [$title, $source]) {
+            // The service answers no title and an empty source, since the
+            // request carries neither; the run puts its own back by position.
+            foreach (['Fix', 'Menu', 'Cache'] as $title) {
                 $rows[] = [
                     'package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9',
-                    'title' => $title, 'source' => $source, 'verdict' => 'applies',
+                    'source' => '', 'verdict' => 'applies',
                     'result' => ['reroll' => ['status' => 'clean', 'verified' => true, 'patch' => "diff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-a\n+".$title."\n"]],
                 ];
             }

@@ -91,14 +91,14 @@ class PatchFiles
                 $why = self::whyNoReroll($row);
                 $refused[] = self::refusal($row, $row->source, '' === $where
                     ? $why
-                    : Text::t('@why; the fix belongs upstream: @where', ['why' => $why, 'where' => $where]), shipped: $row->isMerged());
+                    : Text::t('@why; the fix belongs upstream: @where', ['@why' => $why, '@where' => $where]), shipped: $row->isMerged());
                 continue;
             }
             // A merge that produced code the service cannot parse is not
             // a patch to hand anybody, whatever the site declared.
             $broken = $row->rerollSyntaxErrors();
             if ([] !== $broken) {
-                $refused[] = self::refusal($row, $declaredSource ?? $row->source, Text::t('its re-roll leaves a file that does not parse: @file', ['file' => $broken[0]]));
+                $refused[] = self::refusal($row, $declaredSource ?? $row->source, Text::t('its re-roll leaves a file that does not parse: @file', ['@file' => $broken[0]]));
                 continue;
             }
             if (null === $declaredSource) {
@@ -271,9 +271,9 @@ class PatchFiles
             return self::removedText($conflict, $file);
         }
         $lines = [
-            Text::t('# drupatch: @regions unresolved region(s) in @file', ['regions' => (int) ($conflict['regions'] ?? 0), 'file' => $file]),
+            Text::t('# drupatch: @regions unresolved region(s) in @file', ['@regions' => (int) ($conflict['regions'] ?? 0), '@file' => $file]),
             '# drupatch: keep the region and end lines; replace the text between them.',
-            Text::t('# drupatch: then run @command', ['command' => Report::REROLL]),
+            Text::t('# drupatch: then run @command', ['@command' => Report::REROLL]),
         ];
         foreach ((array) ($conflict['hunks'] ?? []) as $index => $hunk) {
             $releaseLine = (int) ($hunk['release_line'] ?? 0);
@@ -298,7 +298,7 @@ class PatchFiles
     private static function removedText(array $conflict, string $file): string
     {
         $lines = [
-            Text::t('# drupatch: @file is not in the release, so there is nothing to merge into.', ['file' => $file]),
+            Text::t('# drupatch: @file is not in the release, so there is nothing to merge into.', ['@file' => $file]),
             '# drupatch: the hunks below are the patch as it was. Drop it, or aim it at where the code moved.',
         ];
         foreach ((array) ($conflict['hunks'] ?? []) as $hunk) {
@@ -347,10 +347,10 @@ class PatchFiles
         $full = $this->root.\DIRECTORY_SEPARATOR.$path;
         $dir = \dirname($full);
         if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) && !\is_dir($dir)) {
-            throw new RuntimeException(Text::t('cannot create @dir', ['dir' => $dir]));
+            throw new RuntimeException(Text::t('cannot create @dir', ['@dir' => $dir]));
         }
         if (false === \file_put_contents($full, $body)) {
-            throw new RuntimeException(Text::t('cannot write @path', ['path' => $path]));
+            throw new RuntimeException(Text::t('cannot write @path', ['@path' => $path]));
         }
     }
 }

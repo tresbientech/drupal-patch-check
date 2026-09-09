@@ -45,12 +45,12 @@ class Run
     ) {
         $this->site = Site::atWorkingDirectory($composer, $io);
         foreach ($this->site->patches()->notes as $note) {
-            $notes->writeln('<comment>'.Text::t('drupatch: @message', ['message' => $note]).'</comment>');
+            $notes->writeln('<comment>'.Text::t('drupatch: @message', ['@message' => $note]).'</comment>');
         }
         $declared = \array_column($this->site->patches()->patches, 'source');
         $unknown = $scope->unknownSources($declared);
         if ([] !== $unknown) {
-            throw new RuntimeException(Text::t('no patch is declared from @named; this site declares @declared', ['named' => \implode(', ', $unknown), 'declared' => [] === $declared ? 'none' : \implode(', ', $declared)]));
+            throw new RuntimeException(Text::t('no patch is declared from @named; this site declares @declared', ['@named' => \implode(', ', $unknown), '@declared' => [] === $declared ? 'none' : \implode(', ', $declared)]));
         }
         $this->coverage = Coverage::of($this->site, $scope);
         // A bare run judges what the lock installs, so there is no
@@ -94,7 +94,7 @@ class Run
         $declared = $plan->packages();
         $narrowed = $plan->only($this->scope);
         if (!$narrowed->hasPatches()) {
-            throw new RuntimeException(Text::t('no patch is declared for @named; this site declares patches for @declared', ['named' => \implode(', ', $this->scope->packages), 'declared' => [] === $declared ? 'nothing' : \implode(', ', $declared)]));
+            throw new RuntimeException(Text::t('no patch is declared for @named; this site declares patches for @declared', ['@named' => \implode(', ', $this->scope->packages), '@declared' => [] === $declared ? 'nothing' : \implode(', ', $declared)]));
         }
 
         return $narrowed;
@@ -112,12 +112,12 @@ class Run
             $resolver = Candidates::forSite($this->composer);
             $out = $this->resolveCandidates($resolver, $target);
         } catch (Throwable $e) {
-            $notes->writeln('<comment>'.Text::t('drupatch: composer could not say which releases the target installs: @why', ['why' => $e->getMessage()]).'</comment>');
+            $notes->writeln('<comment>'.Text::t('drupatch: composer could not say which releases the target installs: @why', ['@why' => $e->getMessage()]).'</comment>');
             $out = [];
         }
         if (null !== $resolver) {
             foreach ($resolver->notes() as $note) {
-                $notes->writeln('<comment>'.Text::t('drupatch: @message', ['message' => $note]).'</comment>');
+                $notes->writeln('<comment>'.Text::t('drupatch: @message', ['@message' => $note]).'</comment>');
             }
         }
 

@@ -12,9 +12,9 @@ class PinReportTest extends TestCase
     /**
      * @param array<string, list<array<string, string>>> $lists
      */
-    private static function report(array $lists, int $rewritten = 0): string
+    private static function report(array $lists, int $rewritten = 0, int $unpinned = 0): string
     {
-        return \implode("\n", PinReport::lines($lists + ['vendored' => [], 'kept' => [], 'moved' => [], 'refused' => []], 'composer.json', $rewritten));
+        return \implode("\n", PinReport::lines($lists + ['vendored' => [], 'kept' => [], 'moved' => [], 'refused' => []], 'composer.json', $rewritten, $unpinned));
     }
 
     /**
@@ -56,5 +56,22 @@ class PinReportTest extends TestCase
     public function testARunWithNothingToDoSaysSo(): void
     {
         self::assertStringContainsString('no patch is declared from a merge request', self::report([]));
+    }
+
+    // The declaration names the file the run wrote, so nothing about it
+    // changes upstream any more.
+    public function testARunThatCopiedEveryOneWarnsAboutNone(): void
+    {
+        self::assertStringNotContainsString('merge request URL', self::report(['vendored' => [self::row()]], 1));
+    }
+
+    public function testWhatTheRunLeftBehindCarriesTheWarning(): void
+    {
+        $refused = ['package' => 'drupal/webform', 'title' => 'a', 'source' => self::row()['source'], 'reason' => 'the host answered 429'];
+
+        $out = self::report(['refused' => [$refused]], 0, 1);
+
+        self::assertStringContainsString('1 patch is declared as a merge request URL. Anyone with a drupal.org', $out);
+        self::assertStringContainsString('change between two installs. Run: composer drupatch:pin', $out);
     }
 }
