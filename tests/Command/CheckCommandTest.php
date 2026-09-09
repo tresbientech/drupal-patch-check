@@ -28,10 +28,10 @@ final class CheckCommandTest extends TestCase
     {
         $definition = (new CheckCommand())->getDefinition();
 
-        foreach (['target', 'package', 'json', 'format', 'dry-run'] as $option) {
+        foreach (['target', 'package', 'format', 'dry-run'] as $option) {
             self::assertTrue($definition->hasOption($option), $option.' is not an option');
         }
-        foreach (['write', 'fix', 'resolve', 'strict', 'force', 'update', 'decisions'] as $option) {
+        foreach (['write', 'fix', 'resolve', 'strict', 'json', 'force', 'update', 'decisions', 'refresh'] as $option) {
             self::assertFalse($definition->hasOption($option), $option.' is an option of the read command');
         }
     }
@@ -40,10 +40,10 @@ final class CheckCommandTest extends TestCase
     {
         $definition = (new RerollCommand())->getDefinition();
 
-        foreach (['target', 'package', 'json', 'format', 'dry-run', 'update', 'force'] as $option) {
+        foreach (['target', 'package', 'format', 'dry-run', 'force'] as $option) {
             self::assertTrue($definition->hasOption($option), $option.' is not an option');
         }
-        foreach (['write', 'fix', 'resolve', 'strict'] as $option) {
+        foreach (['write', 'fix', 'resolve', 'strict', 'json'] as $option) {
             self::assertFalse($definition->hasOption($option), $option.' came back');
         }
     }

@@ -33,15 +33,24 @@ class Site
         private readonly array $installed,
         private readonly PatchConfig $patches,
         private readonly array $constraints,
-        private readonly PrivateDeclarations $private,
     ) {
+    }
+
+    /**
+     * The directory holding the composer.json this run is about.
+     */
+    public static function rootDirectory(): string
+    {
+        $jsonPath = Factory::getComposerFile();
+        $real = \realpath($jsonPath);
+
+        return \dirname(false === $real ? $jsonPath : $real);
     }
 
     public static function atWorkingDirectory(Composer $composer, IOInterface $io): self
     {
         $jsonPath = Factory::getComposerFile();
-        $real = \realpath($jsonPath);
-        $root = \dirname(false === $real ? $jsonPath : $real);
+        $root = self::rootDirectory();
         $lockPath = '.json' === \substr($jsonPath, -5)
             ? \substr($jsonPath, 0, -5).'.lock'
             : $jsonPath.'.lock';
@@ -53,13 +62,6 @@ class Site
         $lock = @\file_get_contents($lockPath);
         if (false === $lock) {
             throw new RuntimeException('composer.lock is not readable; run composer update first');
-        }
-
-        // What the vendor directory holds, which is what says whether a
-        // patch manager this reader does not handle is in the site.
-        $vendor = [];
-        foreach ($composer->getRepositoryManager()->getLocalRepository()->getPackages() as $package) {
-            $vendor[] = $package->getName();
         }
 
         // What the site requires, so a candidate can be resolved inside
@@ -79,12 +81,10 @@ class Site
             - \strlen(\json_encode($request['json'], \JSON_THROW_ON_ERROR))
             - \strlen(\json_encode($request['lock'], \JSON_THROW_ON_ERROR)));
         $patches = PatchConfig::read(
-            $root,
             PatchText::fromComposer($composer, $io, $root),
             $budget,
             $request['packages'],
             $extra,
-            $vendor,
         );
 
         return new self(
@@ -95,7 +95,6 @@ class Site
             $request['locked'],
             $patches,
             \array_intersect_key($constraints, $request['packages']),
-            PrivateDeclarations::of($patches, Plugin::privatePaths($extra)),
         );
     }
 
@@ -156,14 +155,6 @@ class Site
     public function patches(): PatchConfig
     {
         return $this->patches;
-    }
-
-    /**
-     * What the request may not carry of the site's own words.
-     */
-    public function private(): PrivateDeclarations
-    {
-        return $this->private;
     }
 
     public function hasPatches(): bool

@@ -47,6 +47,14 @@ final class SiteFixture
         return $this;
     }
 
+    /** Declares one patch on drupal/webform without writing a file for it. */
+    public function declares(string $title, string $source): self
+    {
+        $this->patches[] = [$title, $source];
+
+        return $this;
+    }
+
     /** Adds one key under composer.json's extra. */
     public function withExtra(string $key, mixed $value): self
     {

@@ -5,13 +5,15 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Render;
 
 use TresBienTech\Drupatch\CheckCommand;
-use TresBienTech\Drupatch\PatchText;
+use TresBienTech\Drupatch\MergeRequest;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\RerollCommand;
+use TresBienTech\Drupatch\Text;
+use TresBienTech\Drupatch\Write\PatchFiles;
 
 /**
- * The command's output: the table a person reads, the JSON summary a job reads, and the workflow annotations a runner reads.
+ * The command's output: the table a person reads and the JSON summary a job reads.
  *
  * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Render\Outcomes
  */
@@ -74,6 +76,21 @@ class Report
     /** Printed once by a plain run that still has a conflict: the verdict answers what the release has, the installed files do not. */
     private const ON_DISK = 'composer already applied these patches to your files';
 
+    /** The command that copies a merge request patch into the site. */
+    public const PIN = 'composer drupatch:pin';
+
+    /** Under a row the site declared as a merge request URL. */
+    public const UNPINNED_ROW = 'declared as a merge request URL';
+
+    /** Under a row whose copy no longer holds what the site took. */
+    public const EDITED_ROW = 'edited since it was copied into the site';
+
+    /** The two lines after the count, wrapped for the narrowest terminal. */
+    private const UNPINNED_REST = [
+        'account can push to a merge request, so what composer applies here can',
+        'change between two installs. Run: '.self::PIN,
+    ];
+
     /**
      * Mark, colour tag and sort rank per row status, worst first. A status is the verdict, or the failure mode when the patch applied and left something broken. An unrecognised one gets the fallback and sorts with the work.
      *
@@ -89,14 +106,6 @@ class Report
 
     /** @var array{string, string, int} */
     private const UNRECOGNISED = ['*', 'comment', 1];
-
-    /** The annotation level each row status is written at. */
-    private const ANNOTATION_LEVELS = [
-        PatchRow::BROKEN_SYNTAX => 'error',
-        PatchRow::CONFLICTS => 'error',
-        PatchRow::UNKNOWN => 'warning',
-        PatchRow::MERGED => 'notice',
-    ];
 
     public static function mark(string $status): string
     {
@@ -117,11 +126,6 @@ class Report
     public static function rank(string $status): int
     {
         return (self::STATUSES[$status] ?? self::UNRECOGNISED)[2];
-    }
-
-    public static function isKnown(string $status): bool
-    {
-        return isset(self::STATUSES[$status]);
     }
 
     /**
@@ -220,13 +224,13 @@ class Report
         }
         $titleWidth = self::title($width, $trailing);
         $total = \count($plan->patches);
-        $lines = [$coverage->isVacuous() ? self::caveat(self::NOTHING_CHECKED) : \sprintf(
-            '<info>%s</info>: %d patch%s %s',
-            self::LABEL,
+        $headline = '<info>'.self::LABEL.'</info>: '.Text::plural(
             $total,
-            1 === $total ? '' : 'es',
-            $plan->scenario()
-        ), ''];
+            '@count patch @scenario',
+            '@count patches @scenario',
+            ['scenario' => $plan->scenario()]
+        );
+        $lines = [$coverage->isVacuous() ? self::caveat(self::NOTHING_CHECKED) : $headline, ''];
 
         $grouped = [];
         foreach ($plan->patches as $row) {
@@ -252,7 +256,7 @@ class Report
         if (null === $outcomes) {
             foreach ($grouped as $package => $rows) {
                 $note = $placed[$package] ?? '';
-                $blocks[] = self::group($rows, '' === $note ? [] : [$note], $coverage->notesFor($package), $titleWidth);
+                $blocks[] = self::group($rows, '' === $note ? [] : [$note], $coverage->notesFor($package), $titleWidth, $coverage->edited());
             }
         }
         foreach ($blocks as $i => $block) {
@@ -267,7 +271,7 @@ class Report
         if ([] !== $blocks) {
             $lines[] = '';
         }
-        $lines[] = '  patches: '.(null === $outcomes ? self::tally(self::headlineCounts($plan)) : self::writeTally($plan, $outcomes));
+        $lines[] = '  '.Text::t('patches: @tally', ['tally' => null === $outcomes ? self::tally(self::headlineCounts($plan)) : self::writeTally($plan, $outcomes)]);
         // The caveat is about the table's verdicts, which only a plain run
         // prints. A write run has just put re-rolls on disk that composer
         // has applied nothing of, so saying this there reads as if it had.
@@ -279,7 +283,60 @@ class Report
         // hold back: the text was lost rather than kept back on purpose.
         $lost = \array_values(\array_diff($plan->missingFiles, $coverage->withheld()));
         if ([] !== $lost) {
-            $lines[] = '  patch text not sent for: '.\implode(', ', $lost);
+            $lines[] = '  '.Text::t('patch text not sent for: @sources', ['sources' => \implode(', ', $lost)]);
+        }
+        foreach (self::unpinnedWarning($plan, $outcomes) as $line) {
+            $lines[] = $line;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * The rows whose declared source is a merge request, whose bytes anyone with a drupal.org account can change.
+     *
+     * @return list<PatchRow>
+     */
+    public static function unpinned(Plan $plan): array
+    {
+        $out = [];
+        foreach ($plan->patches as $row) {
+            if (null !== MergeRequest::of($row->source)) {
+                $out[] = $row;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * How many patches the site downloads from a merge request, as a sentence.
+     */
+    public static function unpinnedCount(int $count): string
+    {
+        return Text::plural(
+            $count,
+            '@count patch is declared as a merge request URL.',
+            '@count patches are declared as merge request URLs.'
+        );
+    }
+
+    /**
+     * The warning under the table: how many, who can change them, and the command.
+     *
+     * @return list<string>
+     */
+    private static function unpinnedWarning(Plan $plan, ?Outcomes $outcomes): array
+    {
+        // A run that writes is about the files it wrote, and a declaration
+        // it cannot write to is refused by name there.
+        $count = null === $outcomes ? \count(self::unpinned($plan)) : 0;
+        if (0 === $count) {
+            return [];
+        }
+        $lines = ['', '  <fg=red>'.Text::t('@sentence Anyone with a drupal.org', ['sentence' => self::unpinnedCount($count)]).'</>'];
+        foreach (self::UNPINNED_REST as $line) {
+            $lines[] = '  <fg=red>'.$line.'</>';
         }
 
         return $lines;
@@ -291,14 +348,15 @@ class Report
      * @param non-empty-list<PatchRow> $rows
      * @param list<string>             $warnings
      * @param list<string>             $notes
+     * @param list<string>             $edited   sources whose copy no longer holds what the site took
      *
      * @return list<string>
      */
-    private static function group(array $rows, array $warnings, array $notes, int $titleWidth): array
+    private static function group(array $rows, array $warnings, array $notes, int $titleWidth, array $edited = []): array
     {
-        $lines = ['  '.self::heading($rows[0]).'   '.self::packageTally($rows)];
+        $lines = ['  '.Text::t('@heading   @tally', ['heading' => self::heading($rows[0]), 'tally' => self::packageTally($rows)])];
         foreach ($warnings as $warning) {
-            $lines[] = self::MARK_INDENT.self::caveat('! '.$warning);
+            $lines[] = self::MARK_INDENT.self::caveat(Text::t('! @warning', ['warning' => $warning]));
         }
         $numbers = [];
         foreach ($rows as $i => $row) {
@@ -314,6 +372,12 @@ class Report
                 self::pad(self::fit($row->label(), $titleWidth), $titleWidth),
                 self::fileName($row),
             ));
+            if (null !== MergeRequest::of($row->source)) {
+                $lines[] = self::detailIndent().'<fg=red>'.self::UNPINNED_ROW.'</>';
+            }
+            if (\in_array($row->source, $edited, true)) {
+                $lines[] = self::detailIndent().'<fg=red>'.self::EDITED_ROW.'</>';
+            }
             foreach ($details as $line) {
                 $lines[] = self::detailIndent().self::detail($line);
             }
@@ -339,18 +403,18 @@ class Report
             $out[] = $row->reason();
         }
         foreach (\array_slice($row->syntaxErrors, 0, self::SYNTAX_LINES) as $error) {
-            $out[] = $row->failureMode.': '.$error;
+            $out[] = Text::t('@mode: @error', ['mode' => $row->failureMode, 'error' => $error]);
         }
         $more = \count($row->syntaxErrors) - self::SYNTAX_LINES;
         if ($more > 0) {
-            $out[] = '+'.$more.' more broken line'.(1 === $more ? '' : 's');
+            $out[] = Text::plural($more, '+@count more broken line', '+@count more broken lines');
         }
         $shipped = \array_flip($row->hunksShipped);
         foreach ($row->failures() as $place => $failure) {
             // A hunk the release already carries is why the patch stopped
             // applying there, so the two lines about it become one.
             $out[] = isset($shipped[$place])
-                ? $place.': already in the release, not needed'
+                ? Text::t('@place: already in the release, not needed', ['place' => $place])
                 : $failure;
         }
         $failed = $row->failures();
@@ -359,22 +423,22 @@ class Report
         // what it sent prints nothing rather than a negative count.
         $more = $row->failedTotal - \count($failed);
         if ($row->conflicts() && $more > 0) {
-            $out[] = '+'.$more.' more failed hunk'.(1 === $more ? '' : 's');
+            $out[] = Text::plural($more, '+@count more failed hunk', '+@count more failed hunks');
         }
         foreach ($row->hunksShipped as $place) {
             if (!isset($failed[$place])) {
-                $out[] = 'already in the release: '.$place;
+                $out[] = Text::t('already in the release: @place', ['place' => $place]);
             }
         }
         $more = $row->shippedTotal - \count($row->hunksShipped);
         if ($more > 0) {
-            $out[] = '+'.$more.' more hunk'.(1 === $more ? '' : 's').' already in the release';
+            $out[] = Text::plural($more, '+@count more hunk already in the release', '+@count more hunks already in the release');
         }
         // A plain run does not ask for a re-roll, and a re-roll is what
         // finds a patch the release carries whole. Say so where part of
         // one is already there.
         if ($row->conflicts() && [] !== $row->hunksShipped) {
-            $out[] = 'run '.self::REROLL.' to see if the release has the rest';
+            $out[] = Text::t('run @command to see if the release has the rest', ['command' => self::REROLL]);
         }
         if ('' !== $row->mergedFrom()) {
             $out[] = self::mergedFromNote($row->mergedFrom());
@@ -401,12 +465,10 @@ class Report
     private static function judgedWithoutNote(array $labels, array $numbers): string
     {
         $cited = \array_map(static fn (string $label): string => self::cited($label, $numbers), $labels);
-        if (1 === \count($cited)) {
-            return 'judged after '.$cited[0].' applied in part';
-        }
-        $last = \array_pop($cited);
+        $last = (string) \array_pop($cited);
+        $patches = [] === $cited ? $last : Text::t('@earlier and @last', ['earlier' => \implode(', ', $cited), 'last' => $last]);
 
-        return 'judged after '.\implode(', ', $cited).' and '.$last.' applied in part';
+        return Text::t('judged after @patches applied in part', ['patches' => $patches]);
     }
 
     /**
@@ -418,7 +480,9 @@ class Report
     {
         // Server JSON is the boundary: a label no row carries is printed
         // as it came.
-        return isset($numbers[$label]) ? '#'.$numbers[$label] : '"'.$label.'"';
+        return isset($numbers[$label])
+            ? Text::t('#@number', ['number' => $numbers[$label]])
+            : Text::t('"@label"', ['label' => $label]);
     }
 
     /**
@@ -453,7 +517,7 @@ class Report
             $lines[] = '';
             $lines[] = '  '.$heading;
             foreach ($items as $item) {
-                $lines[] = '    '.$item['package'].': '.$item['title'];
+                $lines[] = '    '.Text::t('@package: @title', ['package' => $item['package'], 'title' => $item['title']]);
                 $lines[] = '      '.$item['path'];
             }
         }
@@ -499,32 +563,32 @@ class Report
         }
         $lines = ['', '  '.$heading];
         foreach ($files as $file) {
-            $lines[] = \sprintf('    %s  (%s)', $file['path'], self::status($file));
+            $lines[] = '    '.Text::t('@path  (@status)', ['path' => $file['path'], 'status' => self::status($file)]);
             // A decision names its region by file and index, so the two
             // are printed for every region the run left open.
             foreach ($file['open'] as $region) {
-                $lines[] = '      '.$region['file'].' region '.$region['region'];
+                $lines[] = '      '.Text::t('@file region @region', ['file' => $region['file'], 'region' => $region['region']]);
             }
             // With regions of its own to show, the status line names the
             // count, so a removed file needs its own line here.
             if ($file['regions'] > 0) {
                 foreach ($file['removed'] as $gone) {
-                    $lines[] = '      the release removed '.$gone;
+                    $lines[] = '      '.Text::t('the release removed @file', ['file' => $gone]);
                 }
             }
             // The site did not have this file before the run put it there.
             if ('' !== $file['from']) {
-                $lines[] = '      copied into the site from '.$file['from'];
+                $lines[] = '      '.Text::t('copied into the site from @source', ['source' => $file['from']]);
                 // A patch taken from a merge request is shared work, so the
                 // re-roll belongs where the people who share it will get it.
-                if ('' !== PatchText::mergeRequest($file['from'])) {
+                if (null !== MergeRequest::of($file['from'])) {
                     $lines[] = '      send your re-roll to that merge request and every site using it is fixed';
                 }
             }
             if ([] !== $file['unioned']) {
-                $lines[] = '      '.self::unionNote(\count($file['unioned'])).':';
+                $lines[] = '      '.Text::t('@note:', ['note' => self::unionNote(\count($file['unioned']))]);
                 foreach ($file['unioned'] as $region) {
-                    $lines[] = '        '.$region['file'].':'.$region['line'];
+                    $lines[] = '        '.Text::t('@file:@line', ['file' => $region['file'], 'line' => $region['line']]);
                 }
             }
         }
@@ -543,10 +607,10 @@ class Report
             // A file the release removed leaves no region anyone can
             // decide, so the file itself is the answer.
             if (0 === $file['regions'] && [] !== $file['removed']) {
-                return 'the release removed '.\implode(', ', $file['removed']);
+                return Text::t('the release removed @files', ['files' => \implode(', ', $file['removed'])]);
             }
 
-            return \sprintf('%d region%s to decide', $file['regions'], 1 === $file['regions'] ? '' : 's');
+            return Text::plural($file['regions'], '@count region to decide', '@count regions to decide');
         }
 
         // An unverified merge produced no conflict and nothing applied it,
@@ -583,7 +647,7 @@ class Report
         foreach ($groups as $reason => $items) {
             $lines[] = '    '.$reason;
             foreach ($items as $item) {
-                $lines[] = \sprintf('      %s  %s: %s', $item['path'], $item['package'], $item['title']);
+                $lines[] = '      '.Text::t('@path  @package: @title', ['path' => $item['path'], 'package' => $item['package'], 'title' => $item['title']]);
             }
         }
 
@@ -602,9 +666,9 @@ class Report
         }
         $changes = $outcomes->changes();
         if ([] === $changes) {
-            return ['', \sprintf('  nothing to change in %s: no patch to remove, and every re-roll landed where its entry points', $outcomes->declaration())];
+            return ['', '  '.Text::t('nothing to change in @file: no patch to remove, and every re-roll landed where its entry points', ['file' => $outcomes->declaration()])];
         }
-        $lines = ['', '  '.$outcomes->declaration().':'];
+        $lines = ['', '  '.Text::t('@file:', ['file' => $outcomes->declaration()])];
         foreach ($changes as $change) {
             $lines[] = self::change($change);
         }
@@ -617,14 +681,15 @@ class Report
      */
     private static function change(array $change): string
     {
+        $values = ['package' => $change['package'], 'title' => $change['title'], 'path' => $change['path']];
         if ('repointed' === $change['action']) {
-            return \sprintf('    ~ %s: %s → %s', $change['package'], $change['title'], $change['path']);
+            return '    '.Text::t('~ @package: @title → @path', $values);
         }
         if ('' === $change['path']) {
-            return \sprintf('    - %s: %s (already in the release)', $change['package'], $change['title']);
+            return '    '.Text::t('- @package: @title (already in the release)', $values);
         }
 
-        return \sprintf('    - %s: %s (already in the release; %s is no longer used and was kept)', $change['package'], $change['title'], $change['path']);
+        return '    '.Text::t('- @package: @title (already in the release; @path is no longer used and was kept)', $values);
     }
 
     /**
@@ -634,7 +699,7 @@ class Report
     {
         $tail = \substr($url, false === \strrpos($url, '/-/') ? 0 : \strrpos($url, '/-/') + 3);
 
-        return 'merged from '.('' === $tail ? $url : $tail).'; the verdict used your declared file';
+        return Text::t('merged from @patch; the verdict used your declared file', ['patch' => '' === $tail ? $url : $tail]);
     }
 
     /**
@@ -642,11 +707,10 @@ class Report
      */
     public static function unionNote(int $regions): string
     {
-        return \sprintf(
-            'the merge kept both additions in %d region%s, check %s',
+        return Text::plural(
             $regions,
-            1 === $regions ? '' : 's',
-            1 === $regions ? 'it' : 'them'
+            'the merge kept both additions in @count region, check it',
+            'the merge kept both additions in @count regions, check them'
         );
     }
 
@@ -669,15 +733,23 @@ class Report
                 $what = (string) ($finding['symbol'] ?? '');
             }
             $record = (int) ($finding['change_record'] ?? 0);
-            $out[] = 'core '.(string) ($finding['kind'] ?? '').': '.$what.($record > 0 ? ' (change record '.$record.')' : '');
+            $out[] = Text::t(
+                $record > 0 ? 'core @kind: @what (change record @record)' : 'core @kind: @what',
+                ['kind' => (string) ($finding['kind'] ?? ''), 'what' => $what, 'record' => $record]
+            );
         }
         $more = $row->flaggedCoreReferences() - \min(\count($flagged), self::CORE_LINES);
         if ($more > 0) {
-            $out[] = '+'.$more.' more core reference'.(1 === $more ? '' : 's');
+            $out[] = Text::plural($more, '+@count more core reference', '+@count more core references');
         }
         $deprecated = \count((array) ($block['deprecated'] ?? []));
         if ($deprecated > 0) {
-            $out[] = 'core deprecated: '.$deprecated.' reference'.(1 === $deprecated ? '' : 's').', still present at '.(string) ($block['target'] ?? '');
+            $out[] = Text::plural(
+                $deprecated,
+                'core deprecated: @count reference, still present at @target',
+                'core deprecated: @count references, still present at @target',
+                ['target' => (string) ($block['target'] ?? '')]
+            );
         }
         // A conflicts row already says the patch does not apply, and a
         // broken row already printed the parse errors this note repeats,
@@ -715,14 +787,11 @@ class Report
     public static function nextSteps(array $counts, ?Outcomes $outcomes = null): array
     {
         $out = [];
+        $shipped = $counts[PatchRow::MERGED] ?? 0;
         if (null === $outcomes) {
             $reroll = $counts[PatchRow::CONFLICTS] ?? 0;
-            if ($reroll > 0) {
-                $out[] = [
-                    'command' => self::REROLL,
-                    'flag' => '',
-                    'effect' => 1 === $reroll ? 'writes the re-roll' : 'writes the '.$reroll.' re-rolls',
-                ];
+            if ($reroll > 0 || $shipped > 0) {
+                $out[] = ['command' => self::REROLL, 'flag' => '', 'effect' => self::rerollEffect($reroll, $shipped)];
             }
         } else {
             $open = $outcomes->openConflictFiles();
@@ -730,9 +799,11 @@ class Report
                 $out[] = [
                     'command' => self::REROLL,
                     'flag' => '',
-                    'effect' => 1 === $open
-                        ? 'sends the regions you decide in the conflict file'
-                        : 'sends the regions you decide in the '.$open.' conflict files',
+                    'effect' => Text::plural(
+                        $open,
+                        'sends the regions you decide in the conflict file',
+                        'sends the regions you decide in the @count conflict files'
+                    ),
                 ];
             }
             $forcible = $outcomes->lifted('--force');
@@ -740,19 +811,30 @@ class Report
                 $out[] = [
                     'command' => self::REROLL,
                     'flag' => '--force',
-                    'effect' => 1 === $forcible
-                        ? 'replaces the file this run would not overwrite'
-                        : 'replaces the '.$forcible.' files this run would not overwrite',
+                    'effect' => Text::plural(
+                        $forcible,
+                        'replaces the file this run would not overwrite',
+                        'replaces the @count files this run would not overwrite'
+                    ),
                 ];
             }
+            // A run that rewrote the declarations dropped what shipped, so
+            // offering it again would repeat what just happened.
+            if (!$outcomes->fixed() && $shipped > 0) {
+                $out[] = ['command' => self::REROLL, 'flag' => '', 'effect' => self::rerollEffect(0, $shipped)];
+            }
         }
-        // A fix run dropped what shipped and adopted the URLs; offering it
-        // again would repeat what just happened.
-        $fixed = null !== $outcomes && $outcomes->fixed();
-        $urls = null === $outcomes ? 0 : $outcomes->lifted('--update');
-        $shipped = $counts[PatchRow::MERGED] ?? 0;
-        if (!$fixed && ($shipped > 0 || $urls > 0)) {
-            $out[] = ['command' => self::REROLL, 'flag' => '--update', 'effect' => self::fixes($shipped, $urls)];
+        $urls = null === $outcomes ? 0 : $outcomes->refusedBecause(PatchFiles::URL_DECLARED);
+        if ($urls > 0) {
+            $out[] = [
+                'command' => self::PIN,
+                'flag' => '',
+                'effect' => Text::plural(
+                    $urls,
+                    'copies the patch declared as a URL into the site',
+                    'copies the @count patches declared as URLs into the site'
+                ),
+            ];
         }
 
         return $out;
@@ -789,7 +871,7 @@ class Report
     }
 
     /**
-     * The `--json` summary a scheduled job reads: what the run was about, what it found, which packages are behind each finding, and what to run next.
+     * The `--format=json` summary a scheduled job reads: what the run was about, what it found, which packages are behind each finding, and what to run next.
      *
      * @return array<string, mixed>
      */
@@ -824,6 +906,13 @@ class Report
         if ('' !== $plan->targetFrom) {
             $summary['target_from'] = $plan->targetFrom;
         }
+        $unpinned = [];
+        foreach (self::unpinned($plan) as $row) {
+            $unpinned[] = ['package' => $row->package, 'title' => $row->title, 'source' => $row->source];
+        }
+        if ([] !== $unpinned) {
+            $summary['unpinned'] = $unpinned;
+        }
         $next = self::nextSteps($counts, $outcomes);
         if ([] !== $next) {
             $summary['next'] = $next;
@@ -833,75 +922,20 @@ class Report
     }
 
     /**
-     * One workflow command per row worth annotating, in plan order, anchored to the line declaring the patch.
-     *
-     * @param string $document the text of the file declaring the patches
-     *
-     * @return list<string>
+     * What a re-roll run would do, given what the run found.
      */
-    public static function annotations(Plan $plan, string $file, string $document): array
-    {
-        $out = [];
-        foreach ($plan->patches as $row) {
-            $level = self::ANNOTATION_LEVELS[$row->status()] ?? null;
-            if (null === $level) {
-                continue;
-            }
-            $message = $row->verdict.' '.$row->package.('' === $row->version ? '' : ' '.$row->version).': '.$row->label();
-            // What a re-roll must fix, or why a row has no verdict.
-            // One line per annotation, so the first failure stands for the rest.
-            $failures = $row->failures();
-            $detail = '' !== $row->failureMode
-                ? $row->failureMode.': '.($row->syntaxErrors[0] ?? '')
-                : (\reset($failures) ?: $row->reason());
-            if ('' !== $detail) {
-                $message .= '; '.$detail;
-            }
-            $out[] = \sprintf(
-                '::%s file=%s,line=%d::%s',
-                $level,
-                $file,
-                self::lineOf($document, $row->source),
-                \str_replace(['%', "\r", "\n"], ['%25', '%0D', '%0A'], $message),
-            );
-        }
-
-        return $out;
-    }
-
-    /**
-     * The 1-based line declaring this source, or the first line when the document does not carry it.
-     */
-    public static function lineOf(string $document, string $source): int
-    {
-        $lines = \preg_split('/\r\n|\r|\n/', $document);
-        if ('' === $source || false === $lines) {
-            return 1;
-        }
-        foreach ($lines as $index => $line) {
-            if (\str_contains($line, $source)) {
-                return $index + 1;
-            }
-        }
-
-        return 1;
-    }
-
-    /**
-     * What `--update` would do, given what the run found.
-     */
-    private static function fixes(int $shipped, int $urls): string
+    private static function rerollEffect(int $conflicts, int $shipped): string
     {
         $parts = [];
-        if ($shipped > 0) {
-            $parts[] = 1 === $shipped
-                ? 'drops the shipped entry from composer.json'
-                : 'drops the '.$shipped.' shipped entries from composer.json';
+        if ($conflicts > 0) {
+            $parts[] = Text::plural($conflicts, 'writes the re-roll', 'writes the @count re-rolls');
         }
-        if ($urls > 0) {
-            $parts[] = 1 === $urls
-                ? 'adopts the patch declared as a URL'
-                : 'adopts the '.$urls.' patches declared as URLs';
+        if ($shipped > 0) {
+            $parts[] = Text::plural(
+                $shipped,
+                'drops the shipped entry from composer.json',
+                'drops the @count shipped entries from composer.json'
+            );
         }
 
         return \implode(' and ', $parts);
@@ -973,19 +1007,15 @@ class Report
         // Nothing was judged: the heading names the release the lock
         // holds and the rows say why they carry no verdict.
         if ('' === $row->version) {
-            return $row->package.' '.$row->installed;
+            return Text::t('@package @release', ['package' => $row->package, 'release' => $row->installed]);
         }
         if (!$row->movesRelease()) {
-            return $row->package.' '.('' === $row->installed ? $row->version : $row->installed);
+            return Text::t('@package @release', ['package' => $row->package, 'release' => '' === $row->installed ? $row->version : $row->installed]);
         }
 
-        return \sprintf('%s %s → %s', $row->package, $row->installed, $row->version);
+        return Text::t('@package @installed → @target', ['package' => $row->package, 'installed' => $row->installed, 'target' => $row->version]);
     }
 
-    /**
-     * What a write run changed and what it left, in the terms of the work
-     * still to do rather than a second tally to compare against the first.
-     */
     /**
      * The patches a write turned into something that applies, keyed as a row is.
      *
@@ -1003,6 +1033,9 @@ class Report
         return $fixed;
     }
 
+    /**
+     * What a write run changed and what it left, in the terms of the work still to do rather than a second tally to compare against the first.
+     */
     private static function writeTally(Plan $plan, Outcomes $outcomes): string
     {
         $fixed = self::fixedByWrite($outcomes);
@@ -1013,11 +1046,11 @@ class Report
         }
         $parts = [];
         if ([] !== $fixed) {
-            $parts[] = \count($fixed).' now appl'.(1 === \count($fixed) ? 'ies' : 'y');
+            $parts[] = Text::plural(\count($fixed), '@count now applies', '@count now apply');
         }
-        foreach ([PatchRow::CONFLICTS => ' conflicts left', PatchRow::UNKNOWN => ' unknown'] as $verdict => $what) {
+        foreach ([PatchRow::CONFLICTS => '@count conflicts left', PatchRow::UNKNOWN => '@count unknown'] as $verdict => $template) {
             if (($n = $counts[$verdict] ?? 0) > 0) {
-                $parts[] = $n.$what;
+                $parts[] = Text::t($template, ['count' => $n]);
             }
         }
         // A fix run has already dropped the entries it could, so what is
@@ -1029,7 +1062,7 @@ class Report
             }
         }
         if (($drop = ($counts[PatchRow::MERGED] ?? 0) - $dropped) > 0) {
-            $parts[] = $drop.' to drop';
+            $parts[] = Text::t('@count to drop', ['count' => $drop]);
         }
 
         // A run that changed nothing and left nothing to do still owes the
@@ -1064,7 +1097,7 @@ class Report
         $parts = [];
         foreach ($counts as $name => $count) {
             if ($count > 0) {
-                $parts[] = $count.' '.$name;
+                $parts[] = Text::t('@count @verdict', ['count' => $count, 'verdict' => $name]);
             }
         }
 

@@ -33,34 +33,25 @@ class RerollCommand extends PatchCommand
             ->setDescription("Re-roll this site's patches that no longer apply, and write what merges")
             ->shared()
             ->addOption('decisions', null, InputOption::VALUE_REQUIRED, 'A JSON document of decided regions, or - for stdin: {"decisions": [{"source", "file", "region", "choice": "release"|"patch" or "text"}]}. Merged with the conflict files; the document wins on a region both decide.')
-            ->addOption('update', null, InputOption::VALUE_NONE, 'Also rewrite the patch declarations: drop the entries already in the release, adopt the ones declared as URLs, point the rest at their re-rolls.')
-            ->addOption('force', null, InputOption::VALUE_NONE, 'Replace a patch file git reports as changed or untracked, and let --update rewrite a declaration file with uncommitted changes');
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Replace a patch file git reports as changed or untracked, and rewrite a declaration file with uncommitted changes');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $target = $input->getOption('target');
         $target = \is_string($target) ? \trim($target) : '';
-        $update = true === $input->getOption('update');
         $force = true === $input->getOption('force');
         $dryRun = true === $input->getOption('dry-run');
-        // Resolved before anything is read or asked for, so a run asking
-        // for an unknown shape stops without touching the site.
-        $chosen = $input->getOption('format');
-        try {
-            $format = self::format(\is_string($chosen) ? $chosen : null, true === $input->getOption('json'));
-        } catch (Throwable $e) {
-            $output->writeln('<error>drupatch: '.$e->getMessage().'</error>');
-
+        $printing = self::printing($input, $output);
+        if (null === $printing) {
             return Plan::FAILED;
         }
-        $notes = self::notes($output, 'table' !== $format || $dryRun);
+        [$format, $notes] = $printing;
 
         try {
             $run = new Run($this->requireComposer(), $this->getIO(), $notes, $target, self::scope($input));
             $patches = $run->site->patches()->patches;
-            $directory = Plugin::patchDirectory($this->requireComposer()->getPackage()->getExtra());
-            $decided = Decisions::onDisk($run->site->root(), $patches, self::scope($input), $directory);
+            $decided = Decisions::onDisk($run->site->root(), $patches, self::scope($input));
             $fromDocument = [];
             $document = $input->getOption('decisions');
             if (\is_string($document) && '' !== $document) {
@@ -68,7 +59,7 @@ class RerollCommand extends PatchCommand
                 $merged = Decisions::merge($decided, $fromDocument);
                 $decided = $merged['decided'];
                 foreach ($merged['overridden'] as $region) {
-                    $notes->writeln('<comment>drupatch: the document decides '.$region['file'].' region '.$region['region'].' of '.$patches[$region['patch']]['source'].', over its conflict file</comment>');
+                    $notes->writeln('<comment>'.Text::t('drupatch: the document decides @file region @region of @source, over its conflict file', ['file' => $region['file'], 'region' => $region['region'], 'source' => $patches[$region['patch']]['source']]).'</comment>');
                 }
             }
             if ($dryRun) {
@@ -79,9 +70,9 @@ class RerollCommand extends PatchCommand
             $plan = $run->plan(true, $decided);
             self::refuseStaleDecisions($plan, $patches, $fromDocument, $decided);
             $tree = $force ? null : new WorkingTree(new ProcessExecutor($this->getIO()));
-            $result = (new PatchFiles($run->site->root(), $tree, $run->site->patches()->patches, $update, $directory))->write($plan);
+            $result = (new PatchFiles($run->site->root(), $tree, $run->site->patches()->patches))->write($plan);
         } catch (Throwable $e) {
-            $notes->writeln('<error>drupatch: '.$e->getMessage().'</error>');
+            $notes->writeln('<error>'.Text::t('drupatch: @message', ['message' => $e->getMessage()]).'</error>');
 
             return Plan::FAILED;
         }
@@ -90,18 +81,16 @@ class RerollCommand extends PatchCommand
         // the rows; a rewrite that fails still gets the report printed first.
         $outcomes = Outcomes::fromWrite($result);
         $updateError = '';
-        if ($update) {
-            try {
-                $outcomes->recordFix($this->update($run->site, $plan, $result['written'], $force), self::declaration($run->site)[0]);
-            } catch (Throwable $e) {
-                $updateError = $e->getMessage();
-            }
+        try {
+            $outcomes->recordFix($this->update($run->site, $plan, $result['written'], $force), self::DECLARATION);
+        } catch (Throwable $e) {
+            $updateError = $e->getMessage();
         }
 
         $this->render($input, $output, $format, $run, $plan, $outcomes);
 
         if ('' !== $updateError) {
-            $notes->writeln('<error>drupatch: '.$updateError.'</error>');
+            $notes->writeln('<error>'.Text::t('drupatch: @message', ['message' => $updateError]).'</error>');
 
             return Plan::FAILED;
         }
@@ -145,31 +134,13 @@ class RerollCommand extends PatchCommand
         }
         foreach (\array_keys($fromDocument) as $i) {
             $patch = $patches[$i];
-            $row = $rows[PatchRow::keyOf($patch['package'], $patch['title'])] ?? throw new RuntimeException('the plan has no row for '.$patch['source']);
+            $row = $rows[PatchRow::keyOf($patch['package'], $patch['title'])] ?? throw new RuntimeException(Text::t('the plan has no row for @source', ['source' => $patch['source']]));
             $applied = (int) ($row->reroll['resolutions_applied'] ?? 0);
             $count = \count($sent[$i] ?? []);
             if ($count > $applied) {
-                throw new RuntimeException(\sprintf('%d of the %d decisions sent for %s named no conflicted region, so they decided nothing; nothing was written', $count - $applied, $count, $patch['source']));
+                throw new RuntimeException(Text::t('@undecided of the @sent decisions sent for @source named no conflicted region, so they decided nothing; nothing was written', ['undecided' => $count - $applied, 'sent' => $count, 'source' => $patch['source']]));
             }
         }
-    }
-
-    /**
-     * The patch declarations a file holds, or null when it does not decode to an array.
-     *
-     * @return array<mixed>|null
-     */
-    private static function patchesOf(string $text, string $file): ?array
-    {
-        $decoded = \json_decode($text, true);
-        if (!\is_array($decoded)) {
-            return null;
-        }
-        if ('' === $file) {
-            return (array) ($decoded['extra']['patches'] ?? []);
-        }
-
-        return \is_array($decoded['patches'] ?? null) ? $decoded['patches'] : $decoded;
     }
 
     /**
@@ -185,37 +156,7 @@ class RerollCommand extends PatchCommand
         if ([] === $changes) {
             return [];
         }
-
-        $file = $site->patches()->file;
-        [$path] = self::declaration($site);
-        $full = $site->root().\DIRECTORY_SEPARATOR.$path;
-        $text = @\file_get_contents($full);
-        if (false === $text) {
-            throw new RuntimeException($path.' is not readable');
-        }
-        $declared = self::patchesOf($text, $file);
-        if (null === $declared) {
-            throw new RuntimeException($path.' is not readable JSON');
-        }
-        if (!$force) {
-            $tree = new WorkingTree(new ProcessExecutor($this->getIO()));
-            if ($tree->isModified($site->root(), $path)) {
-                // A run reaches the rewrite with the rest of the file already
-                // edited: the constraints it bumped to reach the new core.
-                // Comparing the whole file would refuse nearly every real run.
-                $committed = $tree->committed($site->root(), $path);
-                if (null === $committed || $declared !== self::patchesOf($committed, $file)) {
-                    throw new RuntimeException($path.' has uncommitted changes to its patches; commit them or pass --force');
-                }
-            }
-        }
-        $rewritten = ConfigRewriter::apply($declared, $changes);
-        $updated = '' === $file
-            ? ConfigRewriter::intoComposerJson($text, $rewritten)
-            : ConfigRewriter::intoPatchesFile($text, $rewritten);
-        if (false === \file_put_contents($full, $updated)) {
-            throw new RuntimeException($path.' could not be written');
-        }
+        $this->rewriteDeclarations($site->root(), $changes, $force);
 
         return $changes;
     }

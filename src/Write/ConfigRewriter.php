@@ -50,7 +50,7 @@ class ConfigRewriter
     }
 
     /**
-     * Applies the changes to a declaration map, keeping the order the site wrote it in.
+     * Applies the changes to a declaration map, keeping the order the site wrote it in. An entry in a shape the reader does not read is kept as it stands.
      *
      * @param array<string, mixed>                                                      $patches
      * @param list<array{action: string, package: string, title: string, path: string}> $changes
@@ -70,21 +70,20 @@ class ConfigRewriter
                 $out[$package] = $entries;
                 continue;
             }
-            $isList = \array_is_list($entries);
             $kept = [];
-            foreach ($entries as $key => $entry) {
-                $change = $byEntry[$package."\0".PatchConfig::entryTitle($key, $entry)] ?? null;
+            foreach ($entries as $title => $source) {
+                $change = \is_string($title) ? ($byEntry[$package."\0".$title] ?? null) : null;
                 if (null === $change) {
-                    $kept[$key] = $entry;
+                    $kept[$title] = $source;
                     continue;
                 }
                 if ('dropped' === $change['action']) {
                     continue;
                 }
-                $kept[$key] = PatchConfig::entryWithSource($entry, $change['path']);
+                $kept[$title] = $change['path'];
             }
             if ([] !== $kept) {
-                $out[$package] = $isList ? \array_values($kept) : $kept;
+                $out[$package] = $kept;
             }
         }
 
@@ -104,18 +103,5 @@ class ConfigRewriter
         }
 
         return $manipulator->getContents();
-    }
-
-    /**
-     * Writes the new declarations into an external patches file, keeping whichever of the two shapes the file uses.
-     *
-     * @param array<string, mixed> $patches
-     */
-    public static function intoPatchesFile(string $text, array $patches): string
-    {
-        $decoded = \json_decode($text, true);
-        $body = \is_array($decoded) && isset($decoded['patches']) ? ['patches' => $patches] + $decoded : $patches;
-
-        return \json_encode($body, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)."\n";
     }
 }

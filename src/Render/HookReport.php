@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Render;
 
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Text;
 
 /**
  * The lines the post-update hook prints: the verdict tally, the patches that need attention, and any caveat on the counts.
@@ -27,25 +28,41 @@ class HookReport
     private const MENTION_ORDER = [PatchRow::BROKEN_SYNTAX, 'conflicts', 'unknown', 'merged'];
 
     /**
+     * @param list<string> $edited copies whose body no longer holds what the site took
+     *
      * @return list<string>
      */
-    public static function lines(Plan $plan): array
+    public static function lines(Plan $plan, array $edited = []): array
     {
         $rows = $plan->worthMentioning();
         // Same rule as the report: a warning about a package carrying no
         // patch is not this hook's business.
         $warnings = self::worthPrinting($plan);
+        $unpinned = Report::unpinned($plan);
         // Composer applies a package's patches during the update, and
         // this hook runs after it. A patch that still applies is
         // something composer has already proved; what composer cannot
         // say is that a patch can be deleted.
-        if ([] === $rows) {
+        if ([] === $rows && [] === $unpinned && [] === $edited) {
             return [];
         }
 
-        $lines = ['<info>'.Report::LABEL.'</info>: '.self::headline($rows)];
+        $count = \count($unpinned);
+        $lines = ['<info>'.Report::LABEL.'</info>: '.([] === $rows ? self::opening($count, \count($edited)) : self::headline($rows))];
         foreach ($warnings as $warning) {
-            $lines[] = '  <comment>! '.$warning.'</comment>';
+            $lines[] = '  <comment>'.Text::t('! @warning', ['warning' => $warning]).'</comment>';
+        }
+        if (0 !== $count) {
+            if ([] !== $rows) {
+                $lines[] = '  <fg=red>'.self::unpinnedLine($count).'</>';
+            }
+            $lines[] = '  <fg=red>'.Text::t('run `@command` to copy them into the site', ['command' => Report::PIN]).'</>';
+        }
+        if ([] !== $edited && ([] !== $rows || 0 !== $count)) {
+            $lines[] = '  <fg=red>'.self::editedLine(\count($edited)).'</>';
+        }
+        if ([] === $rows) {
+            return $lines;
         }
 
         $shown = 0;
@@ -62,7 +79,7 @@ class HookReport
                 $lines[] = self::DETAIL_INDENT.$row->reason();
             }
             foreach ($row->syntaxErrors as $error) {
-                $lines[] = self::DETAIL_INDENT.$row->failureMode.': '.$error;
+                $lines[] = self::DETAIL_INDENT.Text::t('@mode: @error', ['mode' => $row->failureMode, 'error' => $error]);
             }
             // An applying row is here for what it references, so that
             // is its one line.
@@ -71,12 +88,44 @@ class HookReport
             }
         }
 
-        $lines[] = '  run `'.self::COMMAND.'` for the detail, or `--target <version>` before a core upgrade';
+        $lines[] = '  '.Text::t('run `@command` for the detail, or `--target <version>` before a core upgrade', ['command' => self::COMMAND]);
         foreach (Report::nextStepLines($plan->counts) as $line) {
             $lines[] = $line;
         }
 
         return $lines;
+    }
+
+    /**
+     * How many patches this site downloads from a merge request every install.
+     */
+    private static function unpinnedLine(int $count): string
+    {
+        return Text::plural(
+            $count,
+            '@count patch loads from a merge request URL, which can change at any time.',
+            '@count patches load from merge request URLs, which can change at any time.'
+        );
+    }
+
+    /**
+     * The first line of a run with no verdict worth printing: what the site declares, or what it holds.
+     */
+    private static function opening(int $unpinned, int $edited): string
+    {
+        return 0 !== $unpinned ? self::unpinnedLine($unpinned) : self::editedLine($edited);
+    }
+
+    /**
+     * How many copies hold something other than what the site took.
+     */
+    private static function editedLine(int $count): string
+    {
+        return Text::plural(
+            $count,
+            '@count copied patch was edited since it was copied into the site',
+            '@count copied patches were edited since they were copied into the site'
+        );
     }
 
     /**
@@ -90,7 +139,7 @@ class HookReport
         $out = $plan->warnings;
         foreach ($plan->packages() as $package) {
             if ('' !== ($note = $plan->rowNotes[$package] ?? '')) {
-                $out[] = $package.' '.$note;
+                $out[] = Text::t('@package @note', ['package' => $package, 'note' => $note]);
             }
         }
 
@@ -104,7 +153,9 @@ class HookReport
     {
         $rest = $row->flaggedCoreReferences() - 1;
 
-        return (Report::coreReferenceLines($row)[0] ?? '').($rest > 0 ? ' (+'.$rest.' more)' : '');
+        $first = Report::coreReferenceLines($row)[0] ?? '';
+
+        return $rest > 0 ? Text::t('@first (+@rest more)', ['first' => $first, 'rest' => $rest]) : $first;
     }
 
     /**
@@ -126,17 +177,17 @@ class HookReport
         $parts = [];
         foreach (self::MENTION_ORDER as $status) {
             if (($counts[$status] ?? 0) > 0) {
-                $parts[] = $counts[$status].' '.$status;
+                $parts[] = Text::t('@count @status', ['count' => $counts[$status], 'status' => $status]);
                 unset($counts[$status]);
             }
         }
         foreach ($counts as $status => $count) {
-            $parts[] = $count.' '.$status;
+            $parts[] = Text::t('@count @status', ['count' => $count, 'status' => $status]);
         }
         if ($referencing > 0) {
-            $parts[] = $referencing.' with core references to check';
+            $parts[] = Text::t('@count with core references to check', ['count' => $referencing]);
         }
 
-        return \implode(', ', $parts).' after this update';
+        return Text::t('@tally after this update', ['tally' => \implode(', ', $parts)]);
     }
 }

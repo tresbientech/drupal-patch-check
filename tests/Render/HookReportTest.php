@@ -120,8 +120,8 @@ class HookReportTest extends TestCase
     {
         $lines = HookReport::lines($this->plan());
 
-        self::assertStringContainsString('drupatch:reroll', $lines[\count($lines) - 2]);
-        self::assertStringContainsString('--update', $lines[\count($lines) - 1]);
+        self::assertStringContainsString('drupatch:check', $lines[\count($lines) - 2]);
+        self::assertStringContainsString('drupatch:reroll', $lines[\count($lines) - 1]);
     }
 
     public function testAPlanWithNothingToRunAddsNoFooter(): void

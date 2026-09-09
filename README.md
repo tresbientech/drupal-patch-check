@@ -28,8 +28,11 @@ Drupal Patch Check: 4 patches for a move from core 10.2.4 to 11.4.6
   patches: 1 applies, 2 conflicts, 1 merged
   composer already applied these patches to your files
 
-  Next:  composer drupatch:reroll --target 11.4.6            writes the 2 re-rolls
-         composer drupatch:reroll --target 11.4.6 --update   drops the shipped entry from composer.json
+  3 patches are declared as merge request URLs. Anyone with a drupal.org
+  account can push to a merge request, so what composer applies here can
+  change between two installs. Run: composer drupatch:pin
+
+  Next:  composer drupatch:reroll --target 11.4.6   writes the 2 re-rolls and drops the shipped entry from composer.json
 ```
 
 ## Remote service call
@@ -55,13 +58,47 @@ Installing it runs nothing and sends nothing.
 ## The commands
 
 ```
-composer drupatch:check             judges every patch, writes nothing
-composer drupatch:reroll [--update] writes what merges
+composer drupatch:check    judges every patch, writes nothing
+composer drupatch:pin      copies every patch declared as a URL into your site
+composer drupatch:reroll   writes what merges, and rewrites your declarations
 ```
 
-Both take `--target`, `--package`, `--patch`, `--dry-run` and `--format`; only
-the re-roll takes the two that write. `--target latest` plans against the
-newest core your own constraint allows.
+All three take `--package`, `--patch`, `--dry-run` and `--format`. The check and
+the re-roll take `--target`; `--target latest` plans against the newest core
+your own constraint allows.
+
+They read `extra.patches` in your composer.json, the map
+cweagans/composer-patches applies: one block per package, and inside it one
+entry per patch, its title as the key and its file or URL as the value.
+
+## Patches declared as a URL
+
+A patch declared as `https://git.drupalcode.org/project/webform/-/merge_requests/940.patch`
+is downloaded on every install, and anyone with a drupal.org account can push to
+that merge request. What composer applies then changes while your site does not.
+
+`composer drupatch:pin` copies the patch into your repository and points the
+declaration at the file:
+
+```
+$ composer drupatch:pin
+Drupal Patch Check: 1 patch copied into the site
+
+  copied into the site:
+    drupal/webform: 3521733: browser back/forward cache
+      patch/webform/mr940.diff
+
+  composer.json: 1 declaration now names a file in the site
+```
+
+The first line of the file records where the bytes came from, the two commits
+the diff was taken between, and a hash of the rest of the file. A later run
+reads it back: `check` says when the file was edited, and `pin` says when the
+merge request has new commits. `pin --refresh` takes those new commits, and
+nothing else does.
+
+A commit URL is copied the same way, under `commit-<sha>.diff`. Any other URL is
+copied under the name it ends in.
 
 ## Verdicts
 
@@ -88,7 +125,7 @@ Inside, each open region falls between a `# drupatch region N file` line and a
 to drop the region, then run `composer drupatch:reroll` again. The report gives
 every region as its file and index.
 
-An adopted URL patch is written under `patch/<project>/`, or wherever
+A copied patch is written under `patch/<project>/`, or wherever
 `patch-directory` says.
 
 ## Running it in CI
@@ -108,8 +145,8 @@ against the releases this site could install today?
 
 Exit 0 means nothing needs work, 1 means a patch or a package does, 2 means the
 plan could not be fetched. A patch the service could not judge does not fail
-the run on its own. `--format=json` and `--format=github` keep stdout
-machine-readable and put every person-facing note on stderr.
+the run on its own. `--format=json` keeps stdout machine-readable and puts
+every person-facing note on stderr.
 
 ## Settings
 
@@ -120,8 +157,7 @@ Every setting lives under `extra.drupal-patch-check` in your composer.json.
   "extra": {
     "drupal-patch-check": {
       "hook": true,
-      "patch-directory": "patches",
-      "private-paths": true
+      "patch-directory": "patches"
     }
   }
 }
@@ -130,8 +166,7 @@ Every setting lives under `extra.drupal-patch-check` in your composer.json.
 | Key | Default | Effect |
 | --- | --- | --- |
 | `hook` | `false` | Check patches after every `composer update`. |
-| `patch-directory` | `patch` | Where an adopted URL patch is written. |
-| `private-paths` | `false` | Send `p0`, `p1` in place of your own patch paths. |
+| `patch-directory` | `patch` | Where a copied patch is written. |
 
 ### What the request holds
 
@@ -143,8 +178,7 @@ Sent:
 - four keys from `composer.json`: `require`, `require-dev`,
   `minimum-stability` and `prefer-stable`
 - one trimmed `composer.lock` entry per package
-- every patch you declare in `extra.patches`, or in the file `patches-file`
-  points at: its package, the path you keep it at, and its text
+- every patch you declare in `extra.patches`: its package and its text
 
 Not sent:
 
@@ -152,14 +186,15 @@ Not sent:
   never mentioned
 - your `repositories`, `config`, `autoload` and `scripts`
 - the titles you gave your patches
+- the paths you keep your patches at
 
-Paths can give something away. `patch/acme_dam/CUP-1341_preview.patch` tells a
-reader your client and your ticket number. Set `private-paths` and each path
-travels as `p0`, `p1` instead. A drupal.org URL stays as written, since the
-service reads the merge request in it to find the diff a re-roll starts from.
+A path can give something away. `patch/acme_dam/CUP-1341_preview.patch` tells a
+reader your client and your ticket number, so none of it travels. A merge
+request URL does travel when you declared one, because it names a public page
+and the service reads it to say whether a release already holds the fix.
 
 The patch text always travels as written, because the service judges it. If a
-patch repeats the ticket number in a comment, `private-paths` does not hide it.
+patch repeats the ticket number in a comment, that comment travels with it.
 
 `composer drupatch:check --dry-run` prints the request.
 

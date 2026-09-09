@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Write;
 
 use PHPUnit\Framework\TestCase;
+use TresBienTech\Drupatch\Header;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
@@ -55,11 +56,6 @@ class PatchFilesTest extends TestCase
     private function writer(Plan $plan): PatchFiles
     {
         return new PatchFiles($this->root, null, self::declaring($plan));
-    }
-
-    private function adopter(Plan $plan): PatchFiles
-    {
-        return new PatchFiles($this->root, null, self::declaring($plan), true);
     }
 
     /**
@@ -124,7 +120,7 @@ class PatchFilesTest extends TestCase
         self::assertSame([], $result['written']);
         self::assertCount(1, $result['refused']);
         self::assertSame(
-            PatchFiles::BROKEN_SYNTAX.'src/Form.php: unexpected } on line 4',
+            'its re-roll leaves a file that does not parse: src/Form.php: unexpected } on line 4',
             $result['refused'][0]['reason'],
         );
         self::assertSame("old diff\n", \file_get_contents($this->root.'/patches/core/htaccess.patch'), 'the file the site declares is untouched');
@@ -199,22 +195,6 @@ class PatchFilesTest extends TestCase
         self::assertStringContainsString(PatchFiles::REGION_OPEN.'0 a.php', $text);
         self::assertSame([['file' => 'a.php', 'region' => 0]], $result['written'][0]['open']);
         self::assertSame([], $result['written'][0]['removed']);
-    }
-
-    public function testAnAdoptedUrlGoesToTheDirectoryTheSiteNames(): void
-    {
-        self::assertSame(
-            'patchs/webform/c.patch',
-            PatchFiles::adoptedPath('drupal/webform', 'webform', 'https://example.test/c.patch', 'patchs'),
-        );
-    }
-
-    public function testASiteThatNamesNoDirectoryGetsPatch(): void
-    {
-        self::assertSame(
-            'patch/webform/c.patch',
-            PatchFiles::adoptedPath('drupal/webform', 'webform', 'https://example.test/c.patch'),
-        );
     }
 
     public function testADiffExtensionIsReplacedRatherThanDoubled(): void
@@ -308,86 +288,14 @@ class PatchFilesTest extends TestCase
         self::assertSame([], self::paths($this->root.'/*'));
         self::assertCount(1, $result['refused']);
         self::assertSame(PatchFiles::URL_DECLARED, $result['refused'][0]['reason']);
-        self::assertSame('--update', $result['refused'][0]['lifts']);
-    }
-
-    public function testAnAdoptedUrlPatchLandsUnderItsProject(): void
-    {
-        $plan = $this->plan(['status' => 'clean', 'patch' => "diff\n"], 'https://www.drupal.org/files/issues/2022-02-25/pathauto-3131794-15.patch');
-
-        $result = $this->adopter($plan)->write($plan);
-
-        self::assertSame('patch/webform/pathauto-3131794-15.patch', $result['written'][0]['path']);
-        self::assertSame([], $result['refused']);
-    }
-
-    public function testAnAdoptedUrlDropsTheQueryString(): void
-    {
-        $plan = $this->plan(['status' => 'clean', 'patch' => "diff\n"], 'https://example.test/files/a.patch?id=7&raw=1');
-
-        self::assertSame('patch/webform/a.patch', $this->adopter($plan)->write($plan)['written'][0]['path']);
-    }
-
-    public function testAnAdoptedUrlWithNoProjectUsesThePackageName(): void
-    {
-        $plan = $this->planFrom(['patches' => [$this->rerolledRow(
-            ['status' => 'clean', 'patch' => "diff\n"],
-            ['package' => 'drupal/menu_item_extras', 'project' => '', 'source' => 'https://example.test/a.patch']
-        )]]);
-
-        self::assertSame('patch/menu_item_extras/a.patch', $this->adopter($plan)->write($plan)['written'][0]['path']);
-    }
-
-    // The service names the project, so a separator in it would pick the
-    // directory the file lands in.
-    public function testAnAdoptedUrlWithASeparatorInTheProjectIsRefused(): void
-    {
-        $plan = $this->planFrom(['patches' => [$this->rerolledRow(
-            ['status' => 'clean', 'patch' => "diff\n"],
-            ['package' => 'drupal/webform', 'project' => '../web/sites/default', 'source' => 'https://example.test/a.patch']
-        )]]);
-
-        $result = $this->adopter($plan)->write($plan);
-
-        self::assertSame([], $result['written']);
-        self::assertSame(PatchFiles::NO_FILE_NAME, $result['refused'][0]['reason']);
-    }
-
-    public function testAnAdoptedUrlWhoseRerollPartlyMergedGetsAConflictFileBesideIt(): void
-    {
-        $plan = $this->plan([
-            'status' => 'conflicts',
-            'patch' => "part\n",
-            'conflicts' => [['file' => 'a.php', 'regions' => 1, 'hunks' => [['line' => 1, 'release' => "a\n", 'patch' => "b\n"]]]],
-        ], 'https://example.test/files/a.patch');
-
-        $result = $this->adopter($plan)->write($plan);
-
-        self::assertSame('patch/webform/a.conflict.patch', $result['written'][0]['path']);
-        self::assertFalse('clean' === $result['written'][0]['status']);
-    }
-
-    public function testAUrlWhoseRerollMergedNothingIsNotFetchedAndPointsUpstream(): void
-    {
-        $plan = $this->plan([
-            'status' => 'conflicts',
-            'conflicts' => [['file' => 'a.php', 'regions' => 1, 'hunks' => [['line' => 1, 'release' => "a\n", 'patch' => "b\n"]]]],
-        ], 'https://www.drupal.org/files/issues/2024-01-01/webform-fix-2466553-12.patch');
-
-        $result = $this->adopter($plan)->write($plan);
-
-        self::assertSame([], $result['written']);
-        self::assertFalse(\is_file($this->root.'/patches/webform/webform-fix-2466553-12.patch'));
-        self::assertFalse(\is_file($this->root.'/patches/webform/webform-fix-2466553-12.conflict.patch'));
-        self::assertSame(PatchFiles::NOTHING_MERGED.'; the fix belongs upstream: https://www.drupal.org/i/2466553', $result['refused'][0]['reason']);
-        self::assertFalse($result['refused'][0]['shipped']);
+        self::assertSame('', $result['refused'][0]['lifts']);
     }
 
     public function testAUrlWhoseRerollIsUnavailablePointsAtItsMergeRequest(): void
     {
         $plan = $this->plan(['status' => 'unavailable', 'error' => 'the patch names no base blobs'], 'https://git.drupalcode.org/project/webform/-/merge_requests/12.diff');
 
-        $result = $this->adopter($plan)->write($plan);
+        $result = $this->writer($plan)->write($plan);
 
         self::assertSame([], $result['written']);
         self::assertSame('the patch names no base blobs; the fix belongs upstream: https://git.drupalcode.org/project/webform/-/merge_requests/12', $result['refused'][0]['reason']);
@@ -400,20 +308,63 @@ class PatchFilesTest extends TestCase
             ['source' => 'https://git.drupalcode.org/project/webform/-/merge_requests/12.diff', 'version' => '6.3.2', 'verdict' => 'merged'],
         )]]);
 
-        $result = $this->adopter($plan)->write($plan);
+        $result = $this->writer($plan)->write($plan);
 
         self::assertSame([], $result['written']);
         self::assertSame('the merge changes nothing: the patch is already in the release', $result['refused'][0]['reason']);
         self::assertTrue($result['refused'][0]['shipped']);
     }
 
-    public function testAUrlWithNoIssueNumberPointsAtItself(): void
+    // The re-roll writes to files the site holds, so a URL declaration is
+    // sent to the command that copies it into the site.
+    public function testAUrlDeclarationIsSentToPin(): void
     {
-        $plan = $this->plan(['status' => 'conflicts', 'conflicts' => [['file' => 'a.php', 'regions' => 1, 'hunks' => []]]], 'https://example.test/files/a.patch');
+        $plan = $this->plan(['status' => 'conflicts', 'patch' => "diff\n", 'conflicts' => [['file' => 'a.php', 'regions' => 1, 'hunks' => [['line' => 1, 'release' => "a\n", 'patch' => "b\n"]]]]], 'https://example.test/files/a.patch');
 
-        $result = $this->adopter($plan)->write($plan);
+        $result = $this->writer($plan)->write($plan);
 
-        self::assertStringEndsWith('; the fix belongs upstream: https://example.test/files/a.patch', $result['refused'][0]['reason']);
+        self::assertSame([], $result['written']);
+        self::assertSame(PatchFiles::URL_DECLARED, $result['refused'][0]['reason']);
+        self::assertStringContainsString('composer drupatch:pin', $result['refused'][0]['reason']);
+    }
+
+    // The file the site copied says where its bytes came from. A re-roll
+    // changes the bytes, so it says which release they were merged against
+    // and hashes what it wrote.
+    public function testARerollOverACopiedPatchKeepsItsProvenance(): void
+    {
+        $header = Header::line([
+            'mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940',
+            'base' => 'aaa',
+            'head' => 'bbb',
+            'fetched' => '2026-09-01',
+            'sha256' => Header::hash("old\n"),
+        ]);
+        $this->declare('patch/webform/mr940.diff', $header."old\n");
+        $plan = $this->plan(['status' => 'clean', 'patch' => "new\n"], 'patch/webform/mr940.diff');
+
+        $result = $this->writer($plan)->write($plan);
+
+        self::assertSame('patch/webform/mr940.diff', $result['written'][0]['path']);
+        $written = (string) \file_get_contents($this->root.'/patch/webform/mr940.diff');
+        self::assertSame("new\n", Header::body($written));
+        $read = Header::read($written);
+        self::assertSame('https://git.drupalcode.org/project/webform/-/merge_requests/940', $read['mr']);
+        self::assertSame('bbb', $read['head']);
+        self::assertSame('6.3.2', $read['rerolled']);
+        self::assertSame(Header::hash("new\n"), $read['sha256']);
+    }
+
+    // A patch the site wrote by hand has no header, and a re-roll of it
+    // stays a plain diff.
+    public function testARerollOverAPlainPatchAddsNoHeader(): void
+    {
+        $this->declare('patches/a.patch', "old\n");
+        $plan = $this->plan(['status' => 'clean', 'patch' => "new\n"], 'patches/a.patch');
+
+        $this->writer($plan)->write($plan);
+
+        self::assertSame("new\n", \file_get_contents($this->root.'/patches/a.patch'));
     }
 
     public function testALocalPatchWhoseRerollMergedNothingStillGetsItsConflictFile(): void
@@ -658,22 +609,6 @@ class PatchFilesTest extends TestCase
 
         self::assertSame('patches/webform/alter.patch', $result['written'][0]['path']);
         self::assertFileDoesNotExist($this->root.'/web/sites/default/settings.php');
-    }
-
-    public function testAdoptResolvesFromTheDeclaredUrl(): void
-    {
-        $plan = $this->planFrom(['patches' => [$this->rerolledRow(
-            ['status' => 'clean', 'patch' => "diff\n"],
-            ['source' => 'https://evil.test/steal.patch']
-        )]]);
-        $writer = new PatchFiles($this->root, null, [
-            ['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'https://www.drupal.org/files/real.patch'],
-        ], true);
-
-        $result = $writer->write($plan);
-
-        self::assertStringEndsWith('real.patch', $result['written'][0]['path']);
-        self::assertSame([], self::paths($this->root.'/patches/webform/steal.patch'));
     }
 
     // The service says why it built no re-roll. Its words beat the

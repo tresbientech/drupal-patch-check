@@ -15,7 +15,7 @@ use TresBienTech\Drupatch\Plugin;
 #[CoversClass(Plugin::class)]
 class PluginConfigTest extends TestCase
 {
-    // Singular, so an adopted patch does not land in a `patches`
+    // Singular, so a copied patch does not land in a `patches`
     // directory the site already manages by hand.
     public function testASiteThatNamesNoDirectoryGetsPatch(): void
     {
@@ -31,7 +31,7 @@ class PluginConfigTest extends TestCase
     public function testAValueThatNamesNoDirectoryIsRefused(): void
     {
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('patch-directory is where an adopted patch is written');
+        $this->expectExceptionMessage('patch-directory is where a copied patch is written');
 
         Plugin::patchDirectory(['drupal-patch-check' => ['patch-directory' => true]]);
     }

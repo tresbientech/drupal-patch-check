@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Plan;
 
 use RuntimeException;
+use TresBienTech\Drupatch\Text;
 
 /**
  * One patch as the plan judged it.
@@ -281,7 +282,7 @@ class PatchRow
             return $place.$reason;
         }
 
-        return $place.': '.$reason;
+        return Text::t('@place: @reason', ['place' => $place, 'reason' => $reason]);
     }
 
     /**
@@ -312,7 +313,7 @@ class PatchRow
         $file = (string) ($hunk['file'] ?? '');
         $line = (int) ($hunk['line'] ?? 0);
 
-        return '' === $file || $line <= 0 ? $file : $file.':'.$line;
+        return '' === $file || $line <= 0 ? $file : Text::t('@file:@line', ['file' => $file, 'line' => $line]);
     }
 
     /**

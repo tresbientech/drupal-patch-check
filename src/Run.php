@@ -45,12 +45,12 @@ class Run
     ) {
         $this->site = Site::atWorkingDirectory($composer, $io);
         foreach ($this->site->patches()->notes as $note) {
-            $notes->writeln('<comment>drupatch: '.$note.'</comment>');
+            $notes->writeln('<comment>'.Text::t('drupatch: @message', ['message' => $note]).'</comment>');
         }
         $declared = \array_column($this->site->patches()->patches, 'source');
         $unknown = $scope->unknownSources($declared);
         if ([] !== $unknown) {
-            throw new RuntimeException(\sprintf('no patch is declared from %s; this site declares %s', \implode(', ', $unknown), [] === $declared ? 'none' : \implode(', ', $declared)));
+            throw new RuntimeException(Text::t('no patch is declared from @named; this site declares @declared', ['named' => \implode(', ', $unknown), 'declared' => [] === $declared ? 'none' : \implode(', ', $declared)]));
         }
         $this->coverage = Coverage::of($this->site, $scope);
         // A bare run judges what the lock installs, so there is no
@@ -71,7 +71,7 @@ class Run
      */
     public function body(bool $reroll, array $decided): array
     {
-        return Client::body($this->site->composerJson(), $this->site->composerLock(), $this->site->patches(), $this->site->private(), $this->target, $reroll, $this->candidates, $this->declared, $decided);
+        return Client::body($this->site->composerJson(), $this->site->composerLock(), $this->site->patches(), $this->target, $reroll, $this->candidates, $this->declared, $decided);
     }
 
     /**
@@ -84,7 +84,7 @@ class Run
     public function plan(bool $reroll, array $decided): Plan
     {
         $plan = Client::fromComposer($this->composer, $this->io)
-            ->plan($this->site->composerJson(), $this->site->composerLock(), $this->site->patches(), $this->site->private(), $this->target, $reroll, $this->candidates, $this->declared, $decided);
+            ->plan($this->site->composerJson(), $this->site->composerLock(), $this->site->patches(), $this->target, $reroll, $this->candidates, $this->declared, $decided);
         // The whole site is sent because the server needs the whole lock;
         // the narrowing happens here, so everything after it is about the
         // packages that were asked for.
@@ -94,7 +94,7 @@ class Run
         $declared = $plan->packages();
         $narrowed = $plan->only($this->scope);
         if (!$narrowed->hasPatches()) {
-            throw new RuntimeException(\sprintf('no patch is declared for %s; this site declares patches for %s', \implode(', ', $this->scope->packages), [] === $declared ? 'nothing' : \implode(', ', $declared)));
+            throw new RuntimeException(Text::t('no patch is declared for @named; this site declares patches for @declared', ['named' => \implode(', ', $this->scope->packages), 'declared' => [] === $declared ? 'nothing' : \implode(', ', $declared)]));
         }
 
         return $narrowed;
@@ -112,12 +112,12 @@ class Run
             $resolver = Candidates::forSite($this->composer);
             $out = $this->resolveCandidates($resolver, $target);
         } catch (Throwable $e) {
-            $notes->writeln('<comment>drupatch: composer could not say which releases the target installs: '.$e->getMessage().'</comment>');
+            $notes->writeln('<comment>'.Text::t('drupatch: composer could not say which releases the target installs: @why', ['why' => $e->getMessage()]).'</comment>');
             $out = [];
         }
         if (null !== $resolver) {
             foreach ($resolver->notes() as $note) {
-                $notes->writeln('<comment>drupatch: '.$note.'</comment>');
+                $notes->writeln('<comment>'.Text::t('drupatch: @message', ['message' => $note]).'</comment>');
             }
         }
 

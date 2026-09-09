@@ -71,42 +71,6 @@ final class ConfigRewriterTest extends TestCase
         self::assertSame([], ConfigRewriter::apply($patches, ConfigRewriter::changes($this->plan(), $this->written())));
     }
 
-    public function testRepointsAnEntryWrittenAsAnObject(): void
-    {
-        $patches = ['drupal/webform' => ['Fix a' => ['url' => 'patches/a.patch', 'depth' => 2]]];
-
-        $applied = ConfigRewriter::apply($patches, ConfigRewriter::changes($this->plan(), $this->written()));
-
-        self::assertSame([
-            'drupal/webform' => ['Fix a' => ['url' => 'patches/webform-fix-a-1234abcd.patch', 'depth' => 2]],
-        ], $applied, 'the entry points at the re-roll and keeps everything else it said');
-    }
-
-    public function testDropsAnEntryWrittenAsAListObject(): void
-    {
-        $patches = ['drupal/core' => [
-            ['description' => 'Menu cache', 'url' => 'https://www.drupal.org/files/issues/c.patch'],
-            ['description' => 'Another fix', 'url' => 'https://www.drupal.org/files/issues/d.patch'],
-        ]];
-
-        $applied = ConfigRewriter::apply($patches, ConfigRewriter::changes($this->plan(), $this->written()));
-
-        self::assertSame([
-            'drupal/core' => [['description' => 'Another fix', 'url' => 'https://www.drupal.org/files/issues/d.patch']],
-        ], $applied, 'the merged entry went, the other stayed, and a list stayed a list');
-    }
-
-    public function testRepointsAnEntryWrittenAsAListObject(): void
-    {
-        $patches = ['drupal/webform' => [['description' => 'Fix a', 'url' => 'patches/a.patch']]];
-
-        $applied = ConfigRewriter::apply($patches, ConfigRewriter::changes($this->plan(), $this->written()));
-
-        self::assertSame([
-            'drupal/webform' => [['description' => 'Fix a', 'url' => 'patches/webform-fix-a-1234abcd.patch']],
-        ], $applied);
-    }
-
     public function testLeavesEveryOtherKeyAndTheIndentationAlone(): void
     {
         $text = <<<'JSON'
@@ -144,26 +108,6 @@ final class ConfigRewriterTest extends TestCase
             ],
         ], \json_decode($updated, true), 'only the settled entries changed, and every other key stayed');
         self::assertStringContainsString('  "name": "test/site"', $updated, 'the file keeps its own indentation');
-    }
-
-    public function testRewritesAnExternalPatchesFileInItsOwnShape(): void
-    {
-        $text = (string) \json_encode(['patches' => ['drupal/webform' => ['Fix a' => 'patches/a.patch']]], \JSON_PRETTY_PRINT);
-        $applied = ConfigRewriter::apply(['drupal/webform' => ['Fix a' => 'patches/a.patch']], ConfigRewriter::changes($this->plan(), $this->written()));
-
-        $updated = \json_decode(ConfigRewriter::intoPatchesFile($text, $applied), true);
-
-        self::assertSame(['patches' => ['drupal/webform' => ['Fix a' => 'patches/webform-fix-a-1234abcd.patch']]], $updated);
-    }
-
-    public function testRewritesABarePatchesFileWithoutWrappingIt(): void
-    {
-        $text = (string) \json_encode(['drupal/webform' => ['Fix a' => 'patches/a.patch']], \JSON_PRETTY_PRINT);
-        $applied = ConfigRewriter::apply(['drupal/webform' => ['Fix a' => 'patches/a.patch']], ConfigRewriter::changes($this->plan(), $this->written()));
-
-        $updated = \json_decode(ConfigRewriter::intoPatchesFile($text, $applied), true);
-
-        self::assertSame(['drupal/webform' => ['Fix a' => 'patches/webform-fix-a-1234abcd.patch']], $updated, 'a bare file is not wrapped in a patches key');
     }
 
     public function testAPlanWithNothingSettledChangesNothing(): void

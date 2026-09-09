@@ -13,7 +13,7 @@ use TresBienTech\Drupatch\RerollCommand;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
 /**
- * What an --update run prints, and where.
+ * What a re-roll run prints about the declarations it rewrote, and where.
  */
 #[CoversClass(RerollCommand::class)]
 class FixCommandTest extends TestCase
@@ -71,7 +71,7 @@ class FixCommandTest extends TestCase
     {
         // Not a git checkout: the re-roll is refused and --force is offered,
         // which gives the run a footer to order against.
-        $tester = $this->drive(['--update' => true]);
+        $tester = $this->drive([]);
         $display = $tester->getDisplay();
 
         self::assertStringContainsString("  composer.json:\n    - drupal/webform: Menu cache (already in the release; patches/webform/menu.patch is no longer used and was kept)", $display);
@@ -85,7 +85,7 @@ class FixCommandTest extends TestCase
 
     public function testAnEditedPatchDeclarationPrintsTheReportThenTheError(): void
     {
-        $tester = $this->drive(['--update' => true], static function (SiteFixture $site): void {
+        $tester = $this->drive([], static function (SiteFixture $site): void {
             self::commit($site);
             $decoded = (array) \json_decode((string) $site->read('composer.json'), true);
             $decoded['extra']['patches']['drupal/webform']['Fix'] = 'patches/webform/other.patch';
@@ -103,7 +103,7 @@ class FixCommandTest extends TestCase
     {
         // Reaching a new core means editing constraints, so a run that
         // refused on any change to the file would refuse on every real one.
-        $tester = $this->drive(['--update' => true], static function (SiteFixture $site): void {
+        $tester = $this->drive([], static function (SiteFixture $site): void {
             self::commit($site);
             $decoded = (array) \json_decode((string) $site->read('composer.json'), true);
             $decoded['description'] = 'edited while reaching the new core';
@@ -118,7 +118,7 @@ class FixCommandTest extends TestCase
     {
         // git status reports the file, and `git show HEAD:` has nothing to
         // answer with, so the run cannot tell what the patches were.
-        $tester = $this->drive(['--update' => true], static function (SiteFixture $site): void {
+        $tester = $this->drive([], static function (SiteFixture $site): void {
             $root = \escapeshellarg($site->root());
             \exec("cd $root && git init -q && git add -A 2>&1", $out, $code);
             self::assertSame(0, $code, \implode("\n", $out));

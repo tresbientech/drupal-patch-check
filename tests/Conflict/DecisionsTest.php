@@ -73,15 +73,14 @@ final class DecisionsTest extends TestCase
         self::assertSame([], Decisions::onDisk($this->root, $patches, Scope::whole()));
     }
 
-    public function testAPatchDeclaredAsAUrlIsFoundAtItsAdoptedPath(): void
+    // A URL declaration receives no re-roll, so nothing was written beside it
+    // to read a decision from.
+    public function testAPatchDeclaredAsAUrlHasNoConflictFile(): void
     {
         $this->put('patch/webform/2821158-12.conflict.patch', self::decided('src/Form.php', 0, 'decided'));
         $patches = [['package' => 'drupal/webform', 'title' => 'Fix', 'source' => 'https://www.drupal.org/files/issues/2024-01-02/2821158-12.patch']];
 
-        $got = Decisions::onDisk($this->root, $patches, Scope::whole());
-
-        self::assertCount(1, $got[0]);
-        self::assertSame('decided', $got[0][0]['text'] ?? '');
+        self::assertSame([], Decisions::onDisk($this->root, $patches, Scope::whole()));
     }
 
     public function testAFileWithNoDecidedRegionYieldsNothing(): void

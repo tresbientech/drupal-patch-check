@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Write;
 
 use RuntimeException;
+use TresBienTech\Drupatch\Header;
 use TresBienTech\Drupatch\PatchConfig;
 use TresBienTech\Drupatch\PatchText;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Render\Report;
+use TresBienTech\Drupatch\Text;
 
 /**
  * Writes the re-rolled diffs a plan carries.
@@ -34,19 +36,9 @@ class PatchFiles
 
     public const NO_REROLL = 'the service sent no re-roll and no reason for it';
 
-    public const URL_DECLARED = 'it is declared as a URL, so there is no file to replace';
-
-    public const NO_FILE_NAME = 'its URL ends in no file name';
+    public const URL_DECLARED = 'it is declared as a URL, so there is no file to replace; run `'.Report::PIN.'` to copy it into the site';
 
     public const NOT_DECLARED = 'the site declares no patch by that name';
-
-    public const NOTHING_MERGED = 'no hunk of its re-roll merged, so there is nothing to fetch';
-
-    /** A clean re-roll the service could not parse afterwards. Writing it would hand over a patch known to break the site. */
-    public const BROKEN_SYNTAX = 'its re-roll leaves a file that does not parse: ';
-
-    /** Where an adopted URL patch goes when the site names no directory. Singular, so it does not land in a `patches` directory the site already manages by hand. */
-    public const ADOPTED_DIRECTORY = 'patch';
 
     public function __construct(
         private readonly string $root,
@@ -58,10 +50,6 @@ class PatchFiles
          * @var list<array{package: string, title: string, source: string}>
          */
         private readonly array $declared,
-        /** Whether a patch declared as a URL is written locally. `--update`. */
-        private readonly bool $adopt = false,
-        /** Where an adopted URL patch is written, from `extra.drupal-patch-check.patch-directory`. */
-        private readonly string $directory = self::ADOPTED_DIRECTORY,
     ) {
     }
 
@@ -100,44 +88,40 @@ class PatchFiles
                 // A patch the release already carries has nothing to send
                 // upstream; only a re-roll that produced nothing does.
                 $where = $fromUrl && !$row->isMerged() ? self::upstream($declaredSource) : '';
-                $refused[] = self::refusal($row, $row->source, self::whyNoReroll($row).$where, shipped: $row->isMerged());
+                $why = self::whyNoReroll($row);
+                $refused[] = self::refusal($row, $row->source, '' === $where
+                    ? $why
+                    : Text::t('@why; the fix belongs upstream: @where', ['why' => $why, 'where' => $where]), shipped: $row->isMerged());
                 continue;
             }
             // A merge that produced code the service cannot parse is not
             // a patch to hand anybody, whatever the site declared.
             $broken = $row->rerollSyntaxErrors();
             if ([] !== $broken) {
-                $refused[] = self::refusal($row, $declaredSource ?? $row->source, self::BROKEN_SYNTAX.$broken[0]);
+                $refused[] = self::refusal($row, $declaredSource ?? $row->source, Text::t('its re-roll leaves a file that does not parse: @file', ['file' => $broken[0]]));
                 continue;
             }
             if (null === $declaredSource) {
                 $refused[] = self::refusal($row, $row->source, self::NOT_DECLARED);
                 continue;
             }
-            if ($fromUrl && !$this->adopt) {
-                $refused[] = self::refusal($row, $declaredSource, self::URL_DECLARED, '--update');
+            if ($fromUrl) {
+                $refused[] = self::refusal($row, $declaredSource, self::URL_DECLARED);
                 continue;
             }
-            // A URL patch reaches the site only when the re-roll gives it
-            // something to use. A conflicted merge that kept no hunk is
-            // the patch as it was, and the fix for that belongs upstream.
-            if ($fromUrl && !$row->rerollIsClean() && '' === ($row->reroll['patch'] ?? '')) {
-                $refused[] = self::refusal($row, $declaredSource, self::NOTHING_MERGED.self::upstream($declaredSource));
-                continue;
-            }
-            $target = PatchConfig::isUrl($declaredSource)
-                ? self::adoptedPath($row->package, $row->project, $declaredSource, $this->directory)
-                : $declaredSource;
-            if ('' === $target) {
-                $refused[] = self::refusal($row, $declaredSource, self::NO_FILE_NAME);
-                continue;
-            }
-            $source = self::inside($target);
+            $source = self::inside($declaredSource);
             if (null === $source) {
                 $refused[] = self::refusal($row, $declaredSource, self::OUTSIDE_ROOT);
                 continue;
             }
             $path = $row->rerollIsClean() ? $source : self::conflictPath($source);
+            // A copied patch says where its bytes came from. The re-roll
+            // changes the bytes, so the line says which release they were
+            // merged against and hashes what this run wrote.
+            $provenance = Header::read($this->held($source));
+            if ($row->rerollIsClean() && [] !== $provenance) {
+                $body = Header::line(['rerolled' => $row->version, 'sha256' => Header::hash($body)] + $provenance).$body;
+            }
             if (!$this->holds($path, $body)) {
                 $reason = $this->refusalFor($path);
                 if ('' !== $reason) {
@@ -159,7 +143,7 @@ class PatchFiles
                 'regions' => $row->openRegions(),
                 'open' => $row->openRegionList(),
                 'removed' => $row->removedFiles(),
-                'from' => $fromUrl ? $declaredSource : '',
+                'from' => $provenance['mr'] ?? '',
             ];
         }
 
@@ -167,13 +151,13 @@ class PatchFiles
     }
 
     /**
-     * Where the fix belongs, to end a refusal of a URL patch with: its merge request, its issue, or the URL itself.
+     * Where the fix for a URL patch belongs: its merge request, its issue, or the URL itself.
      */
     private static function upstream(string $source): string
     {
         $where = PatchText::upstream($source);
 
-        return '; the fix belongs upstream: '.('' === $where ? $source : $where);
+        return '' === $where ? $source : $where;
     }
 
     /**
@@ -211,26 +195,6 @@ class PatchFiles
         }
 
         return $this->tree->refusal($this->root, $path);
-    }
-
-    /**
-     * Where a patch declared as a URL is adopted to: the project's own directory under the site's patch directory, named as the URL ends.
-     */
-    public static function adoptedPath(string $package, string $project, string $source, string $directory = self::ADOPTED_DIRECTORY): string
-    {
-        $project = '' !== $project ? $project : \str_replace('drupal/', '', $package);
-        $path = \parse_url($source, \PHP_URL_PATH);
-        $name = \basename(\is_string($path) ? $path : '');
-        if ('' === $name || '' === $project) {
-            return '';
-        }
-        // The service names the project, so it decides a directory here.
-        // A separator in it would place the file outside the project's own.
-        if (\str_contains($project, '/') || \str_contains($project, '\\')) {
-            return '';
-        }
-
-        return $directory.'/'.$project.'/'.$name;
     }
 
     /**
@@ -307,9 +271,9 @@ class PatchFiles
             return self::removedText($conflict, $file);
         }
         $lines = [
-            '# drupatch: '.(int) ($conflict['regions'] ?? 0).' unresolved region(s) in '.$file,
+            Text::t('# drupatch: @regions unresolved region(s) in @file', ['regions' => (int) ($conflict['regions'] ?? 0), 'file' => $file]),
             '# drupatch: keep the region and end lines; replace the text between them.',
-            '# drupatch: then run '.Report::REROLL,
+            Text::t('# drupatch: then run @command', ['command' => Report::REROLL]),
         ];
         foreach ((array) ($conflict['hunks'] ?? []) as $index => $hunk) {
             $releaseLine = (int) ($hunk['release_line'] ?? 0);
@@ -334,7 +298,7 @@ class PatchFiles
     private static function removedText(array $conflict, string $file): string
     {
         $lines = [
-            '# drupatch: '.$file.' is not in the release, so there is nothing to merge into.',
+            Text::t('# drupatch: @file is not in the release, so there is nothing to merge into.', ['file' => $file]),
             '# drupatch: the hunks below are the patch as it was. Drop it, or aim it at where the code moved.',
         ];
         foreach ((array) ($conflict['hunks'] ?? []) as $hunk) {
@@ -342,6 +306,16 @@ class PatchFiles
         }
 
         return \implode("\n", $lines)."\n";
+    }
+
+    /**
+     * What this file holds now, empty when the site has none.
+     */
+    private function held(string $path): string
+    {
+        $full = $this->root.\DIRECTORY_SEPARATOR.$path;
+
+        return \is_file($full) ? (string) @\file_get_contents($full) : '';
     }
 
     /**
@@ -373,10 +347,10 @@ class PatchFiles
         $full = $this->root.\DIRECTORY_SEPARATOR.$path;
         $dir = \dirname($full);
         if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) && !\is_dir($dir)) {
-            throw new RuntimeException('cannot create '.$dir);
+            throw new RuntimeException(Text::t('cannot create @dir', ['dir' => $dir]));
         }
         if (false === \file_put_contents($full, $body)) {
-            throw new RuntimeException('cannot write '.$path);
+            throw new RuntimeException(Text::t('cannot write @path', ['path' => $path]));
         }
     }
 }

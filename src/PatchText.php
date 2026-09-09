@@ -43,10 +43,21 @@ class PatchText
      */
     public static function fromComposer(Composer $composer, IOInterface $io, string $root): self
     {
-        $downloader = new HttpDownloader($io, $composer->getConfig());
         $cache = (string) $composer->getConfig()->get('cache-dir');
 
-        return new self($root, static function (string $url) use ($downloader): array {
+        return new self($root, self::downloader($composer, $io), '' === $cache ? '' : $cache.\DIRECTORY_SEPARATOR.self::CACHE_DIR);
+    }
+
+    /**
+     * One GET over the site's own network, with the credentials, proxy and TLS settings it already has.
+     *
+     * @return Closure(string): array{status: int, body: string}
+     */
+    public static function downloader(Composer $composer, IOInterface $io): Closure
+    {
+        $downloader = new HttpDownloader($io, $composer->getConfig());
+
+        return static function (string $url) use ($downloader): array {
             $response = $downloader->get($url, [
                 'http' => ['method' => 'GET', 'timeout' => self::TIMEOUT_SECONDS],
                 'max_file_size' => self::MAX_BYTES + 1,
@@ -54,7 +65,7 @@ class PatchText
             ]);
 
             return ['status' => $response->getStatusCode(), 'body' => (string) $response->getBody()];
-        }, '' === $cache ? '' : $cache.\DIRECTORY_SEPARATOR.self::CACHE_DIR);
+        };
     }
 
     /**
@@ -72,6 +83,25 @@ class PatchText
     }
 
     /**
+     * One answer from a host, with nothing kept. A merge request's own state changes, so a copy from an hour ago would hide a push.
+     *
+     * @return array{status: int, body: string}|string the answer, or why there is none
+     */
+    public function ask(string $url): array|string
+    {
+        try {
+            $answer = ($this->fetch)($url);
+        } catch (Throwable $e) {
+            return Text::t('it could not be reached: @why', ['why' => $e->getMessage()]);
+        }
+        if (200 !== $answer['status']) {
+            return Text::t('the host answered @status', ['status' => $answer['status']]);
+        }
+
+        return \strlen($answer['body']) > self::MAX_BYTES ? self::tooBig() : $answer;
+    }
+
+    /**
      * @return array{files: array<string, string>, reason: string, withheld: bool}
      */
     private function fromDisk(string $source): array
@@ -82,7 +112,7 @@ class PatchText
             return self::refused('no file at that path');
         }
         if ($size > self::MAX_BYTES) {
-            return self::held('above the '.(self::MAX_BYTES >> 20).' MB cap');
+            return self::held(self::tooBig());
         }
         $text = @\file_get_contents($full);
 
@@ -90,29 +120,19 @@ class PatchText
     }
 
     /**
-     * The merge request a source came from, empty when it came from somewhere else.
-     */
-    public static function mergeRequest(string $source): string
-    {
-        $mr = '#^(https://git\.drupalcode\.org/project/[^/]+/-/merge_requests/\d+)\.(patch|diff)$#';
-
-        return 1 === \preg_match($mr, \trim($source), $found) ? $found[1] : '';
-    }
-
-    /**
      * Where the fix for a patch taken from a URL belongs: its merge request, or the drupal.org issue whose number the file name carries, or nothing when the URL says neither.
      */
     public static function upstream(string $source): string
     {
-        $request = self::mergeRequest($source);
-        if ('' !== $request) {
-            return $request;
+        $request = MergeRequest::of($source);
+        if (null !== $request) {
+            return $request->url;
         }
         $path = \parse_url(\trim($source), \PHP_URL_PATH);
         // An issue number is seven digits, and file names put it at the
         // start, the end or the middle; about half carry none.
         if (\is_string($path) && 1 === \preg_match('/(?<!\d)(\d{7})(?!\d)/', \basename($path), $found)) {
-            return 'https://www.drupal.org/i/'.$found[1];
+            return Text::t('https://www.drupal.org/i/@issue', ['issue' => $found[1]]);
         }
 
         return '';
@@ -127,9 +147,9 @@ class PatchText
      */
     public static function sibling(string $source): string
     {
-        $request = self::mergeRequest($source);
+        $request = MergeRequest::of($source);
 
-        return '' !== $request && \str_ends_with(\trim($source), '.patch') ? $request.'.diff' : '';
+        return null !== $request && \str_ends_with(\trim($source), '.patch') ? $request->url.'.diff' : '';
     }
 
     /**
@@ -163,13 +183,13 @@ class PatchText
         try {
             $answer = ($this->fetch)($url);
         } catch (Throwable $e) {
-            return self::refused('it could not be reached: '.$e->getMessage());
+            return self::refused(Text::t('it could not be reached: @why', ['why' => $e->getMessage()]));
         }
         if (200 !== $answer['status']) {
-            return self::refused('the host answered '.$answer['status']);
+            return self::refused(Text::t('the host answered @status', ['status' => $answer['status']]));
         }
         if (\strlen($answer['body']) > self::MAX_BYTES) {
-            return self::held('above the '.(self::MAX_BYTES >> 20).' MB cap');
+            return self::held(self::tooBig());
         }
         if (!self::isDiff($answer['body'])) {
             return self::refused('what came back is not a diff');
@@ -255,6 +275,14 @@ class PatchText
     private static function held(string $reason): array
     {
         return ['files' => [], 'reason' => $reason, 'withheld' => true];
+    }
+
+    /**
+     * Why a patch over the cap is not taken.
+     */
+    private static function tooBig(): string
+    {
+        return Text::t('above the @mb MB cap', ['mb' => self::MAX_BYTES >> 20]);
     }
 
     /**

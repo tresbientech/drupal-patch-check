@@ -33,17 +33,11 @@ class CheckCommand extends PatchCommand
         $target = $input->getOption('target');
         $target = \is_string($target) ? \trim($target) : '';
         $dryRun = true === $input->getOption('dry-run');
-        // Resolved before anything is read or asked for, so a run asking
-        // for an unknown shape stops without touching the site.
-        $chosen = $input->getOption('format');
-        try {
-            $format = self::format(\is_string($chosen) ? $chosen : null, true === $input->getOption('json'));
-        } catch (Throwable $e) {
-            $output->writeln('<error>drupatch: '.$e->getMessage().'</error>');
-
+        $printing = self::printing($input, $output);
+        if (null === $printing) {
             return Plan::FAILED;
         }
-        $notes = self::notes($output, 'table' !== $format || $dryRun);
+        [$format, $notes] = $printing;
 
         try {
             $run = new Run($this->requireComposer(), $this->getIO(), $notes, $target, self::scope($input));
@@ -54,7 +48,7 @@ class CheckCommand extends PatchCommand
             }
             $plan = $run->plan(false, []);
         } catch (Throwable $e) {
-            $notes->writeln('<error>drupatch: '.$e->getMessage().'</error>');
+            $notes->writeln('<error>'.Text::t('drupatch: @message', ['message' => $e->getMessage()]).'</error>');
 
             return Plan::FAILED;
         }

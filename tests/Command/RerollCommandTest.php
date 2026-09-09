@@ -158,7 +158,7 @@ class RerollCommandTest extends TestCase
         $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
         $site->write('patches/webform/fix.conflict.patch', self::decided());
 
-        $tester = $this->drive($site, ['--json' => true], self::plan('conflicts', [
+        $tester = $this->drive($site, ['--format' => 'json'], self::plan('conflicts', [
             'status' => 'conflicts',
             'patch' => "part\n",
             'verified' => false,
@@ -178,7 +178,7 @@ class RerollCommandTest extends TestCase
         $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
         $site->write('patches/webform/fix.conflict.patch', self::decided());
 
-        $tester = $this->drive($site, ['--force' => true, '--json' => true], self::plan('conflicts', [
+        $tester = $this->drive($site, ['--force' => true, '--format' => 'json'], self::plan('conflicts', [
             'status' => 'conflicts',
             'patch' => "part\n",
             'verified' => false,
@@ -193,13 +193,13 @@ class RerollCommandTest extends TestCase
     {
         $site = (new SiteFixture())
             ->declaresPatch('Fix', 'patches/webform/fix.patch')
-            ->withExtra('patches-search', true);
+            ->withExtra('drupal-patch-check', ['private-paths' => true]);
 
-        $tester = $this->drive($site, ['--json' => true], self::plan('applies', null));
+        $tester = $this->drive($site, ['--format' => 'json'], self::plan('applies', null));
 
         $display = $tester->getDisplay();
         self::assertIsArray(\json_decode($display, true), $display);
-        self::assertStringContainsString('patches-search', $tester->getErrorOutput());
+        self::assertStringContainsString('private-paths', $tester->getErrorOutput());
     }
 
     public function testTheExitCodeFailsWhileAPatchStillDoesNotApply(): void
@@ -377,7 +377,7 @@ class RerollCommandTest extends TestCase
         $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
         $diff = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+resolved\n";
 
-        $tester = $this->drive($site, ['--force' => true, '--json' => true], self::plan('applies', ['status' => 'clean', 'patch' => $diff, 'verified' => true, 'conflicts' => []]));
+        $tester = $this->drive($site, ['--force' => true, '--format' => 'json'], self::plan('applies', ['status' => 'clean', 'patch' => $diff, 'verified' => true, 'conflicts' => []]));
 
         self::assertSame('', self::at($tester->getDisplay(), 'plan', 'patches', 0, 'result', 'reroll', 'patch'));
         self::assertSame('patches/webform/fix.patch', self::at($tester->getDisplay(), 'plan', 'patches', 0, 'result', 'reroll', 'path'));
@@ -391,7 +391,7 @@ class RerollCommandTest extends TestCase
         $diff = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+resolved\n";
 
         // Not a git checkout and no --force: the write is refused.
-        $tester = $this->drive($site, ['--json' => true], self::plan('applies', ['status' => 'clean', 'patch' => $diff, 'verified' => true, 'conflicts' => []]));
+        $tester = $this->drive($site, ['--format' => 'json'], self::plan('applies', ['status' => 'clean', 'patch' => $diff, 'verified' => true, 'conflicts' => []]));
 
         self::assertSame($diff, self::at($tester->getDisplay(), 'plan', 'patches', 0, 'result', 'reroll', 'patch'));
         self::assertNull(self::at($tester->getDisplay(), 'plan', 'patches', 0, 'result', 'reroll', 'path'));

@@ -52,22 +52,13 @@ final class ReaderTest extends TestCase
     ];
 
     /**
-     * @param array<string, string> $checkable
-     */
-    /**
-     * @param array<string, mixed>  $extra
-     * @param array<string, string> $checkable
-     * @param list<string>          $installed
-     */
-    /**
      * @param array<string, mixed>                            $extra
      * @param array<string, string>                           $checkable
-     * @param list<string>                                    $installed
      * @param array<string, array{status: int, body: string}> $hosts
      */
-    private function read(array $extra, int $textBudget = self::AMPLE, array $checkable = self::CHECKABLE, array $installed = [], array $hosts = []): PatchConfig
+    private function read(array $extra, int $textBudget = self::AMPLE, array $checkable = self::CHECKABLE, array $hosts = []): PatchConfig
     {
-        return PatchConfig::read($this->root, $this->text($hosts), $textBudget, $checkable, $extra, $installed);
+        return PatchConfig::read($this->text($hosts), $textBudget, $checkable, $extra);
     }
 
     /**
@@ -110,81 +101,6 @@ final class ReaderTest extends TestCase
         self::assertSame([], $resolution->notes);
         self::assertSame([], $resolution->unsent);
         self::assertSame([], $resolution->skipped);
-    }
-
-    public function testReadsAnExternalPatchesFile(): void
-    {
-        \file_put_contents($this->root.'/patches.json', \json_encode([
-            'patches' => ['drupal/webform' => ['From a file' => 'patches/local.patch']],
-        ]));
-        $extra = ['patches-file' => 'patches.json', 'patches' => ['drupal/core' => ['Inline' => 'https://www.drupal.org/files/issues/a.patch']]];
-
-        $resolution = $this->read($extra);
-
-        self::assertCount(1, $resolution->patches, 'a patches file replaces the inline map, as the manager does');
-        self::assertSame('From a file', $resolution->patches[0]['title']);
-        self::assertArrayHasKey('patches/local.patch', $resolution->files);
-    }
-
-    public function testReadsAPatchesFileWrittenAsABareMap(): void
-    {
-        \file_put_contents($this->root.'/patches.json', \json_encode([
-            'drupal/webform' => ['Bare map' => 'https://www.drupal.org/files/issues/a.patch'],
-        ]));
-
-        $resolution = $this->read(['patches-file' => 'patches.json']);
-
-        self::assertSame('Bare map', $resolution->patches[0]['title']);
-    }
-
-    public function testSaysSoWhenThePatchesFileCannotBeRead(): void
-    {
-        $resolution = $this->read(['patches-file' => 'missing.json']);
-
-        self::assertSame([], $resolution->patches);
-        self::assertStringContainsString('missing.json', \implode(' ', $resolution->notes));
-    }
-
-    public function testReadsEntriesWrittenAsObjects(): void
-    {
-        $extra = ['patches' => ['drupal/webform' => [
-            ['description' => 'A list entry', 'url' => 'https://www.drupal.org/files/issues/a.patch'],
-            'Keyed entry' => ['url' => 'patches/local.patch', 'depth' => 2],
-        ]]];
-
-        $resolution = $this->read($extra);
-
-        self::assertSame('A list entry', $resolution->patches[0]['title']);
-        self::assertSame('https://www.drupal.org/files/issues/a.patch', $resolution->patches[0]['source']);
-        self::assertSame('Keyed entry', $resolution->patches[1]['title']);
-        self::assertSame('patches/local.patch', $resolution->patches[1]['source']);
-    }
-
-    public function testReadsVaimoStyleEntries(): void
-    {
-        $extra = ['patches' => ['drupal/webform' => [
-            ['label' => 'Vaimo entry', 'source' => 'patches/local.patch', 'level' => 1],
-        ]]];
-
-        $resolution = $this->read($extra);
-
-        self::assertSame([['package' => 'drupal/webform', 'title' => 'Vaimo entry', 'source' => 'patches/local.patch']], $resolution->patches);
-    }
-
-    public function testDropsWhatAnIgnoreListIgnores(): void
-    {
-        $extra = [
-            'patches' => ['drupal/webform' => [
-                'Keep me' => 'https://www.drupal.org/files/issues/a.patch',
-                'Drop me' => 'https://www.drupal.org/files/issues/b.patch',
-            ]],
-            'patches-ignore' => ['some/dependency' => ['drupal/webform' => ['Drop me' => 'https://www.drupal.org/files/issues/b.patch']]],
-        ];
-
-        $resolution = $this->read($extra);
-
-        self::assertCount(1, $resolution->patches);
-        self::assertSame('Keep me', $resolution->patches[0]['title']);
     }
 
     public function testLeavesAPatchFileAboveTheCapOnDisk(): void
@@ -280,7 +196,7 @@ final class ReaderTest extends TestCase
         $url = 'https://git.acme-internal.com/drupal/webform/-/merge_requests/4.patch';
         $extra = ['patches' => ['drupal/webform' => ['Ours' => $url]]];
 
-        $resolution = $this->read($extra, self::AMPLE, self::CHECKABLE, [], [$url => ['status' => 401, 'body' => '']]);
+        $resolution = $this->read($extra, self::AMPLE, self::CHECKABLE, [$url => ['status' => 401, 'body' => '']]);
 
         self::assertSame([], $resolution->patches);
         self::assertSame(
@@ -296,7 +212,7 @@ final class ReaderTest extends TestCase
         $url = 'https://git.acme-internal.com/drupal/webform/-/merge_requests/4.patch';
         $extra = ['patches' => ['drupal/webform' => ['Ours' => $url]]];
 
-        $resolution = $this->read($extra, self::AMPLE, self::CHECKABLE, [], [
+        $resolution = $this->read($extra, self::AMPLE, self::CHECKABLE, [
             $url => ['status' => 200, 'body' => "<!DOCTYPE html>\n<title>Sign in</title>\n"],
         ]);
 
@@ -346,21 +262,19 @@ final class ReaderTest extends TestCase
         self::assertCount(1, $this->read($extra)->patches);
     }
 
-    public function testSaysSoWhenPatchesAreFoundOnlyByDirectoryScan(): void
+    // The key replaced a site's own paths on the way out. Nothing of the
+    // site's own leaves now, so a site that still sets it is told.
+    public function testSaysThePrivatePathsKeyIsNoLongerRead(): void
     {
-        $resolution = $this->read(['patches-search' => 'patches/']);
+        $notes = \implode(' ', $this->read(['drupal-patch-check' => ['private-paths' => true]])->notes);
 
-        self::assertStringContainsString('patches-search', \implode(' ', $resolution->notes));
+        self::assertStringContainsString('private-paths is no longer read', $notes);
+        self::assertStringContainsString('no path of your own leaves the site', $notes);
     }
 
-    public function testNamesAnInstalledManagerItDoesNotRead(): void
+    public function testSaysNothingAboutAKeyTheSiteNeverSet(): void
     {
-        $installed = ['cweagans/composer-patches', 'acme/composer-patches-fork', 'drupal/core'];
-
-        $notes = \implode(' ', $this->read([], installed: $installed)->notes);
-
-        self::assertStringContainsString('acme/composer-patches-fork', $notes);
-        self::assertStringNotContainsString('cweagans/composer-patches is installed', $notes);
+        self::assertStringNotContainsString('private-paths', \implode(' ', $this->read([])->notes));
     }
 
     public function testAUrlPatchTravelsAsTextUnderItsUrl(): void
@@ -432,21 +346,5 @@ final class ReaderTest extends TestCase
         $resolution = $this->read(['patches' => ['drupal/domain' => $declared]]);
 
         self::assertSame(\array_keys($declared), \array_column($resolution->patches, 'title'));
-    }
-
-    public function testKeepsTheOrderOfAListShapedDeclaration(): void
-    {
-        $this->writePatches(['patchs/b.patch', 'patchs/a.patch', 'patchs/c.patch']);
-
-        $resolution = $this->read(['patches' => ['drupal/domain' => [
-            'patchs/b.patch',
-            'patchs/a.patch',
-            'patchs/c.patch',
-        ]]]);
-
-        self::assertSame(
-            ['patchs/b.patch', 'patchs/a.patch', 'patchs/c.patch'],
-            \array_column($resolution->patches, 'source')
-        );
     }
 }

@@ -19,16 +19,16 @@ use Composer\Script\Event;
 use Composer\Script\ScriptEvents;
 use RuntimeException;
 use Throwable;
+use TresBienTech\Drupatch\Render\Coverage;
 use TresBienTech\Drupatch\Render\HookReport;
 use TresBienTech\Drupatch\Render\Report;
-use TresBienTech\Drupatch\Write\PatchFiles;
 
 /**
  * Prints a patch verdict tally after a composer update the site opted into.
  */
 class Plugin implements PluginInterface, EventSubscriberInterface, Capable
 {
-    private const EXTRA = 'drupal-patch-check';
+    public const EXTRA = 'drupal-patch-check';
 
     private const NOTICE = [
         'Drupal Patch Check is installed. It sends your patch data to api.tresbien.tech.',
@@ -84,17 +84,7 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     }
 
     /**
-     * Whether the site keeps the paths it holds its patches at off the wire; only a literal true turns it on.
-     *
-     * @param array<mixed> $extra the root package's extra
-     */
-    public static function privatePaths(array $extra): bool
-    {
-        return true === ($extra[self::EXTRA]['private-paths'] ?? null);
-    }
-
-    /**
-     * Reads the directory an adopted URL patch goes to, or the default when the site names none.
+     * Reads the directory a copied patch goes to, or the default when the site names none.
      *
      * @param array<mixed> $extra the root package's extra
      *
@@ -103,11 +93,11 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     public static function patchDirectory(array $extra): string
     {
         if (!isset($extra[self::EXTRA]['patch-directory'])) {
-            return PatchFiles::ADOPTED_DIRECTORY;
+            return Vendoring::DIRECTORY;
         }
         $directory = $extra[self::EXTRA]['patch-directory'];
         if (!\is_string($directory) || '' === \trim($directory)) {
-            throw new RuntimeException('extra.'.self::EXTRA.'.patch-directory is where an adopted patch is written; it has to be a directory under the site root');
+            throw new RuntimeException('extra.'.self::EXTRA.'.patch-directory is where a copied patch is written; it has to be a directory under the site root');
         }
 
         return \trim($directory);
@@ -178,18 +168,18 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
         try {
             $site = Site::atWorkingDirectory($this->composer, $this->io);
             foreach ($site->patches()->notes as $note) {
-                $this->io->write('<comment>drupatch: '.$note.'</comment>');
+                $this->io->write('<comment>'.Text::t('drupatch: @message', ['message' => $note]).'</comment>');
             }
             if (!$site->hasPatches()) {
                 return;
             }
             $client = Client::fromComposer($this->composer, $this->io);
-            $plan = $client->plan($site->composerJson(), $site->composerLock(), $site->patches(), $site->private(), '', false, [], Candidates::declaredCore($this->composer, $site->checkable()));
-            foreach (HookReport::lines($plan) as $line) {
+            $plan = $client->plan($site->composerJson(), $site->composerLock(), $site->patches(), '', false, [], Candidates::declaredCore($this->composer, $site->checkable()));
+            foreach (HookReport::lines($plan, Coverage::editedCopies($site->patches()->files)) as $line) {
                 $this->io->write($line);
             }
         } catch (Throwable $e) {
-            $this->io->write('<comment>drupatch: '.$e->getMessage().'</comment>');
+            $this->io->write('<comment>'.Text::t('drupatch: @message', ['message' => $e->getMessage()]).'</comment>');
         }
     }
 }

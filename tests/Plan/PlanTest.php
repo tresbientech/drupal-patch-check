@@ -128,6 +128,52 @@ class PlanTest extends TestCase
         Plan::fromArray(['target_core' => '11.4.5', 'counts' => ['current' => 30], 'rows' => []]);
     }
 
+    // The request carries no title and no path of the site's own, so a row
+    // takes both from the declaration it was built from. The service answers
+    // one row per declaration, in the order it was sent them.
+    public function testARowTakesTheSitesOwnWordsFromItsDeclaration(): void
+    {
+        $declared = [
+            ['package' => 'drupal/webform', 'title' => 'CUP-1383: alias state', 'source' => 'patchs/alias.patch'],
+            ['package' => 'drupal/token', 'title' => 'Fix the token', 'source' => 'patchs/token.patch'],
+        ];
+        $answer = ['plan' => ['patches' => [
+            ['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'verdict' => 'applies'],
+            ['package' => 'drupal/token', 'project' => 'token', 'version' => '1.0.0', 'verdict' => 'conflicts'],
+        ]]];
+
+        $plan = Plan::fromArray($answer, $declared);
+
+        self::assertSame(['CUP-1383: alias state', 'Fix the token'], \array_map(static fn ($row) => $row->title, $plan->patches));
+        self::assertSame(['patchs/alias.patch', 'patchs/token.patch'], \array_map(static fn ($row) => $row->source, $plan->patches));
+    }
+
+    // A row the run did not send has no declaration to read.
+    public function testARowPastTheDeclarationsIsLeftAsItArrived(): void
+    {
+        $answer = ['plan' => ['patches' => [
+            ['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'title' => 'echoed', 'source' => 'echoed.patch', 'verdict' => 'applies'],
+        ]]];
+
+        $plan = Plan::fromArray($answer, []);
+
+        self::assertSame('echoed', $plan->patches[0]->title);
+        self::assertSame('echoed.patch', $plan->patches[0]->source);
+    }
+
+    // A service that still echoes what it was sent decides nothing here.
+    public function testAnEchoedWordWinsOverTheDeclaration(): void
+    {
+        $declared = [['package' => 'drupal/webform', 'title' => 'from the site', 'source' => 'site.patch']];
+        $answer = ['plan' => ['patches' => [
+            ['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'title' => 'echoed', 'source' => 'echoed.patch', 'verdict' => 'applies'],
+        ]]];
+
+        $plan = Plan::fromArray($answer, $declared);
+
+        self::assertSame('echoed', $plan->patches[0]->title);
+    }
+
     public function testAFieldTheServerAddsLaterIsIgnored(): void
     {
         $plan = Plan::fromArray([
@@ -186,22 +232,17 @@ class PlanTest extends TestCase
 
         self::assertTrue($plan->patches[0]->needsAction());
         self::assertTrue($plan->patches[0]->needsMention());
-        self::assertCount(1, $plan->needingAction());
     }
 
-    // Both selections are indexed lists: a caller reads [0], so dropping
+    // The selection is an indexed list: a caller reads [0], so dropping
     // the rows before it must renumber rather than leave a gap.
-    public function testTheSelectionsAreRenumberedLists(): void
+    public function testTheSelectionIsARenumberedList(): void
     {
         $plan = Plan::fromArray(['plan' => ['patches' => [
             ['package' => 'drupal/token', 'verdict' => 'applies'],
             ['package' => 'drupal/webform', 'verdict' => 'conflicts'],
             ['package' => 'drupal/domain', 'verdict' => 'merged'],
         ]]]);
-
-        $action = $plan->needingAction();
-        self::assertSame([0], \array_keys($action));
-        self::assertSame('drupal/webform', $action[0]->package);
 
         $mention = $plan->worthMentioning();
         self::assertSame([0, 1], \array_keys($mention));
@@ -334,7 +375,7 @@ class PlanTest extends TestCase
         self::assertSame($plan, $plan->only(Scope::whole()));
     }
 
-    // --json owes the scope it was asked for.
+    // --format=json owes the scope it was asked for.
     public function testNarrowingRewritesWhatJsonWouldPrint(): void
     {
         $raw = $this->wholeSite()->only(new Scope(['webform'], []))->raw;

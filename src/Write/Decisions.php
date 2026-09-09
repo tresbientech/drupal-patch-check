@@ -7,6 +7,7 @@ namespace TresBienTech\Drupatch\Write;
 use RuntimeException;
 use TresBienTech\Drupatch\PatchConfig;
 use TresBienTech\Drupatch\Scope;
+use TresBienTech\Drupatch\Text;
 
 /**
  * Reads the conflict regions a person decided, for every patch a site declares.
@@ -26,14 +27,14 @@ class Decisions
      *
      * @return array<int, list<array{file: string, region: int, text?: string, delete?: bool}>>
      */
-    public static function onDisk(string $root, array $patches, Scope $scope, string $directory = PatchFiles::ADOPTED_DIRECTORY): array
+    public static function onDisk(string $root, array $patches, Scope $scope): array
     {
         $out = [];
         foreach ($patches as $i => $patch) {
             if (!$scope->has($patch['package'], $patch['source'])) {
                 continue;
             }
-            $path = self::conflictFile($patch['package'], $patch['source'], $directory);
+            $path = self::conflictFile($patch['source']);
             if (null === $path) {
                 continue;
             }
@@ -76,12 +77,12 @@ class Decisions
             $entry = \is_array($entry) ? $entry : [];
             $source = $entry['source'] ?? null;
             if (!\is_string($source) || !isset($bySource[$source])) {
-                throw new RuntimeException(\sprintf('decision %d names %s, which is not a patch declared in scope; the site declares %s', $n + 1, \is_string($source) ? $source : 'no source', [] === $bySource ? 'none' : \implode(', ', \array_keys($bySource))));
+                throw new RuntimeException(Text::t('decision @n names @source, which is not a patch declared in scope; the site declares @declared', ['n' => $n + 1, 'source' => \is_string($source) ? $source : 'no source', 'declared' => [] === $bySource ? 'none' : \implode(', ', \array_keys($bySource))]));
             }
             $file = $entry['file'] ?? null;
             $region = $entry['region'] ?? null;
             if (!\is_string($file) || '' === $file || !\is_int($region) || $region < 0) {
-                throw new RuntimeException(\sprintf('decision %d for %s needs the file and the region index the conflict reported', $n + 1, $source));
+                throw new RuntimeException(Text::t('decision @n for @source needs the file and the region index the conflict reported', ['n' => $n + 1, 'source' => $source]));
             }
             $decided = ['file' => $file, 'region' => $region];
             $text = $entry['text'] ?? null;
@@ -91,7 +92,7 @@ class Decisions
             } elseif (\is_string($choice) && \in_array($choice, self::CHOICES, true)) {
                 $decided['choice'] = $choice;
             } else {
-                throw new RuntimeException(\sprintf('decision %d for %s %s:%d needs a choice of release or patch, or a text', $n + 1, $source, $file, $region));
+                throw new RuntimeException(Text::t('decision @n for @source @file:@region needs a choice of release or patch, or a text', ['n' => $n + 1, 'source' => $source, 'file' => $file, 'region' => $region]));
             }
             $out[$bySource[$source]][] = $decided;
         }
@@ -181,7 +182,7 @@ class Decisions
 
     private static function unreadable(string $path, int $line, string $what): RuntimeException
     {
-        return new RuntimeException(\sprintf('%s line %d: %s', $path, $line, $what));
+        return new RuntimeException(Text::t('@path line @line: @what', ['path' => $path, 'line' => $line, 'what' => $what]));
     }
 
     /**
@@ -226,13 +227,14 @@ class Decisions
     /**
      * The conflict file this declaration's re-roll would have been written to, or null when the declaration names no file under the site root.
      */
-    private static function conflictFile(string $package, string $source, string $directory): ?string
+    private static function conflictFile(string $source): ?string
     {
-        $declared = PatchConfig::isUrl($source) ? PatchFiles::adoptedPath($package, '', $source, $directory) : $source;
-        if ('' === $declared) {
+        // A patch declared as a URL receives no re-roll, so it has no
+        // conflict file until a pin run copies it into the site.
+        if (PatchConfig::isUrl($source)) {
             return null;
         }
-        $inside = PatchFiles::inside($declared);
+        $inside = PatchFiles::inside($source);
 
         return null === $inside ? null : PatchFiles::conflictPath($inside);
     }

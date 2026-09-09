@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Plan;
 
 use RuntimeException;
 use TresBienTech\Drupatch\Scope;
+use TresBienTech\Drupatch\Text;
 
 /**
  * One upgrade plan as the api answered it. The one place the server's
@@ -21,7 +22,7 @@ class Plan
      * @param list<PatchRow>        $patches
      * @param list<string>          $missingFiles
      * @param list<string>          $warnings
-     * @param array<string, mixed>  $raw           the body as received, for --json
+     * @param array<string, mixed>  $raw           the body as received, for --format=json
      */
     private function __construct(
         public readonly string $targetCore,
@@ -43,11 +44,12 @@ class Plan
     }
 
     /**
-     * @param array<mixed> $decoded
+     * @param array<mixed>                                                $decoded
+     * @param list<array{package: string, title: string, source: string}> $declared the site's own declarations, in the order the request listed them
      *
      * @throws RuntimeException
      */
-    public static function fromArray(array $decoded): self
+    public static function fromArray(array $decoded, array $declared = []): self
     {
         $data = $decoded;
         if (!\array_key_exists('plan', $data)) {
@@ -62,7 +64,15 @@ class Plan
         }
 
         $patches = [];
-        foreach ($plan['patches'] ?? [] as $row) {
+        foreach ($plan['patches'] ?? [] as $i => $row) {
+            // The request carries no title and no path of the site's own, so
+            // a row takes both from the declaration it was built from. The
+            // service answers one row per declaration, in the order it was
+            // sent them, and a row past the end has none to read.
+            $own = $declared[$i] ?? null;
+            if (\is_array($row) && null !== $own) {
+                $row += ['title' => $own['title'], 'source' => $own['source']];
+            }
             $patches[] = PatchRow::fromArray($row);
         }
         // The blocked packages and their sentences come from the scan
@@ -133,7 +143,7 @@ class Plan
                 return !\str_contains($first, '/') || $about($first);
             }
         ));
-        // --json owes the scope it was asked for, not the whole site.
+        // --format=json owes the scope it was asked for, not the whole site.
         $raw = $this->raw;
         $raw['scope'] = $scope->packages;
         if ([] !== $scope->sources) {
@@ -189,16 +199,6 @@ class Plan
     }
 
     /**
-     * The rows a person has to do something about, in plan order.
-     *
-     * @return list<PatchRow>
-     */
-    public function needingAction(): array
-    {
-        return \array_values(\array_filter($this->patches, static fn (PatchRow $row): bool => $row->needsAction()));
-    }
-
-    /**
      * The rows worth a line of their own, in plan order.
      *
      * @return list<PatchRow>
@@ -225,10 +225,10 @@ class Plan
             return 'against the releases this site installs';
         }
         $move = '' === $this->coreInstalled
-            ? 'for a move to core '.$this->against()
-            : 'for a move from core '.$this->coreInstalled.' to '.$this->against();
+            ? Text::t('for a move to core @target', ['target' => $this->against()])
+            : Text::t('for a move from core @installed to @target', ['installed' => $this->coreInstalled, 'target' => $this->against()]);
         if ('' !== $this->targetFrom) {
-            return $move.' (the newest '.$this->targetFrom.' allows)';
+            return Text::t('@move (the newest @constraint allows)', ['move' => $move, 'constraint' => $this->targetFrom]);
         }
 
         return $move;

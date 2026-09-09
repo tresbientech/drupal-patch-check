@@ -135,6 +135,21 @@ class Outcomes
     }
 
     /**
+     * How many refusals name this reason.
+     */
+    public function refusedBecause(string $reason): int
+    {
+        $count = 0;
+        foreach ($this->refused as $refusal) {
+            if ($reason === $refusal['reason']) {
+                ++$count;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
      * The refusals a flag lifts.
      */
     public function lifted(string $flag): int

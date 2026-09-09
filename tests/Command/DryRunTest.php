@@ -38,7 +38,7 @@ final class DryRunTest extends TestCase
     {
         $tester = $this->drive();
 
-        self::assertStringContainsString('extra.patches-search is not read', $tester->getErrorOutput());
+        self::assertStringContainsString('private-paths is no longer read', $tester->getErrorOutput());
     }
 
     private function drive(): CommandTester
@@ -46,7 +46,7 @@ final class DryRunTest extends TestCase
         $this->site = (new SiteFixture())
             ->declaresPatch('Fix', 'patches/webform/fix.patch')
             // Any note will do; this one needs nothing of the service.
-            ->withExtra('patches-search', ['drupal/webform' => 'patches/webform']);
+            ->withExtra('drupal-patch-check', ['private-paths' => true]);
         $composer = $this->site->enter('http://127.0.0.1:1/v1/composer/scan');
 
         $command = new CheckCommand();

@@ -7,6 +7,7 @@ namespace TresBienTech\Drupatch\Tests\Render;
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Render\Outcomes;
 use TresBienTech\Drupatch\Render\Report;
+use TresBienTech\Drupatch\Write\PatchFiles;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
 class NextStepsTest extends TestCase
@@ -41,12 +42,12 @@ class NextStepsTest extends TestCase
         self::assertSame('writes the re-roll', Report::nextSteps(['conflicts' => 1])[0]['effect']);
     }
 
-    public function testAShippedPatchIsOfferedTheFlagThatDropsIt(): void
+    public function testAShippedPatchIsOfferedTheRunThatDropsIt(): void
     {
         $steps = Report::nextSteps(['merged' => 3]);
 
         self::assertCount(1, $steps);
-        self::assertSame([Report::REROLL, '--update'], [$steps[0]['command'], $steps[0]['flag']]);
+        self::assertSame([Report::REROLL, ''], [$steps[0]['command'], $steps[0]['flag']]);
         self::assertStringContainsString('3', $steps[0]['effect']);
     }
 
@@ -55,12 +56,15 @@ class NextStepsTest extends TestCase
         self::assertStringContainsString('the shipped entry', Report::nextSteps(['merged' => 1])[0]['effect']);
     }
 
-    public function testBothFindingsAreOfferedWorstFirst(): void
+    // One run writes the re-rolls and drops what shipped, so both findings
+    // are answered by one line.
+    public function testBothFindingsAreOneRun(): void
     {
         $steps = Report::nextSteps(['merged' => 3, 'conflicts' => 4]);
 
-        self::assertSame([Report::REROLL, Report::REROLL], \array_column($steps, 'command'));
-        self::assertSame(['', '--update'], \array_column($steps, 'flag'));
+        self::assertCount(1, $steps);
+        self::assertSame([Report::REROLL, ''], [$steps[0]['command'], $steps[0]['flag']]);
+        self::assertSame('writes the 4 re-rolls and drops the 3 shipped entries from composer.json', $steps[0]['effect']);
     }
 
     public function testAZeroCountIsNotAFinding(): void
@@ -75,9 +79,20 @@ class NextStepsTest extends TestCase
         }
     }
 
+    /**
+     * A write run that left a conflict file open and refused a URL declaration, so its footer holds two commands.
+     */
+    private static function twoSteps(): Outcomes
+    {
+        return Outcomes::fromWrite([
+            'written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'a.php', 'region' => 0]], 'removed' => [], 'from' => '']],
+            'refused' => [['package' => 'drupal/b', 'title' => 'Fix b', 'path' => 'https://example.test/b.patch', 'reason' => PatchFiles::URL_DECLARED, 'lifts' => '', 'shipped' => false]],
+        ]);
+    }
+
     public function testTheFirstLineIsLabelledAndTheRestAreNot(): void
     {
-        $lines = Report::nextStepLines(['conflicts' => 4, 'merged' => 3]);
+        $lines = Report::nextStepLines([], '  ', self::twoSteps());
 
         self::assertCount(2, $lines);
         self::assertStringContainsString('Next:', $lines[0]);
@@ -93,31 +108,31 @@ class NextStepsTest extends TestCase
 
     public function testEveryStepRepeatsTheScopeAndTheEffectsStillLineUp(): void
     {
-        $lines = Report::nextStepLines(['conflicts' => 4, 'merged' => 3], '  ', null, ['--target 11.4.5']);
+        $lines = Report::nextStepLines([], '  ', self::twoSteps(), ['--target 11.4.5']);
 
         self::assertStringContainsString('drupatch:reroll --target 11.4.5 ', $lines[0]);
-        self::assertStringContainsString('--target 11.4.5 --update', $lines[1]);
-        self::assertSame(\strpos($lines[0], 'writes'), \strpos($lines[1], 'drops'));
+        self::assertStringContainsString('drupatch:pin --target 11.4.5 ', $lines[1]);
+        self::assertSame(\strpos($lines[0], 'sends'), \strpos($lines[1], 'copies'));
     }
 
     public function testTheCommandsLineUp(): void
     {
-        $lines = Report::nextStepLines(['conflicts' => 4, 'merged' => 3]);
+        $lines = Report::nextStepLines([], '  ', self::twoSteps());
 
         self::assertSame(
-            \strpos($lines[0], Report::COMMAND),
-            \strpos($lines[1], Report::COMMAND),
+            \strpos($lines[0], 'composer '),
+            \strpos($lines[1], 'composer '),
             'the command column starts at the same offset on every line',
         );
     }
 
     public function testTheEffectsLineUp(): void
     {
-        $lines = Report::nextStepLines(['conflicts' => 4, 'merged' => 3]);
+        $lines = Report::nextStepLines([], '  ', self::twoSteps());
 
         self::assertSame(
-            \strpos($lines[0], 'writes'),
-            \strpos($lines[1], 'drops'),
+            \strpos($lines[0], 'sends'),
+            \strpos($lines[1], 'copies'),
             'the effect column starts at the same offset on every line',
         );
     }
@@ -201,31 +216,35 @@ class NextStepsTest extends TestCase
         self::assertSame(['--force'], \array_column(Report::nextSteps(['merged' => 2, 'conflicts' => 1], $outcomes), 'flag'));
     }
 
-    public function testAShippedEntryIsStillOfferedAfterAWrite(): void
+    public function testAShippedEntryIsStillOfferedAfterAWriteThatDidNotRewrite(): void
     {
         $wrote = ['written' => [['path' => 'patches/a.patch', 'status' => 'clean', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'from' => '']], 'refused' => []];
 
-        self::assertSame(['--update'], \array_column(Report::nextSteps(['merged' => 2, 'conflicts' => 1], Outcomes::fromWrite($wrote)), 'flag'));
+        $steps = Report::nextSteps(['merged' => 2, 'conflicts' => 1], Outcomes::fromWrite($wrote));
+
+        self::assertSame([Report::REROLL], \array_column($steps, 'command'));
+        self::assertStringContainsString('drops the 2 shipped entries', $steps[0]['effect']);
     }
 
-    public function testAUrlDeclarationIsOfferedTheFlagThatAdoptsIt(): void
+    public function testAUrlDeclarationIsSentToTheCommandThatCopiesIt(): void
     {
-        $wrote = ['written' => [], 'refused' => [['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'https://example.test/a.patch', 'reason' => 'declared as a URL', 'lifts' => '--update', 'shipped' => false]]];
+        $wrote = ['written' => [], 'refused' => [['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'https://example.test/a.patch', 'reason' => PatchFiles::URL_DECLARED, 'lifts' => '', 'shipped' => false]]];
 
         $steps = Report::nextSteps([], Outcomes::fromWrite($wrote));
 
-        self::assertSame(['--update'], \array_column($steps, 'flag'));
-        self::assertStringContainsString('URL', $steps[0]['effect']);
+        self::assertSame([Report::PIN], \array_column($steps, 'command'));
+        self::assertSame('copies the patch declared as a URL into the site', $steps[0]['effect']);
     }
 
-    public function testShippedEntriesAndUrlDeclarationsShareTheOneFlag(): void
+    // A shipped entry and a URL declaration are two commands now, in the
+    // order a person runs them.
+    public function testShippedEntriesAndUrlDeclarationsAreTwoRuns(): void
     {
-        $wrote = ['written' => [], 'refused' => [['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'https://example.test/a.patch', 'reason' => 'declared as a URL', 'lifts' => '--update', 'shipped' => false]]];
+        $wrote = ['written' => [], 'refused' => [['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'https://example.test/a.patch', 'reason' => PatchFiles::URL_DECLARED, 'lifts' => '', 'shipped' => false]]];
 
         $steps = Report::nextSteps(['merged' => 2], Outcomes::fromWrite($wrote));
 
-        self::assertSame(['--update'], \array_column($steps, 'flag'));
+        self::assertSame([Report::REROLL, Report::PIN], \array_column($steps, 'command'));
         self::assertStringContainsString('2', $steps[0]['effect']);
-        self::assertStringContainsString('URL', $steps[0]['effect']);
     }
 }

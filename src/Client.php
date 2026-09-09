@@ -140,13 +140,12 @@ class Client
      * @param array<string, string>                  $candidates  composer name to the release composer would install
      * @param array<string, string>                  $declared    composer name to the core requirement its installed release declares
      * @param array<int, list<array<string, mixed>>> $resolutions regions a person decided, by patch position
-     * @param PrivateDeclarations                    $private     what the request may not carry of the site's own words
      *
      * @throws RuntimeException when the call or the answer failed
      */
-    public function plan(string $composerJson, string $composerLock, PatchConfig $patches, PrivateDeclarations $private, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = []): Plan
+    public function plan(string $composerJson, string $composerLock, PatchConfig $patches, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = []): Plan
     {
-        $body = \json_encode(self::body($composerJson, $composerLock, $patches, $private, $targetCore, $reroll, $candidates, $declared, $resolutions), \JSON_THROW_ON_ERROR);
+        $body = \json_encode(self::body($composerJson, $composerLock, $patches, $targetCore, $reroll, $candidates, $declared, $resolutions), \JSON_THROW_ON_ERROR);
 
         try {
             $response = $this->downloader->get($this->endpoint, [
@@ -170,7 +169,7 @@ class Client
             throw new RuntimeException('the service answered with something that is not JSON');
         }
 
-        return Plan::fromArray($private->reveal($decoded));
+        return Plan::fromArray($decoded, $patches->patches);
     }
 
     /**
@@ -179,18 +178,35 @@ class Client
      * @param array<string, string>                  $candidates
      * @param array<string, string>                  $declared
      * @param array<int, list<array<string, mixed>>> $resolutions regions a person decided, by patch position
-     * @param PrivateDeclarations                    $private     what the request may not carry of the site's own words
      *
      * @return array<string, mixed>
      */
-    public static function body(string $composerJson, string $composerLock, PatchConfig $patches, PrivateDeclarations $private, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = []): array
+    public static function body(string $composerJson, string $composerLock, PatchConfig $patches, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = []): array
     {
         $config = [];
         foreach ($patches->patches as $i => $patch) {
-            if ([] !== ($resolutions[$i] ?? [])) {
-                $patch['resolutions'] = $resolutions[$i];
+            $source = $patch['source'];
+            // A path names a client, a ticket and a project, and the service
+            // reads a package, a version and a patch text. So the entry holds
+            // its own text and nothing the site wrote.
+            $entry = ['package' => $patch['package']];
+            if (isset($patches->files[$source])) {
+                $entry['patch'] = $patches->files[$source];
             }
-            $config[] = $patch;
+            $sibling = PatchText::sibling($source);
+            if ('' !== $sibling && isset($patches->files[$sibling])) {
+                $entry['merge_patch'] = $patches->files[$sibling];
+            }
+            // A merge request names nothing of the site, and the service
+            // reads it to say whether the release already holds the change.
+            $request = MergeRequest::of($source);
+            if (null !== $request) {
+                $entry['upstream'] = $request->url;
+            }
+            if ([] !== ($resolutions[$i] ?? [])) {
+                $entry['resolutions'] = $resolutions[$i];
+            }
+            $config[] = $entry;
         }
 
         return [
@@ -198,8 +214,7 @@ class Client
             'composer_lock' => $composerLock,
             'client' => self::agent(),
             'patches' => true,
-            'patch_files' => (object) $private->files($patches->files),
-            'patch_config' => $private->config($config),
+            'patch_config' => $config,
             'target_core' => $targetCore,
             'reroll' => $reroll,
             // What composer itself picked, when it was in reach. The
@@ -344,11 +359,14 @@ class Client
             if (null !== $status && $status >= 400) {
                 $reason = self::serverReason($e->getResponse());
 
-                return \sprintf('%s answered %d%s, patches not checked', $host, $status, '' === $reason ? '' : ' ('.$reason.')');
+                return Text::t(
+                    '' === $reason ? '@host answered @status, patches not checked' : '@host answered @status (@reason), patches not checked',
+                    ['host' => $host, 'status' => $status, 'reason' => $reason]
+                );
             }
         }
 
-        return \sprintf('%s did not answer (%s), patches not checked', $host, self::clip($e->getMessage()));
+        return Text::t('@host did not answer (@why), patches not checked', ['host' => $host, 'why' => self::clip($e->getMessage())]);
     }
 
     /**

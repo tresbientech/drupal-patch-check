@@ -71,7 +71,7 @@ class PatchScopeTest extends TestCase
 
     public function testTheCheckNarrowsToTheOnePatch(): void
     {
-        $tester = $this->drive(new CheckCommand(), ['--patch' => ['patches/webform/menu.patch'], '--json' => true]);
+        $tester = $this->drive(new CheckCommand(), ['--patch' => ['patches/webform/menu.patch'], '--format' => 'json']);
 
         $document = \json_decode($tester->getDisplay(), true);
         self::assertIsArray($document);
@@ -93,7 +93,7 @@ class PatchScopeTest extends TestCase
 
     public function testAPackageAndAPatchCombine(): void
     {
-        $tester = $this->drive(new CheckCommand(), ['--package' => ['webform'], '--patch' => ['patches/webform/fix.patch'], '--json' => true]);
+        $tester = $this->drive(new CheckCommand(), ['--package' => ['webform'], '--patch' => ['patches/webform/fix.patch'], '--format' => 'json']);
 
         $document = \json_decode($tester->getDisplay(), true);
         self::assertIsArray($document);

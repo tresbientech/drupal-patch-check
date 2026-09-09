@@ -52,8 +52,8 @@ class SummaryTest extends TestCase
 
     public function testNamesTheCommandsTheTableWouldOffer(): void
     {
-        self::assertSame(['', '--update'], \array_column(Report::summary($this->plan())['next'], 'flag'));
-        self::assertSame([Report::REROLL, Report::REROLL], \array_column(Report::summary($this->plan())['next'], 'command'));
+        self::assertSame([''], \array_column(Report::summary($this->plan())['next'], 'flag'));
+        self::assertSame([Report::REROLL], \array_column(Report::summary($this->plan())['next'], 'command'));
     }
 
     public function testAPlanWithNothingToRunCarriesNoNext(): void
@@ -67,7 +67,8 @@ class SummaryTest extends TestCase
     {
         $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'from' => '']], 'refused' => []];
 
-        self::assertSame(['', '--update'], \array_column(Report::summary($this->plan(), Outcomes::fromWrite($wrote))['next'], 'flag'));
+        self::assertSame(['', ''], \array_column(Report::summary($this->plan(), Outcomes::fromWrite($wrote))['next'], 'flag'));
+        self::assertSame([Report::REROLL, Report::REROLL], \array_column(Report::summary($this->plan(), Outcomes::fromWrite($wrote))['next'], 'command'));
     }
 
     public function testAPackageIsNamedOnceHoweverManyRowsItHas(): void

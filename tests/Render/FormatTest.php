@@ -10,59 +10,42 @@ use UnexpectedValueException;
 
 final class FormatTest extends TestCase
 {
-    public function testARunWithNeitherOptionPrintsTheTable(): void
+    public function testARunWithNoFormatPrintsTheTable(): void
     {
-        self::assertSame('table', CheckCommand::format(null, false));
-    }
-
-    public function testTheJsonFlagStillChoosesJson(): void
-    {
-        self::assertSame('json', CheckCommand::format(null, true));
+        self::assertSame('table', CheckCommand::format(null));
     }
 
     public function testTheFormatOptionChoosesJson(): void
     {
-        self::assertSame('json', CheckCommand::format('json', false));
+        self::assertSame('json', CheckCommand::format('json'));
     }
 
     public function testTheFormatOptionChoosesTheTable(): void
     {
-        self::assertSame('table', CheckCommand::format('table', false));
-    }
-
-    public function testTheFlagAndAMatchingFormatAgree(): void
-    {
-        self::assertSame('json', CheckCommand::format('json', true));
-    }
-
-    public function testTheFormatOptionWinsOverTheFlag(): void
-    {
-        self::assertSame('table', CheckCommand::format('table', true));
+        self::assertSame('table', CheckCommand::format('table'));
     }
 
     public function testAnUnknownFormatNamesWhatIsAccepted(): void
     {
         $this->expectException(UnexpectedValueException::class);
-        $this->expectExceptionMessage('unknown --format=xml; accepted: table, json, github');
+        $this->expectExceptionMessage('unknown --format=xml; accepted: table, json');
 
-        CheckCommand::format('xml', false);
+        CheckCommand::format('xml');
     }
 
-    public function testTheFormatOptionChoosesTheAnnotations(): void
+    public function testTheAnnotationFormatIsGone(): void
     {
-        self::assertSame('github', CheckCommand::format('github', false));
-    }
+        $this->expectException(UnexpectedValueException::class);
+        $this->expectExceptionMessage('unknown --format=github; accepted: table, json');
 
-    public function testTheFormatOptionWinsOverTheFlagForAnnotations(): void
-    {
-        self::assertSame('github', CheckCommand::format('github', true));
+        CheckCommand::format('github');
     }
 
     public function testAnEmptyFormatIsAnError(): void
     {
         $this->expectException(UnexpectedValueException::class);
-        $this->expectExceptionMessage('unknown --format=; accepted: table, json, github');
+        $this->expectExceptionMessage('unknown --format=; accepted: table, json');
 
-        CheckCommand::format('', false);
+        CheckCommand::format('');
     }
 }
