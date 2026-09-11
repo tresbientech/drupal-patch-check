@@ -8,10 +8,10 @@ use Composer\Console\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
-use TresBienTech\Drupatch\CheckCommand;
+use TresBienTech\Drupatch\Command\CheckCommand;
+use TresBienTech\Drupatch\Command\RerollCommand;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\RerollCommand;
-use TresBienTech\Drupatch\Run;
+use TresBienTech\Drupatch\Read\Run;
 
 /**
  * --patch narrows both commands to one declaration, named by its source.

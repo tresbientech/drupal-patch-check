@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
+use TresBienTech\Drupatch\Read\Run;
 use TresBienTech\Drupatch\Render\PinReport;
 
 class PinReportTest extends TestCase

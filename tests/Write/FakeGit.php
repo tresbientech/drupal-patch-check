@@ -7,18 +7,23 @@ namespace TresBienTech\Drupatch\Tests\Write;
 use Composer\Util\ProcessExecutor;
 
 /**
- * Answers one canned git result, so the guard is tested without a
+ * Answers canned git results, so the guard is tested without a
  * repository.
  */
 class FakeGit extends ProcessExecutor
 {
+    /** @var list<string> the last argument of every command asked, in order */
+    public array $asked = [];
+
     /**
-     * @param string $path the file the answer is about, empty for every file
+     * @param string                            $path    the file the answer is about, empty for every file
+     * @param array<string, array{int, string}> $answers exit status and output per last argument, tried before the canned answer
      */
     public function __construct(
         private readonly int $status,
         private readonly string $porcelain,
         private readonly string $path = '',
+        private readonly array $answers = [],
     ) {
         parent::__construct();
     }
@@ -33,6 +38,12 @@ class FakeGit extends ProcessExecutor
     public function execute($command, &$output = null, $cwd = null): int
     {
         $asked = \is_array($command) ? \end($command) : $command;
+        $this->asked[] = $asked;
+        if (isset($this->answers[$asked])) {
+            [$status, $output] = $this->answers[$asked];
+
+            return $status;
+        }
         $output = '' === $this->path || $asked === $this->path ? $this->porcelain : '';
 
         return $this->status;

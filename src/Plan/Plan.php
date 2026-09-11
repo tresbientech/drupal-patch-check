@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Plan;
 
 use RuntimeException;
-use TresBienTech\Drupatch\Scope;
+use TresBienTech\Drupatch\Manager;
+use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Text;
 
 /**
@@ -112,6 +113,35 @@ class Plan
             (array) ($plan['missing_files'] ?? []),
             (array) ($plan['warnings'] ?? []),
             $data,
+        );
+    }
+
+    /**
+     * The same plan as the site's patch manager meets it.
+     *
+     * 2.x applies with `git apply` alone, so a patch only a lenient apply
+     * took stops applying there. A row that already names a failure keeps it.
+     */
+    public function forManager(Manager $manager): self
+    {
+        if (!$manager->isTwo()) {
+            return $this;
+        }
+
+        return new self(
+            $this->targetCore,
+            $this->coreInstalled,
+            $this->targetIsInstalled,
+            $this->bundleDate,
+            $this->targetFrom,
+            $this->counts,
+            $this->packageCounts,
+            $this->noRelease,
+            $this->rowNotes,
+            \array_map(static fn (PatchRow $row): PatchRow => $row->fuzzy && '' === $row->failureMode ? $row->refusedByTwo() : $row, $this->patches),
+            $this->missingFiles,
+            $this->warnings,
+            $this->raw,
         );
     }
 
@@ -244,6 +274,27 @@ class Plan
     public const ACTION_NEEDED = 1;
 
     public const FAILED = 2;
+
+    /**
+     * Every row with its patch number: its place in its package's declared order, counted from one.
+     *
+     * That order is the one the patch manager applies them in, so a later
+     * patch is judged on top of the earlier ones. Numbers restart under each
+     * package, which is why a report prints one under its package heading.
+     *
+     * @return list<array{0: PatchRow, 1: int}>
+     */
+    public function numbered(): array
+    {
+        $seen = [];
+        $out = [];
+        foreach ($this->patches as $row) {
+            $seen[$row->package] = ($seen[$row->package] ?? 0) + 1;
+            $out[] = [$row, $seen[$row->package]];
+        }
+
+        return $out;
+    }
 
     /**
      * The exit code: fails on a patch whose verdict is none of merged, applies or unknown.

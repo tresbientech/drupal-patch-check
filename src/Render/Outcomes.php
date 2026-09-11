@@ -9,7 +9,7 @@ use TresBienTech\Drupatch\Plan\PatchRow;
 /**
  * What a run did: the files it wrote, the ones it would not, the declarations it rewrote, and the counts the footer needs.
  *
- * @phpstan-type WrittenRow array{path: string, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>, from: string}
+ * @phpstan-type WrittenRow array{path: string, provenance: array<string, string>, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>, dropped: list<string>, from: string}
  */
 class Outcomes
 {
@@ -19,7 +19,7 @@ class Outcomes
     /** @var list<array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}> */
     private array $refused = [];
 
-    /** @var list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}> */
+    /** @var list<array{action: 'dropped'|'repointed', package: string, title: string, path: string, provenance: array<string, string>}> */
     private array $changes = [];
 
     private bool $fixed = false;
@@ -43,7 +43,7 @@ class Outcomes
     /**
      * Records the fix rewrite: the file it changed, and what it did to each entry.
      *
-     * @param list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}> $changes
+     * @param list<array{action: 'dropped'|'repointed', package: string, title: string, path: string, provenance: array<string, string>}> $changes
      */
     public function recordFix(array $changes, string $declaration): void
     {
@@ -69,7 +69,7 @@ class Outcomes
     }
 
     /**
-     * @return list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}>
+     * @return list<array{action: 'dropped'|'repointed', package: string, title: string, path: string, provenance: array<string, string>}>
      */
     public function changes(): array
     {

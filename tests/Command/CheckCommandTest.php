@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Command;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\CheckCommand;
+use TresBienTech\Drupatch\Command\CheckCommand;
+use TresBienTech\Drupatch\Command\RerollCommand;
 use TresBienTech\Drupatch\Render\HookReport;
-use TresBienTech\Drupatch\RerollCommand;
 
 final class CheckCommandTest extends TestCase
 {

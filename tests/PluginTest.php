@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests;
 
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
+use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\Plugin;
 
 final class PluginTest extends TestCase
@@ -52,5 +54,37 @@ final class PluginTest extends TestCase
             'post-install-cmd' => 'onPostInstall',
             'post-package-install' => 'onPackageInstall',
         ], Plugin::getSubscribedEvents());
+    }
+
+    // The nudge is for a site that can act on it, so a site already on 2.x
+    // and a site with no patch manager are told nothing.
+    public function testASiteOnOneIsToldWhichLineToBeOn(): void
+    {
+        $lines = Plugin::movePrompt(Manager::ofVersion('1.7.3'));
+
+        self::assertNotEmpty($lines);
+        self::assertStringContainsString('composer-patches 1.x', $lines[0]);
+        self::assertStringContainsString('composer '.Manager::UPGRADE.' --dry-run', \end($lines));
+    }
+
+    public function testASiteOnTwoIsToldNothing(): void
+    {
+        self::assertSame([], Plugin::movePrompt(Manager::ofVersion('2.0.0')));
+    }
+
+    public function testASiteWithNoPatchManagerIsToldNothing(): void
+    {
+        self::assertSame([], Plugin::movePrompt(Manager::ofVersion('')));
+    }
+
+    // The disclosure says what leaves the site and how to read it first.
+    // Nothing in it is about what the service keeps.
+    public function testTheInstallNoticeNamesTheServiceAndTheDryRun(): void
+    {
+        $notice = \implode(' ', (array) (new ReflectionClass(Plugin::class))->getConstant('NOTICE'));
+
+        self::assertStringContainsString('api.tresbien.tech', $notice);
+        self::assertStringContainsString('--dry-run', $notice);
+        self::assertStringNotContainsString('cached', $notice);
     }
 }

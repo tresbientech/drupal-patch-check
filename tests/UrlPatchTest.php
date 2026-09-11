@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\UrlPatch;
+use TresBienTech\Drupatch\Source\UrlPatch;
 
 /**
  * A patch declared as a URL that names neither a merge request nor a commit:

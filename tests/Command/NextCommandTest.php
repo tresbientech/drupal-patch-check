@@ -8,8 +8,8 @@ use Composer\Console\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
-use TresBienTech\Drupatch\CheckCommand;
-use TresBienTech\Drupatch\Scope;
+use TresBienTech\Drupatch\Command\CheckCommand;
+use TresBienTech\Drupatch\Read\Scope;
 
 /**
  * The command the footer suggests acts on what the run showed.

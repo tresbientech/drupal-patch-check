@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Header;
-use TresBienTech\Drupatch\MergeRequest;
+use TresBienTech\Drupatch\Source\Header;
+use TresBienTech\Drupatch\Source\MergeRequest;
+use TresBienTech\Drupatch\Source\Provenance;
 
 class MergeRequestTest extends TestCase
 {
@@ -81,23 +82,6 @@ class MergeRequestTest extends TestCase
         self::assertSame('patches/webform/mr940.diff', $mr->file('patches'));
     }
 
-    public function testTheHeaderReadsBackWhatItWrote(): void
-    {
-        $line = Header::line(['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'base' => 'aaa', 'head' => 'bbb', 'fetched' => '2026-09-09', 'sha256' => 'ccc']);
-
-        self::assertStringStartsWith('# drupatch {"mr":"https://git.drupalcode.org/project/webform/-/merge_requests/940","base":"aaa","head":"bbb","fetched":"2026-09-09","sha256":"ccc"}', $line);
-        self::assertSame('bbb', Header::read($line."diff --git a/a b/a\n")['head'] ?? '');
-    }
-
-    // A key written in any order comes back in one order, because the file
-    // is read by two languages and diffed by people.
-    public function testTheKeysAreWrittenInOneOrder(): void
-    {
-        $line = Header::line(['sha256' => 'ccc', 'head' => 'bbb', 'mr' => 'm', 'fetched' => 'd', 'base' => 'aaa']);
-
-        self::assertSame('# drupatch {"mr":"m","base":"aaa","head":"bbb","fetched":"d","sha256":"ccc"}'."\n", $line);
-    }
-
     public function testAFileWithNoHeaderHasNone(): void
     {
         self::assertSame([], Header::read("diff --git a/a b/a\n"));
@@ -105,18 +89,51 @@ class MergeRequestTest extends TestCase
         self::assertSame([], Header::read('# drupatch {"mr"'));
     }
 
-    public function testTheHashCoversWhatSitsUnderTheHeader(): void
+    // A repository written by an older release still holds the line, and a
+    // run that touches such a file moves the object onto the declaration.
+    // The hash the line carried is dropped: the patch lock keeps its own.
+    public function testAnOldHeaderReadsBackAsAProvenanceRecord(): void
     {
         $body = "diff --git a/a b/a\n+one\n";
-        $file = Header::line(['mr' => 'm', 'sha256' => Header::hash($body)]).$body;
+        $line = '# drupatch {"mr":"m","base":"aaa","head":"bbb","fetched":"2026-09-09","sha256":"abc"}'."\n";
 
-        self::assertSame($body, Header::body($file));
-        self::assertSame(Header::read($file)['sha256'], Header::hash(Header::body($file)));
+        self::assertSame($body, Header::body($line.$body));
+        self::assertSame(
+            ['mr' => 'm', 'base' => 'aaa', 'head' => 'bbb', 'fetched' => '2026-09-09'],
+            Provenance::of(Header::read($line.$body))
+        );
     }
 
     // A file nobody pinned is its own body, so a caller reads one thing.
     public function testAFileWithNoHeaderIsAllBody(): void
     {
         self::assertSame("diff --git a/a b/a\n", Header::body("diff --git a/a b/a\n"));
+    }
+
+    // drupal.org opens one GitLab project per issue and pushes every merge
+    // request on that issue from it.
+    public function testAForkPathNamesItsIssue(): void
+    {
+        self::assertSame('3521733', MergeRequest::issueIn('issue/webform-3521733'));
+        self::assertSame('12', MergeRequest::issueIn('issue/token_filter-12'));
+    }
+
+    public function testAnythingElseNamesNoIssue(): void
+    {
+        foreach ([
+            'project/webform',
+            'issue/webform',
+            'issue/webform-3521733/nested',
+            'issue/Webform-3521733',
+            'issue/webform-abc',
+            '',
+        ] as $path) {
+            self::assertSame('', MergeRequest::issueIn($path), $path);
+        }
+    }
+
+    public function testAProjectIsReadByItsOwnId(): void
+    {
+        self::assertSame('https://git.drupalcode.org/api/v4/projects/243137', MergeRequest::projectApi(243137));
     }
 }

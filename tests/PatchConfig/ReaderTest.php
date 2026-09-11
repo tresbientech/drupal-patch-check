@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\PatchConfig;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\PatchConfig;
-use TresBienTech\Drupatch\PatchText;
+use TresBienTech\Drupatch\Fetch\PatchText;
+use TresBienTech\Drupatch\Manager;
+use TresBienTech\Drupatch\Read\PatchConfig;
 
 final class ReaderTest extends TestCase
 {
@@ -56,9 +57,9 @@ final class ReaderTest extends TestCase
      * @param array<string, string>                           $checkable
      * @param array<string, array{status: int, body: string}> $hosts
      */
-    private function read(array $extra, int $textBudget = self::AMPLE, array $checkable = self::CHECKABLE, array $hosts = []): PatchConfig
+    private function read(array $extra, int $textBudget = self::AMPLE, array $checkable = self::CHECKABLE, array $hosts = [], string $manager = '1.7.3'): PatchConfig
     {
-        return PatchConfig::read($this->text($hosts), $textBudget, $checkable, $extra);
+        return PatchConfig::read($this->text($hosts), $textBudget, $checkable, $extra, $this->root, Manager::ofVersion($manager));
     }
 
     /**
@@ -96,7 +97,7 @@ final class ReaderTest extends TestCase
 
         $resolution = $this->read($extra);
 
-        self::assertSame([['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patches/local.patch']], $resolution->patches);
+        self::assertSame([['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patches/local.patch', 'file' => 'composer.json', 'shape' => 'compact', 'provenance' => []]], $resolution->patches);
         self::assertSame(['patches/local.patch' => "diff --git a/x b/x\n"], $resolution->files);
         self::assertSame([], $resolution->notes);
         self::assertSame([], $resolution->unsent);
@@ -346,5 +347,154 @@ final class ReaderTest extends TestCase
         $resolution = $this->read(['patches' => ['drupal/domain' => $declared]]);
 
         self::assertSame(\array_keys($declared), \array_column($resolution->patches, 'title'));
+    }
+
+    // 2.x reads the expanded form, and 1.x sites are moving to it.
+    public function testReadsTheExpandedObjectForm(): void
+    {
+        $extra = ['patches' => ['drupal/webform' => [
+            ['description' => 'Fix the alter hook', 'url' => 'patches/local.patch', 'sha256' => \str_repeat('a', 64), 'depth' => 2],
+        ]]];
+
+        $resolution = $this->read($extra, manager: '2.0.0');
+
+        self::assertSame([['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patches/local.patch', 'file' => 'composer.json', 'shape' => 'expanded', 'provenance' => []]], $resolution->patches);
+        self::assertSame(['patches/local.patch' => "diff --git a/x b/x\n"], $resolution->files);
+    }
+
+    public function testAnExpandedEntryMissingItsUrlIsNoDeclaration(): void
+    {
+        $extra = ['patches' => ['drupal/webform' => [
+            ['description' => 'Fix the alter hook'],
+            ['url' => 'patches/local.patch'],
+            ['description' => 'Kept', 'url' => 'patches/local.patch'],
+        ]]];
+
+        self::assertSame(['Kept'], \array_column($this->read($extra, manager: '2.0.0')->patches, 'title'));
+    }
+
+    public function testReadsThePatchesFileTheSitesManagerNames(): void
+    {
+        \file_put_contents($this->root.'/patches.json', (string) \json_encode([
+            'patches' => ['drupal/webform' => ['From the file' => 'patches/local.patch']],
+        ]));
+
+        $resolution = $this->read(['composer-patches' => ['patches-file' => 'patches.json']], manager: '2.0.0');
+
+        self::assertSame([['package' => 'drupal/webform', 'title' => 'From the file', 'source' => 'patches/local.patch', 'file' => 'patches.json', 'shape' => 'compact', 'provenance' => []]], $resolution->patches);
+    }
+
+    public function testReadsBothPlacesWhenTheSiteUsesBoth(): void
+    {
+        \file_put_contents($this->root.'/patches.json', (string) \json_encode([
+            'patches' => ['drupal/core' => ['From the file' => 'patches/local.patch']],
+        ]));
+        $extra = [
+            'patches' => ['drupal/webform' => ['From composer.json' => 'patches/local.patch']],
+            'composer-patches' => ['patches-file' => 'patches.json'],
+        ];
+
+        $resolution = $this->read($extra, manager: '2.0.0');
+
+        self::assertSame(['From composer.json', 'From the file'], \array_column($resolution->patches, 'title'));
+        self::assertSame(['composer.json', 'patches.json'], \array_column($resolution->patches, 'file'));
+    }
+
+    // The manager reads composer.json first and refuses a patch whose URL
+    // the package already holds, so the site applies it once.
+    public function testASourceDeclaredInBothPlacesIsReadOnce(): void
+    {
+        \file_put_contents($this->root.'/patches.json', (string) \json_encode([
+            'patches' => ['drupal/webform' => ['Again' => 'patches/local.patch', 'Another' => 'patches/second.patch']],
+        ]));
+        $this->writePatches(['patches/second.patch']);
+        $extra = [
+            'patches' => ['drupal/webform' => ['From composer.json' => 'patches/local.patch']],
+            'composer-patches' => ['patches-file' => 'patches.json'],
+        ];
+
+        $resolution = $this->read($extra, manager: '2.0.0');
+
+        self::assertSame(['From composer.json', 'Another'], \array_column($resolution->patches, 'title'));
+    }
+
+    // The same source on another package is another patch.
+    public function testTheSameSourceOnTwoPackagesIsTwoPatches(): void
+    {
+        \file_put_contents($this->root.'/patches.json', (string) \json_encode([
+            'patches' => ['drupal/core' => ['From the file' => 'patches/local.patch']],
+        ]));
+        $extra = [
+            'patches' => ['drupal/webform' => ['From composer.json' => 'patches/local.patch']],
+            'composer-patches' => ['patches-file' => 'patches.json'],
+        ];
+
+        self::assertCount(2, $this->read($extra, manager: '2.0.0')->patches);
+    }
+
+    public function testAPatchesFileTheManagerDoesNotReadIsNotRead(): void
+    {
+        \file_put_contents($this->root.'/patches.json', (string) \json_encode([
+            'patches' => ['drupal/webform' => ['From the file' => 'patches/local.patch']],
+        ]));
+
+        // 1.x reads extra.patches-file, so the 2.x key says nothing to it.
+        self::assertSame([], $this->read(['composer-patches' => ['patches-file' => 'patches.json']], manager: '1.7.3')->patches);
+    }
+
+    public function testAPatchesFileThatIsMissingOrNotJsonDeclaresNothing(): void
+    {
+        \file_put_contents($this->root.'/broken.json', 'not json');
+
+        self::assertSame([], $this->read(['composer-patches' => ['patches-file' => 'gone.json']], manager: '2.0.0')->patches);
+        self::assertSame([], $this->read(['composer-patches' => ['patches-file' => 'broken.json']], manager: '2.0.0')->patches);
+    }
+
+    // `composer patches-doctor` reports an unreachable source on a 2.x site,
+    // so the run counts the patch and leaves the reason to it.
+    public function testASourceTheHostRefusedIsCountedWithoutItsReasonOnTwo(): void
+    {
+        $url = 'https://example.test/gone.patch';
+        $extra = ['patches' => ['drupal/webform' => ['Gone' => $url]]];
+        $hosts = [$url => ['status' => 404, 'body' => '']];
+
+        $two = $this->read($extra, hosts: $hosts, manager: '2.0.0');
+        $one = $this->read($extra, hosts: $hosts, manager: '1.7.3');
+
+        self::assertSame([['package' => 'drupal/webform', 'title' => 'Gone', 'reason' => '']], $two->skipped);
+        self::assertSame([['package' => 'drupal/webform', 'title' => 'Gone', 'reason' => 'the host answered 404']], $one->skipped);
+    }
+
+    // The package is the run's own answer, whatever the manager version.
+    public function testAPackageTheServiceCannotJudgeKeepsItsReasonOnBothLines(): void
+    {
+        $extra = ['patches' => ['acme/private' => ['Ours' => 'patches/local.patch']]];
+
+        foreach (['1.7.3', '2.0.0'] as $version) {
+            self::assertSame(
+                [['package' => 'acme/private', 'title' => 'Ours', 'reason' => 'not a drupal.org project']],
+                $this->read($extra, manager: $version)->skipped,
+                $version
+            );
+        }
+    }
+
+    public function testAnExpandedEntryCarriesItsRecord(): void
+    {
+        $record = ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'head' => 'bbb'];
+        $extra = ['patches' => ['drupal/webform' => [
+            ['description' => 'Fix', 'url' => 'patches/local.patch', 'extra' => ['drupatch' => $record, 'provenance' => 'ours']],
+        ]]];
+
+        self::assertSame($record, $this->read($extra, manager: '2.0.0')->patches[0]['provenance']);
+    }
+
+    // The compact map has nowhere to put a record, so an entry in it holds
+    // none whatever the manager version.
+    public function testACompactEntryHoldsNoRecord(): void
+    {
+        $extra = ['patches' => ['drupal/webform' => ['Fix' => 'patches/local.patch']]];
+
+        self::assertSame([], $this->read($extra, manager: '2.0.0')->patches[0]['provenance']);
     }
 }

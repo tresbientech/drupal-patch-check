@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Write;
 
 use RuntimeException;
-use TresBienTech\Drupatch\Header;
-use TresBienTech\Drupatch\PatchConfig;
-use TresBienTech\Drupatch\PatchText;
+use TresBienTech\Drupatch\Fetch\PatchText;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Read\PatchConfig;
 use TresBienTech\Drupatch\Render\Report;
+use TresBienTech\Drupatch\Source\Header;
+use TresBienTech\Drupatch\Source\Provenance;
 use TresBienTech\Drupatch\Text;
 
 /**
@@ -40,31 +41,16 @@ class PatchFiles
 
     public const NOT_DECLARED = 'the site declares no patch by that name';
 
+    /** Why a clean re-roll the service could not parse is not written. */
+    public const UNPARSEABLE = 'its re-roll leaves a file that does not parse: @file';
+
     public function __construct(
         private readonly string $root,
         /** Asked before a file is replaced; null replaces everything. `--force`. */
         private readonly ?WorkingTree $tree,
-        /**
-         * The patches the site declares, which decide where a re-roll may land.
-         *
-         * @var list<array{package: string, title: string, source: string}>
-         */
-        private readonly array $declared,
+        /** What the copy step left: its declarations decide where a re-roll may land, and the files it created are this run's own to replace. */
+        private readonly Copied $copied,
     ) {
-    }
-
-    /**
-     * The source the site declared for this row, null when it declared none.
-     */
-    private function declaredSource(PatchRow $row): ?string
-    {
-        foreach ($this->declared as $patch) {
-            if ($patch['package'] === $row->package && $patch['title'] === $row->title) {
-                return $patch['source'];
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -81,7 +67,8 @@ class PatchFiles
             if (null === $row->reroll) {
                 continue;
             }
-            $declaredSource = $this->declaredSource($row);
+            $declaration = $row->declaredIn($this->copied->declarations);
+            $declaredSource = $declaration['source'] ?? null;
             $fromUrl = null !== $declaredSource && PatchConfig::isUrl($declaredSource);
             $body = self::body($row);
             if (null === $body) {
@@ -98,7 +85,7 @@ class PatchFiles
             // a patch to hand anybody, whatever the site declared.
             $broken = $row->rerollSyntaxErrors();
             if ([] !== $broken) {
-                $refused[] = self::refusal($row, $declaredSource ?? $row->source, Text::t('its re-roll leaves a file that does not parse: @file', ['@file' => $broken[0]]));
+                $refused[] = self::refusal($row, $declaredSource ?? $row->source, Text::t(self::UNPARSEABLE, ['@file' => $broken[0]]));
                 continue;
             }
             if (null === $declaredSource) {
@@ -115,13 +102,14 @@ class PatchFiles
                 continue;
             }
             $path = $row->rerollIsClean() ? $source : self::conflictPath($source);
-            // A copied patch says where its bytes came from. The re-roll
-            // changes the bytes, so the line says which release they were
-            // merged against and hashes what this run wrote.
-            $provenance = Header::read($this->held($source));
-            if ($row->rerollIsClean() && [] !== $provenance) {
-                $body = Header::line(['rerolled' => $row->version, 'sha256' => Header::hash($body)] + $provenance).$body;
-            }
+            // A copied patch's declaration says where its bytes came from. The
+            // re-roll changes the bytes, so the record names the release they
+            // were merged against. A repository still carrying the old
+            // `# drupatch` line is read from that.
+            $recorded = [] !== $declaration['provenance'] ? $declaration['provenance'] : Provenance::of(Header::read($this->held($source)));
+            $provenance = $row->rerollIsClean() && [] !== $recorded
+                ? Provenance::of(['rerolled' => $row->version] + $recorded)
+                : [];
             if (!$this->holds($path, $body)) {
                 $reason = $this->refusalFor($path);
                 if ('' !== $reason) {
@@ -135,6 +123,7 @@ class PatchFiles
             }
             $written[] = [
                 'path' => $path,
+                'provenance' => $provenance,
                 'status' => (string) ($row->reroll['status'] ?? ''),
                 'package' => $row->package,
                 'title' => $row->title,
@@ -143,6 +132,7 @@ class PatchFiles
                 'regions' => $row->openRegions(),
                 'open' => $row->openRegionList(),
                 'removed' => $row->removedFiles(),
+                'dropped' => $row->droppedTests(),
                 'from' => $provenance['mr'] ?? '',
             ];
         }
@@ -164,7 +154,7 @@ class PatchFiles
      * Why a row produced no patch to write, in the service's own words
      * when it gave any.
      */
-    private static function whyNoReroll(PatchRow $row): string
+    public static function whyNoReroll(PatchRow $row): string
     {
         foreach (['error', 'note'] as $key) {
             if ('' !== ($said = (string) ($row->reroll[$key] ?? ''))) {
@@ -172,7 +162,9 @@ class PatchFiles
             }
         }
 
-        return self::NO_REROLL;
+        // A re-roll that failed outright arrives as no re-roll, with the
+        // reason on the row.
+        return '' !== $row->error ? $row->error : self::NO_REROLL;
     }
 
     /**
@@ -190,7 +182,7 @@ class PatchFiles
      */
     private function refusalFor(string $path): string
     {
-        if (null === $this->tree || !\is_file($this->root.\DIRECTORY_SEPARATOR.$path)) {
+        if (null === $this->tree || \in_array($path, $this->copied->created(), true) || !\is_file($this->root.\DIRECTORY_SEPARATOR.$path)) {
             return '';
         }
 
@@ -344,13 +336,8 @@ class PatchFiles
      */
     private function put(string $path, string $body): void
     {
-        $full = $this->root.\DIRECTORY_SEPARATOR.$path;
-        $dir = \dirname($full);
-        if (!\is_dir($dir) && !\mkdir($dir, 0o777, true) && !\is_dir($dir)) {
-            throw new RuntimeException(Text::t('cannot create @dir', ['@dir' => $dir]));
-        }
-        if (false === \file_put_contents($full, $body)) {
-            throw new RuntimeException(Text::t('cannot write @path', ['@path' => $path]));
+        if (!SiteFile::put($this->root.\DIRECTORY_SEPARATOR.$path, $body)) {
+            throw new RuntimeException(Text::t('@path could not be written', ['@path' => $path]));
         }
     }
 }

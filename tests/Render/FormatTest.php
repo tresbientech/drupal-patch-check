@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\CheckCommand;
+use TresBienTech\Drupatch\Command\CheckCommand;
 use UnexpectedValueException;
 
 final class FormatTest extends TestCase

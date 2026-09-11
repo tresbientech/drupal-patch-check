@@ -19,9 +19,16 @@ use Composer\Script\Event;
 use Composer\Script\ScriptEvents;
 use RuntimeException;
 use Throwable;
-use TresBienTech\Drupatch\Render\Coverage;
+use TresBienTech\Drupatch\Command\CommandProvider;
+use TresBienTech\Drupatch\Fetch\PatchText;
+use TresBienTech\Drupatch\Fetch\Vendoring;
+use TresBienTech\Drupatch\Read\Candidates;
+use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Read\Site;
 use TresBienTech\Drupatch\Render\HookReport;
 use TresBienTech\Drupatch\Render\Report;
+use TresBienTech\Drupatch\Service\Client;
+use TresBienTech\Drupatch\Source\MergeRequest;
 
 /**
  * Prints a patch verdict tally after a composer update the site opted into.
@@ -33,7 +40,13 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     private const NOTICE = [
         'Drupal Patch Check is installed. It sends your patch data to api.tresbien.tech.',
         'Review what is sent by running '.Report::COMMAND.' --dry-run.',
-        'Your submission is cached on the server to improve the service.',
+    ];
+
+    /** What a site on 1.x of the patch manager is told once. */
+    private const MOVE = [
+        'This site runs cweagans/composer-patches 1.x. 2.x is the line to be on.',
+        'It applies with git apply alone and locks a hash per patch.',
+        'See what moving costs: composer '.Manager::UPGRADE.' --dry-run',
     ];
 
     private Composer $composer;
@@ -115,7 +128,27 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
         }
         if (Client::PACKAGE === $operation->getPackage()->getName()) {
             $this->printNotice();
+            $this->printMove();
         }
+    }
+
+    /**
+     * What a site on 1.x is told once, empty for a site already on 2.x or with no patch manager.
+     *
+     * @return list<string>
+     */
+    public static function movePrompt(Manager $manager): array
+    {
+        return $manager->isOne() ? self::MOVE : [];
+    }
+
+    /**
+     * The move prompt, which no setting turns off: the hook key says what a site wants printed after an update, and says nothing about which patch manager it runs.
+     */
+    private function printMove(): void
+    {
+        $lines = self::movePrompt(Manager::fromComposer($this->composer));
+        $this->once('move', \array_map(static fn (string $line): string => '<comment>'.$line.'</comment>', $lines));
     }
 
     /**
@@ -123,19 +156,30 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
      */
     private function printNotice(): void
     {
-        if (!$this->io->isInteractive()) {
-            return;
-        }
         if (isset($this->composer->getPackage()->getExtra()[self::EXTRA]['hook'])) {
             return;
         }
+        $this->once('notice', \array_map(static fn (string $line): string => '<info>'.$line.'</info>', self::NOTICE));
+    }
+
+    /**
+     * Prints lines the first time this site sees them, and never again. A run nobody is watching prints none.
+     *
+     * @param string       $key   what the marker is named for, so one block printing does not silence another
+     * @param list<string> $lines
+     */
+    private function once(string $key, array $lines): void
+    {
+        if ([] === $lines || !$this->io->isInteractive()) {
+            return;
+        }
         $cache = $this->noticeCache();
-        $marker = 'notice.'.\sha1(self::rootPath());
+        $marker = $key.'.'.\sha1(self::rootPath());
         if (null !== $cache && false !== $cache->read($marker)) {
             return;
         }
-        foreach (self::NOTICE as $line) {
-            $this->io->write('<info>'.$line.'</info>');
+        foreach ($lines as $line) {
+            $this->io->write($line);
         }
         $cache?->write($marker, '');
     }
@@ -166,17 +210,21 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
      */
     public function onPostInstall(Event $event): void
     {
-        $this->warnUnpinned($this->composer->getPackage()->getExtra());
+        $this->warnUnpinned($this->composer->getPackage()->getExtra(), Manager::fromComposer($this->composer));
     }
 
     /**
-     * What every run says, whatever the site configured: a declaration anyone with a drupal.org account can push to. Reads the declarations alone, so it costs no call and no file.
+     * What a site on 1.x is told, whatever it configured: a declaration anyone with a drupal.org account can push to. 2.x records a hash per patch and refuses bytes that moved, so it earns no warning.
      *
      * @param array<string, mixed> $extra the root package's extra
      */
-    private function warnUnpinned(array $extra): void
+    private function warnUnpinned(array $extra, Manager $manager): void
     {
-        foreach (Report::unpinnedWarning(\count(MergeRequest::among(PatchConfig::declared($extra)))) as $line) {
+        if ($manager->isTwo()) {
+            return;
+        }
+        $root = Site::rootDirectory();
+        foreach (Report::unpinnedWarning(\count(MergeRequest::among(PatchConfig::declared($extra, $root, $manager)))) as $line) {
             $this->io->write($line);
         }
     }
@@ -185,20 +233,21 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     {
         try {
             $extra = $this->composer->getPackage()->getExtra();
-            $this->warnUnpinned($extra);
+            $manager = Manager::fromComposer($this->composer);
+            $this->warnUnpinned($extra, $manager);
             if (!self::hookEnabled($extra)) {
                 return;
             }
-            $site = Site::atWorkingDirectory($this->composer, $this->io);
-            foreach ($site->patches()->notes as $note) {
+            $site = Site::atWorkingDirectory($this->composer, $this->io, $manager);
+            foreach ($site->patches->notes as $note) {
                 $this->io->write('<comment>'.Text::t('drupatch: @message', ['@message' => $note]).'</comment>');
             }
-            if (!$site->hasPatches()) {
+            if ($site->patches->isEmpty()) {
                 return;
             }
             $client = Client::fromComposer($this->composer, $this->io);
-            $plan = $client->plan($site->composerJson(), $site->composerLock(), $site->patches(), '', false, [], Candidates::declaredCore($this->composer, $site->checkable()));
-            foreach (HookReport::lines($plan, Coverage::editedCopies($site->patches()->files)) as $line) {
+            $plan = $client->plan($site->composerJson, $site->composerLock, $site->patches, '', false, [], Candidates::declaredCore($this->composer, $site->checkable));
+            foreach (HookReport::lines($plan) as $line) {
                 $this->io->write($line);
             }
         } catch (Throwable $e) {

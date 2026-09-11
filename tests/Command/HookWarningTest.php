@@ -11,6 +11,7 @@ use Composer\Script\ScriptEvents;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plugin;
+use TresBienTech\Drupatch\Read\Run;
 
 /**
  * What a composer update says about a declaration anyone with a drupal.org
@@ -120,5 +121,32 @@ class HookWarningTest extends TestCase
 
         self::assertSame(1, \substr_count($out, self::SENTENCE));
         self::assertStringContainsString('1 conflicts after this update', $out);
+    }
+
+    // 2.x records a hash per patch and refuses bytes that moved, so a site
+    // on it hears nothing about a merge request URL.
+    public function testASiteOnTheTwoLineHearsNothing(): void
+    {
+        $this->site = (new SiteFixture())->declares('3521733: bfcache', self::MR)->withManager('2.0.0');
+
+        self::assertSame('', self::update($this->site->enter('http://127.0.0.1:1/never-called')));
+    }
+
+    public function testASiteOnTheOneLineIsStillTold(): void
+    {
+        $this->site = (new SiteFixture())->declares('3521733: bfcache', self::MR)->withManager('1.7.3');
+
+        self::assertStringContainsString(self::SENTENCE, self::update($this->site->enter('http://127.0.0.1:1/never-called')));
+    }
+
+    // A site on 1.x keeping its patches in a file is warned about them too.
+    public function testAPatchesFileOnTheOneLineIsCounted(): void
+    {
+        $this->site = (new SiteFixture())
+            ->declares('3521733: bfcache', self::MR)
+            ->withManager('1.7.3')
+            ->inPatchesFile('patches.json');
+
+        self::assertStringContainsString(self::SENTENCE, self::update($this->site->enter('http://127.0.0.1:1/never-called')));
     }
 }

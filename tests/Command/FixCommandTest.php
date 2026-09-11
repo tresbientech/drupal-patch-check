@@ -8,8 +8,7 @@ use Composer\Console\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
-use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\RerollCommand;
+use TresBienTech\Drupatch\Command\RerollCommand;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
 /**
@@ -36,9 +35,9 @@ class FixCommandTest extends TestCase
      * @param array<string, mixed>             $input
      * @param callable(SiteFixture): void|null $before runs after the site is written, before the command
      */
-    private function drive(array $input, ?callable $before = null): CommandTester
+    private function drive(array $input, ?callable $before = null, ?SiteFixture $site = null): CommandTester
     {
-        $this->site = (new SiteFixture())
+        $this->site = ($site ?? new SiteFixture())
             ->declaresPatch('Menu cache', 'patches/webform/menu.patch')
             ->declaresPatch('Fix', 'patches/webform/fix.patch');
         $this->server = new PlanServer([
@@ -71,13 +70,14 @@ class FixCommandTest extends TestCase
 
     public function testTheRewriteIsListedBeforeTheFooterAndNotOfferedAgain(): void
     {
-        // Not a git checkout: the re-roll is refused and --force is offered,
-        // which gives the run a footer to order against.
-        $tester = $this->drive([]);
+        // The patch file has uncommitted changes, so the re-roll is refused
+        // and --force is offered, which gives the run a footer to order
+        // against. composer.json is clean, so its rewrite goes ahead.
+        $tester = $this->drive([], null, (new SiteFixture())->inGit()->leavesChanged('patches/webform/fix.patch', "edited\n"));
         $display = $tester->getDisplay();
 
         self::assertStringContainsString("  composer.json:\n    - drupal/webform: Menu cache (already in the release; patches/webform/menu.patch is no longer used and was kept)", $display);
-        self::assertStringContainsString("  not re-rolled:\n    ".WorkingTree::NOT_A_CHECKOUT."\n      ", $display);
+        self::assertStringContainsString("  not re-rolled:\n    ".WorkingTree::UNCOMMITTED."\n      ", $display);
         self::assertLessThan(\strpos($display, 'Next:'), \strpos($display, 'composer.json:'));
         self::assertStringContainsString('--force   replaces the file this run would not overwrite', $display);
         self::assertStringNotContainsString('--update', $display);
@@ -85,55 +85,28 @@ class FixCommandTest extends TestCase
         self::assertSame(['Fix' => 'patches/webform/fix.patch'], $declared, 'the merged entry is gone, the re-rolled one stays');
     }
 
-    public function testAnEditedPatchDeclarationPrintsTheReportThenTheError(): void
+    // The declarations move where the site keeps them, not to composer.json.
+    public function testTheRewriteLandsInThePatchesFileThatHeldTheEntry(): void
     {
-        $tester = $this->drive([], static function (SiteFixture $site): void {
-            self::commit($site);
-            $decoded = (array) \json_decode((string) $site->read('composer.json'), true);
-            $decoded['extra']['patches']['drupal/webform']['Fix'] = 'patches/webform/other.patch';
-            $site->write('composer.json', (string) \json_encode($decoded, \JSON_PRETTY_PRINT));
-        });
+        $tester = $this->drive(['--force' => true], null, (new SiteFixture())
+            ->withManager('2.0.0')
+            ->inPatchesFile('patches.json'));
 
-        self::assertSame(Plan::FAILED, $tester->getStatusCode());
-        $display = $tester->getDisplay();
-        self::assertStringContainsString('patches: ', $display, 'the report still prints');
-        self::assertStringContainsString('composer.json has uncommitted changes to its patches; commit them or pass --force', $display);
-        self::assertGreaterThan(\strpos($display, 'Menu cache'), \strpos($display, 'uncommitted changes'));
+        self::assertStringContainsString('  patches.json:', $tester->getDisplay());
+        self::assertStringNotContainsString('  composer.json:', $tester->getDisplay());
+        $declared = \json_decode((string) $this->site?->read('patches.json'), true)['patches']['drupal/webform'] ?? [];
+        self::assertSame(['Fix' => 'patches/webform/fix.patch'], $declared);
+        self::assertArrayNotHasKey('patches', (array) (\json_decode((string) $this->site?->read('composer.json'), true)['extra'] ?? []));
     }
 
-    public function testAnEditElsewhereInTheFileDoesNotStopTheRewrite(): void
+    public function testTheRewriteKeepsTheExpandedShapeTheEntryWasWrittenIn(): void
     {
-        // Reaching a new core means editing constraints, so a run that
-        // refused on any change to the file would refuse on every real one.
-        $tester = $this->drive([], static function (SiteFixture $site): void {
-            self::commit($site);
-            $decoded = (array) \json_decode((string) $site->read('composer.json'), true);
-            $decoded['description'] = 'edited while reaching the new core';
-            $site->write('composer.json', (string) \json_encode($decoded, \JSON_PRETTY_PRINT));
-        });
+        $this->drive(['--force' => true], null, (new SiteFixture())
+            ->withManager('2.0.0')
+            ->inPatchesFile('patches.json')
+            ->expanded());
 
-        self::assertStringNotContainsString('uncommitted changes', $tester->getDisplay());
-        self::assertStringContainsString('composer.json:', $tester->getDisplay(), 'the rewrite ran');
-    }
-
-    public function testARepositoryWithNoCommitYetIsRefused(): void
-    {
-        // git status reports the file, and `git show HEAD:` has nothing to
-        // answer with, so the run cannot tell what the patches were.
-        $tester = $this->drive([], static function (SiteFixture $site): void {
-            $root = \escapeshellarg($site->root());
-            \exec("cd $root && git init -q && git add -A 2>&1", $out, $code);
-            self::assertSame(0, $code, \implode("\n", $out));
-        });
-
-        self::assertSame(Plan::FAILED, $tester->getStatusCode());
-        self::assertStringContainsString('composer.json has uncommitted changes to its patches; commit them or pass --force', $tester->getDisplay());
-    }
-
-    private static function commit(SiteFixture $site): void
-    {
-        $root = \escapeshellarg($site->root());
-        \exec("cd $root && git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init 2>&1", $out, $code);
-        self::assertSame(0, $code, \implode("\n", $out));
+        $declared = \json_decode((string) $this->site?->read('patches.json'), true)['patches']['drupal/webform'] ?? [];
+        self::assertSame([['description' => 'Fix', 'url' => 'patches/webform/fix.patch']], $declared);
     }
 }

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Write;
 
 use RuntimeException;
-use TresBienTech\Drupatch\PatchConfig;
-use TresBienTech\Drupatch\Scope;
+use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Text;
 
 /**

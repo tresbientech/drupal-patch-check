@@ -6,9 +6,9 @@ namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Render\Outcomes;
 use TresBienTech\Drupatch\Render\Report;
-use TresBienTech\Drupatch\Scope;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 
 class SummaryTest extends TestCase
@@ -65,7 +65,7 @@ class SummaryTest extends TestCase
 
     public function testNamesResolveAfterARunWroteAConflictFile(): void
     {
-        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'from' => '']], 'refused' => []];
+        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'provenance' => [], 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'dropped' => [], 'from' => '']], 'refused' => []];
 
         self::assertSame(['', ''], \array_column(Report::summary($this->plan(), Outcomes::fromWrite($wrote))['next'], 'flag'));
         self::assertSame([Report::REROLL, Report::REROLL], \array_column(Report::summary($this->plan(), Outcomes::fromWrite($wrote))['next'], 'command'));

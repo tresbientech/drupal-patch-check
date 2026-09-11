@@ -13,7 +13,7 @@ use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Tester\CommandTester;
-use TresBienTech\Drupatch\CheckCommand;
+use TresBienTech\Drupatch\Command\CheckCommand;
 use TresBienTech\Drupatch\Plan\Plan;
 
 /**

@@ -125,6 +125,6 @@ trait PlanFactory
             $open[] = ['file' => $file, 'region' => $region];
         }
 
-        return ['path' => $path, 'status' => $status, 'package' => $package, 'title' => $title, 'verified' => $verified, 'unioned' => [], 'regions' => $regions, 'open' => $open, 'removed' => [], 'from' => ''];
+        return ['path' => $path, 'provenance' => [], 'status' => $status, 'package' => $package, 'title' => $title, 'verified' => $verified, 'unioned' => [], 'regions' => $regions, 'open' => $open, 'removed' => [], 'dropped' => [], 'from' => ''];
     }
 }

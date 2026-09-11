@@ -6,7 +6,7 @@ namespace TresBienTech\Drupatch\Tests;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Scope;
+use TresBienTech\Drupatch\Read\Scope;
 
 /**
  * Which declared patches a --package and --patch pair selects.
@@ -70,5 +70,16 @@ class ScopeTest extends TestCase
 
         self::assertSame(['patches/gone.patch'], $scope->unknownSources(['patches/webform/fix.patch', 'patches/token/fix.patch']));
         self::assertSame([], Scope::whole()->unknownSources([]));
+    }
+
+    // Every caller that short-circuits on the whole site would otherwise
+    // read an empty scope as "act on everything".
+    public function testAnEmptyScopeIsNotTheWholeSite(): void
+    {
+        $scope = Scope::none();
+
+        self::assertFalse($scope->isWhole());
+        self::assertFalse($scope->has('drupal/webform', 'patches/a.patch'));
+        self::assertFalse($scope->hasPackage('drupal/webform'));
     }
 }

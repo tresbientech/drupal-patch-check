@@ -7,7 +7,7 @@ namespace TresBienTech\Drupatch\Tests\Conflict;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
-use TresBienTech\Drupatch\Scope;
+use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Write\Decisions;
 
 #[CoversClass(Decisions::class)]

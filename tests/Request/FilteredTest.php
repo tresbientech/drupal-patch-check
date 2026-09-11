@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Request;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Client;
+use TresBienTech\Drupatch\Service\Client;
 
 final class FilteredTest extends TestCase
 {

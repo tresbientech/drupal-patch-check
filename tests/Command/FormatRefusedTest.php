@@ -7,10 +7,10 @@ namespace TresBienTech\Drupatch\Tests\Command;
 use Composer\Console\Application;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
-use TresBienTech\Drupatch\CheckCommand;
-use TresBienTech\Drupatch\PinCommand;
+use TresBienTech\Drupatch\Command\CheckCommand;
+use TresBienTech\Drupatch\Command\PinCommand;
+use TresBienTech\Drupatch\Command\RerollCommand;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\RerollCommand;
 
 final class FormatRefusedTest extends TestCase
 {

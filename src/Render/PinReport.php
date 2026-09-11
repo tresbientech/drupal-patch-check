@@ -10,7 +10,8 @@ use TresBienTech\Drupatch\Text;
  * What a pin run prints: what it copied into the site, what was there already, what it could not copy, and the declarations it rewrote.
  *
  * @phpstan-type PinnedRow array{package: string, title: string, source: string, path: string}
- * @phpstan-type RefusedRow array{package: string, title: string, source: string, reason: string}
+ *
+ * @phpstan-import-type RefusedRow from \TresBienTech\Drupatch\Fetch\Vendoring
  */
 class PinReport
 {

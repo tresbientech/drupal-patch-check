@@ -28,11 +28,9 @@ class HookReport
     private const MENTION_ORDER = [PatchRow::BROKEN_SYNTAX, 'conflicts', 'unknown', 'merged'];
 
     /**
-     * @param list<string> $edited copies whose body no longer holds what the site took
-     *
      * @return list<string>
      */
-    public static function lines(Plan $plan, array $edited = []): array
+    public static function lines(Plan $plan): array
     {
         $rows = $plan->worthMentioning();
         // Same rule as the report: a warning about a package carrying no
@@ -42,19 +40,13 @@ class HookReport
         // this hook runs after it. A patch that still applies is
         // something composer has already proved; what composer cannot
         // say is that a patch can be deleted.
-        if ([] === $rows && [] === $edited) {
+        if ([] === $rows) {
             return [];
         }
 
-        $lines = ['<info>'.Report::LABEL.'</info>: '.([] === $rows ? self::editedLine(\count($edited)) : self::headline($rows))];
+        $lines = ['<info>'.Report::LABEL.'</info>: '.self::headline($rows)];
         foreach ($warnings as $warning) {
             $lines[] = '  <comment>'.Text::t('! @warning', ['@warning' => $warning]).'</comment>';
-        }
-        if ([] !== $edited && [] !== $rows) {
-            $lines[] = '  <fg=red>'.self::editedLine(\count($edited)).'</>';
-        }
-        if ([] === $rows) {
-            return $lines;
         }
 
         $shown = 0;
@@ -86,18 +78,6 @@ class HookReport
         }
 
         return $lines;
-    }
-
-    /**
-     * How many copies hold something other than what the site took.
-     */
-    private static function editedLine(int $count): string
-    {
-        return Text::plural(
-            $count,
-            '@count copied patch was edited since it was copied into the site',
-            '@count copied patches were edited since they were copied into the site'
-        );
     }
 
     /**

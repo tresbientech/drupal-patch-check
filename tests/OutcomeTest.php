@@ -6,8 +6,8 @@ namespace TresBienTech\Drupatch\Tests;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Render\Outcomes;
-use TresBienTech\Drupatch\Scope;
 
 class OutcomeTest extends TestCase
 {
@@ -162,8 +162,8 @@ class OutcomeTest extends TestCase
             ['package' => 'drupal/token', 'title' => 'Cache', 'result' => ['reroll' => ['status' => 'clean', 'patch' => "refused diff\n"]]],
         ]], 'summary' => ['exit_code' => 1]];
         $outcomes = Outcomes::fromWrite(['written' => [
-            ['path' => 'patches/webform/fix.patch', 'status' => 'clean', 'package' => 'drupal/webform', 'title' => 'Fix', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'from' => ''],
-            ['path' => 'patches/webform/menu.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'Menu', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'from' => ''],
+            ['path' => 'patches/webform/fix.patch', 'provenance' => [], 'status' => 'clean', 'package' => 'drupal/webform', 'title' => 'Fix', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'dropped' => [], 'from' => ''],
+            ['path' => 'patches/webform/menu.conflict.patch', 'provenance' => [], 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'Menu', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'dropped' => [], 'from' => ''],
         ], 'refused' => [['package' => 'drupal/token', 'title' => 'Cache', 'path' => 'patches/token/cache.patch', 'reason' => 'changed', 'lifts' => '--force', 'shipped' => false]]]);
 
         $document = $outcomes->intoDocument($raw);

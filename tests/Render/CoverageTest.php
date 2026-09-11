@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Header;
 use TresBienTech\Drupatch\Render\Coverage;
 
 final class CoverageTest extends TestCase
@@ -85,6 +84,15 @@ final class CoverageTest extends TestCase
             ['1 patch skipped (the service does not fetch from that host)'],
             $coverage->notesFor('drupal/webform'),
         );
+    }
+
+    // On 2.x the reason is left to composer patches-doctor, so the note
+    // counts the patch and gives no reason.
+    public function testASkipWithNoReasonPrintsNoParentheses(): void
+    {
+        $coverage = $this->coverage(50, [$this->skip('drupal/webform', 'From our gitlab', '')]);
+
+        self::assertSame(['1 patch skipped'], $coverage->notesFor('drupal/webform'));
     }
 
     public function testAPackageWithNothingHeldBackHasNothingToSay(): void
@@ -182,24 +190,5 @@ final class CoverageTest extends TestCase
             'drupal/webform' => '6.2.9',
             'drupal/a' => '1.0.0',
         ]);
-    }
-
-    // The header records what the site copied. A body that no longer hashes
-    // to it holds something else now.
-    public function testAnEditedCopyIsNamed(): void
-    {
-        $edited = Coverage::editedCopies([
-            'patch/webform/mr940.diff' => Header::line(['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'sha256' => Header::hash("first\n")])."edited\n",
-            'patch/token/mr12.diff' => Header::line(['mr' => 'https://git.drupalcode.org/project/token/-/merge_requests/12', 'sha256' => Header::hash("kept\n")])."kept\n",
-            'patches/plain.patch' => "no header\n",
-        ]);
-
-        self::assertSame(['patch/webform/mr940.diff'], $edited);
-    }
-
-    // A copy whose header names no hash says nothing about its body.
-    public function testACopyWithNoHashIsNotJudged(): void
-    {
-        self::assertSame([], Coverage::editedCopies(['patch/webform/mr940.diff' => Header::line(['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940'])."anything\n"]));
     }
 }

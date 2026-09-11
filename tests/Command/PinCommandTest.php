@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Tests\Command;
 
+use Closure;
 use Composer\Console\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
-use TresBienTech\Drupatch\PinCommand;
+use TresBienTech\Drupatch\Command\PinCommand;
+use TresBienTech\Drupatch\Fetch\PatchText;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Tests\StubHost;
+use TresBienTech\Drupatch\Write\WorkingTree;
 
 /**
  * What a pin run does to a site's declarations, without reaching any host:
@@ -29,17 +33,38 @@ class PinCommandTest extends TestCase
     }
 
     /**
-     * @param array<string, mixed> $input
+     * @param array<string, mixed>                   $input
+     * @param ?Closure(SiteFixture): void            $edit  run on the site once it is committed, before the command
+     * @param array<string, array{int, string}>|null $hosts what drupalcode answers, null for a run that reaches no host
      */
-    private function drive(array $input, string $source = self::MR, bool $vendored = true): CommandTester
+    private function drive(array $input, string $source = self::MR, bool $vendored = true, string $manager = '', ?Closure $edit = null, ?array $hosts = null, bool $inGit = true): CommandTester
     {
-        $this->site = (new SiteFixture())->declares('3521733: bfcache', $source);
+        $this->site = (new SiteFixture())->declares('3521733: bfcache', $source)->withManager($manager);
+        if ($inGit) {
+            $this->site->inGit();
+        }
         $composer = $this->site->enter('http://127.0.0.1:1');
+        if (null !== $edit) {
+            $edit($this->site);
+        }
         if ($vendored) {
             $this->site->write('patch/webform/mr940.diff', "# drupatch {\"mr\":\"https://git.drupalcode.org/project/webform/-/merge_requests/940\"}\ndiff --git a/x b/x\n");
         }
 
-        $command = new PinCommand();
+        $command = null === $hosts ? new PinCommand() : new class($hosts) extends PinCommand {
+            /**
+             * @param array<string, array{int, string}> $hosts
+             */
+            public function __construct(private readonly array $hosts)
+            {
+                parent::__construct();
+            }
+
+            protected function patchText(string $root): PatchText
+            {
+                return new PatchText($root, StubHost::fetch($this->hosts), '');
+            }
+        };
         $command->setComposer($composer);
         $command->setApplication(new Application());
 
@@ -50,11 +75,57 @@ class PinCommandTest extends TestCase
     }
 
     /**
-     * @return array<string, mixed>
+     * The package's declarations, a title-keyed map or a list in the expanded shape.
+     *
+     * @return array<int|string, mixed>
      */
     private function declared(): array
     {
         return (array) (\json_decode((string) $this->site?->read('composer.json'), true)['extra']['patches']['drupal/webform'] ?? []);
+    }
+
+    /**
+     * What drupalcode answers for merge request 940 and its diff.
+     *
+     * @return array<string, array{int, string}>
+     */
+    private static function drupalcode(): array
+    {
+        return [
+            'https://git.drupalcode.org/api/v4/projects/project%2Fwebform/merge_requests/940' => [200, '{"sha":"bbb","diff_refs":{"base_sha":"aaa","head_sha":"bbb","start_sha":"aaa"}}'],
+            'https://git.drupalcode.org/project/webform/-/compare/aaa...bbb?format=diff' => [200, "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"],
+        ];
+    }
+
+    // Git is asked before the copy, so a refusal leaves no copy behind.
+    public function testAnEditedPatchConfigStopsThePinBeforeAnyCopy(): void
+    {
+        $tester = $this->drive([], vendored: false, hosts: self::drupalcode(), edit: static function (SiteFixture $site): void {
+            $decoded = (array) \json_decode($site->read('composer.json'), true);
+            $decoded['extra']['patches']['drupal/webform']['Local'] = 'patches/local.patch';
+            $site->write('composer.json', (string) \json_encode($decoded, \JSON_PRETTY_PRINT));
+        });
+
+        self::assertSame(Plan::FAILED, $tester->getStatusCode());
+        self::assertStringContainsString('composer.json has uncommitted changes to its patches; commit them or pass --force', $tester->getDisplay());
+        self::assertFalse($this->site?->has('patch/webform/mr940.diff'), 'nothing was copied');
+    }
+
+    public function testASiteGitCannotReadIsRefusedLikeTheOtherWrites(): void
+    {
+        $tester = $this->drive([], vendored: false, hosts: self::drupalcode(), inGit: false);
+
+        self::assertSame(Plan::FAILED, $tester->getStatusCode());
+        self::assertStringContainsString('composer.json: '.WorkingTree::NOT_A_CHECKOUT.'; pass --force', $tester->getDisplay());
+        self::assertFalse($this->site?->has('patch/webform/mr940.diff'), 'nothing was copied');
+    }
+
+    public function testADryRunAsksGitNothing(): void
+    {
+        $tester = $this->drive(['--dry-run' => true], inGit: false);
+
+        self::assertSame(Plan::CLEAN, $tester->getStatusCode());
+        self::assertStringNotContainsString(WorkingTree::NOT_A_CHECKOUT, $tester->getDisplay());
     }
 
     public function testTheDeclarationNamesTheFileTheSiteHolds(): void
@@ -67,6 +138,21 @@ class PinCommandTest extends TestCase
         self::assertStringContainsString('already in the site:', $display);
         self::assertStringContainsString('      patch/webform/mr940.diff', $display);
         self::assertStringContainsString('composer.json: 1 declaration now names a file in the site', $display);
+    }
+
+    // 2.x keeps the record on the definition, so the line older releases
+    // wrote at the top of the copy moves there and the file holds the diff alone.
+    public function testOnTwoTheRecordMovesOntoTheDeclaration(): void
+    {
+        $tester = $this->drive([], manager: '2.0.0');
+
+        self::assertSame(Plan::CLEAN, $tester->getStatusCode());
+        self::assertSame([[
+            'description' => '3521733: bfcache',
+            'url' => 'patch/webform/mr940.diff',
+            'extra' => ['drupatch' => ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940']],
+        ]], $this->declared());
+        self::assertSame("diff --git a/x b/x\n", $this->site?->read('patch/webform/mr940.diff'));
     }
 
     public function testALocalDeclarationIsLeftWhereItIs(): void

@@ -471,6 +471,20 @@ class TableTest extends TestCase
         );
     }
 
+    // A re-roll leaves out the project's test files, and the row says how many.
+    public function testSaysHowManyTestFilesTheRerollLeftOut(): void
+    {
+        $plan = $this->planFrom(['patches' => [$this->row([
+            'verdict' => 'conflicts',
+            'result' => ['reroll' => ['status' => 'clean', 'patch' => "x\n", 'dropped_tests' => ['core/tests/A.php', 'core/modules/user/tests/B.php']]],
+        ])]]);
+
+        $lines = self::table($plan);
+        $row = self::rowWith($lines, '<error>!</error> conflicts Fix the alter hook');
+
+        self::assertSame('                    <fg=cyan>the re-roll left out 2 test files, so your patch carries the fix alone</>', $lines[$row + 1]);
+    }
+
     // A row that only broke because of an earlier patch must say so, or
     // the wrong patch gets re-rolled. The earlier patch is cited by its
     // number, the way the rows above are numbered.
@@ -692,7 +706,7 @@ class TableTest extends TestCase
             $this->row(['title' => 'Fix b', 'verdict' => 'conflicts']),
         ]]);
         $outcomes = Outcomes::fromWrite(['written' => [], 'refused' => []]);
-        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '']], 'composer.json');
+        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '', 'provenance' => []]], 'composer.json');
 
         $out = \implode("\n", self::whole($plan, $outcomes, 100));
 
@@ -1527,7 +1541,7 @@ class TableTest extends TestCase
         ]]);
         $refused = [['package' => 'drupal/geoip', 'title' => 'Automated Drupal 10 compatibility fixes', 'path' => 'https://www.drupal.org/files/issues/2023-06-16/gepop.3.0.x-update-to-d10.patch', 'reason' => 'the merge changes nothing: the patch is already in the release', 'lifts' => '', 'shipped' => true]];
         $outcomes = Outcomes::fromWrite(['written' => [], 'refused' => $refused]);
-        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/geoip', 'title' => 'Automated Drupal 10 compatibility fixes', 'path' => '']], 'composer.json');
+        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/geoip', 'title' => 'Automated Drupal 10 compatibility fixes', 'path' => '', 'provenance' => []]], 'composer.json');
 
         $lines = self::whole($plan, $outcomes, 100);
 
@@ -1546,7 +1560,7 @@ class TableTest extends TestCase
             ['package' => 'drupal/b', 'title' => 'Fix b', 'path' => 'patches/b.patch', 'reason' => 'the merge changes nothing: the patch is already in the release', 'lifts' => '', 'shipped' => true],
         ];
         $outcomes = Outcomes::fromWrite(['written' => [], 'refused' => $refused]);
-        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/a', 'title' => 'Fix a', 'path' => '']], 'composer.json');
+        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/a', 'title' => 'Fix a', 'path' => '', 'provenance' => []]], 'composer.json');
 
         self::assertSame([
             '',
@@ -1578,8 +1592,8 @@ class TableTest extends TestCase
     }
 
     /**
-     * @param list<array{action: 'dropped'|'repointed', package: string, title: string, path: string}> $changes
-     * @param list<WrittenRow>                                                                         $written
+     * @param list<array{action: 'dropped'|'repointed', package: string, title: string, path: string, provenance: array<string, string>}> $changes
+     * @param list<WrittenRow>                                                                                                            $written
      *
      * @return list<string>
      */
@@ -1594,7 +1608,7 @@ class TableTest extends TestCase
     public function testADroppedEntryIsListedUnderTheFileItLeft(): void
     {
         $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row(['title' => 'Menu cache', 'source' => 'https://example.test/a.patch', 'verdict' => 'merged'])]]);
-        $lines = $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '']]);
+        $lines = $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '', 'provenance' => []]]);
 
         $file = self::indexOfLineContaining($lines, 'composer.json:');
         self::assertGreaterThan(self::indexOfLineContaining($lines, 'patches: '), $file);
@@ -1604,7 +1618,7 @@ class TableTest extends TestCase
     public function testADroppedEntryNamesTheFileItLeavesBehind(): void
     {
         $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row(['title' => 'Menu cache', 'source' => 'patches/menu.patch', 'verdict' => 'merged'])]]);
-        $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => 'patches/menu.patch']]));
+        $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => 'patches/menu.patch', 'provenance' => []]]));
 
         self::assertStringContainsString('    - drupal/webform: Menu cache (already in the release; patches/menu.patch is no longer used and was kept)', $out);
     }
@@ -1613,7 +1627,7 @@ class TableTest extends TestCase
     {
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'verified' => true], ['title' => 'Fix a', 'source' => 'https://example.test/a.patch'])]]);
         $written = [$this->writtenFile('patches/webform/fix-a.patch')];
-        $out = \implode("\n", $this->fixRun($plan, [['action' => 'repointed', 'package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patches/webform/fix-a.patch']], 'composer.json', $written));
+        $out = \implode("\n", $this->fixRun($plan, [['action' => 'repointed', 'package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patches/webform/fix-a.patch', 'provenance' => []]], 'composer.json', $written));
 
         self::assertStringContainsString('    ~ drupal/webform: Fix a → patches/webform/fix-a.patch', $out);
     }
@@ -1621,7 +1635,7 @@ class TableTest extends TestCase
     public function testThePatchesFileIsNamedWhenItHoldsTheDeclarations(): void
     {
         $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row(['title' => 'Menu cache', 'source' => 'https://example.test/a.patch', 'verdict' => 'merged'])]]);
-        $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '']], 'patches.json'));
+        $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '', 'provenance' => []]], 'patches.json'));
 
         self::assertStringContainsString('  patches.json:', $out);
     }
@@ -1637,7 +1651,7 @@ class TableTest extends TestCase
     public function testAFixThatChangedEntriesIsNotOfferedAgain(): void
     {
         $plan = $this->planFrom(['counts' => ['merged' => 1], 'patches' => [$this->row(['title' => 'Menu cache', 'verdict' => 'merged'])]]);
-        $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '']]));
+        $out = \implode("\n", $this->fixRun($plan, [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '', 'provenance' => []]]));
 
         self::assertStringNotContainsString('nothing to change', $out);
         self::assertStringNotContainsString('--update', $out);

@@ -85,7 +85,7 @@ class NextStepsTest extends TestCase
     private static function twoSteps(): Outcomes
     {
         return Outcomes::fromWrite([
-            'written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'a.php', 'region' => 0]], 'removed' => [], 'from' => '']],
+            'written' => [['path' => 'patches/a.conflict.patch', 'provenance' => [], 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'a.php', 'region' => 0]], 'removed' => [], 'dropped' => [], 'from' => '']],
             'refused' => [['package' => 'drupal/b', 'title' => 'Fix b', 'path' => 'https://example.test/b.patch', 'reason' => PatchFiles::URL_DECLARED, 'lifts' => '', 'shipped' => false]],
         ]);
     }
@@ -144,14 +144,14 @@ class NextStepsTest extends TestCase
 
     public function testARunThatWroteEveryRerollSuggestsNoWriteStep(): void
     {
-        $wrote = ['written' => [['path' => 'patches/a.patch', 'status' => 'clean', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'from' => '']], 'refused' => []];
+        $wrote = ['written' => [['path' => 'patches/a.patch', 'provenance' => [], 'status' => 'clean', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'dropped' => [], 'from' => '']], 'refused' => []];
 
         self::assertSame([], Report::nextSteps(['conflicts' => 1], Outcomes::fromWrite($wrote)));
     }
 
     public function testARunThatLeftAConflictFileIsOfferedTheFlagThatFinishesIt(): void
     {
-        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'from' => '']], 'refused' => []];
+        $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'provenance' => [], 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'dropped' => [], 'from' => '']], 'refused' => []];
 
         $steps = Report::nextSteps(['conflicts' => 1], Outcomes::fromWrite($wrote));
 
@@ -163,9 +163,9 @@ class NextStepsTest extends TestCase
     public function testSeveralConflictFilesAreCounted(): void
     {
         $wrote = ['written' => [
-            ['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'from' => ''],
-            ['path' => 'patches/b.patch', 'status' => 'clean', 'package' => 'drupal/b', 'title' => 'Fix b', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'from' => ''],
-            ['path' => 'patches/c.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/c', 'title' => 'Fix c', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'from' => ''],
+            ['path' => 'patches/a.conflict.patch', 'provenance' => [], 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'dropped' => [], 'from' => ''],
+            ['path' => 'patches/b.patch', 'provenance' => [], 'status' => 'clean', 'package' => 'drupal/b', 'title' => 'Fix b', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'dropped' => [], 'from' => ''],
+            ['path' => 'patches/c.conflict.patch', 'provenance' => [], 'status' => 'conflicts', 'package' => 'drupal/c', 'title' => 'Fix c', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'dropped' => [], 'from' => ''],
         ], 'refused' => []];
 
         self::assertSame('sends the regions you decide in the 2 conflict files', Report::nextSteps(['conflicts' => 3], Outcomes::fromWrite($wrote))[0]['effect']);
@@ -174,7 +174,7 @@ class NextStepsTest extends TestCase
     public function testTheConflictFileComesBeforeTheRefusal(): void
     {
         $wrote = [
-            'written' => [['path' => 'patches/a.conflict.patch', 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'from' => '']],
+            'written' => [['path' => 'patches/a.conflict.patch', 'provenance' => [], 'status' => 'conflicts', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'dropped' => [], 'from' => '']],
             'refused' => [['package' => 'drupal/b', 'title' => 'Fix b', 'path' => 'patches/b.patch', 'reason' => WorkingTree::UNCOMMITTED, 'lifts' => '--force', 'shipped' => false]],
         ];
 
@@ -211,14 +211,14 @@ class NextStepsTest extends TestCase
     public function testAFixRunIsNotOfferedTheFixAgain(): void
     {
         $outcomes = Outcomes::fromWrite(['written' => [], 'refused' => [['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'patches/a.patch', 'reason' => WorkingTree::UNCOMMITTED, 'lifts' => '--force', 'shipped' => false]]]);
-        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/b', 'title' => 'Fix b', 'path' => '']], 'composer.json');
+        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/b', 'title' => 'Fix b', 'path' => '', 'provenance' => []]], 'composer.json');
 
         self::assertSame(['--force'], \array_column(Report::nextSteps(['merged' => 2, 'conflicts' => 1], $outcomes), 'flag'));
     }
 
     public function testAShippedEntryIsStillOfferedAfterAWriteThatDidNotRewrite(): void
     {
-        $wrote = ['written' => [['path' => 'patches/a.patch', 'status' => 'clean', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'from' => '']], 'refused' => []];
+        $wrote = ['written' => [['path' => 'patches/a.patch', 'provenance' => [], 'status' => 'clean', 'package' => 'drupal/a', 'title' => 'Fix a', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'dropped' => [], 'from' => '']], 'refused' => []];
 
         $steps = Report::nextSteps(['merged' => 2, 'conflicts' => 1], Outcomes::fromWrite($wrote));
 

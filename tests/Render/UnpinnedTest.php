@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Read\Run;
 use TresBienTech\Drupatch\Render\Coverage;
 use TresBienTech\Drupatch\Render\HookReport;
 use TresBienTech\Drupatch\Render\Outcomes;
@@ -95,25 +96,6 @@ class UnpinnedTest extends TestCase
 
         self::assertStringContainsString('1 patch is declared as a merge request URL. Anyone with a drupal.org', $out);
         self::assertStringContainsString('change between two installs. Run: composer drupatch:pin', $out);
-    }
-
-    public function testAnEditedCopyIsReportedUnderItsRow(): void
-    {
-        $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [$this->row(['source' => 'patch/webform/mr940.diff'])]]));
-        $coverage = new Coverage(1, [], [], [], ['patch/webform/mr940.diff']);
-
-        $out = \implode("\n", Report::lines($plan, $coverage, 100));
-
-        self::assertStringContainsString('<fg=red>edited since it was copied into the site</>', $out);
-    }
-
-    public function testTheHookSaysAnEditedCopyToo(): void
-    {
-        $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [$this->row(['source' => 'patch/webform/mr940.diff'])]]));
-
-        $lines = \implode("\n", HookReport::lines($plan, ['patch/webform/mr940.diff']));
-
-        self::assertStringContainsString('1 copied patch was edited since it was copied into the site', $lines);
     }
 
     public function testTheSummaryListsThem(): void

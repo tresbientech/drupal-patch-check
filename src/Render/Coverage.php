@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Render;
 
-use TresBienTech\Drupatch\Header;
-use TresBienTech\Drupatch\Scope;
-use TresBienTech\Drupatch\Site;
+use TresBienTech\Drupatch\Read\Scope;
+use TresBienTech\Drupatch\Read\Site;
 use TresBienTech\Drupatch\Text;
 
 /**
@@ -28,14 +27,12 @@ class Coverage
      * @param list<array{package: string, title: string, reason: string}>                 $skipped  narrowed to the packages asked for, since a package outside the scope is not the run's business
      * @param list<array{package: string, title: string, source: string, reason: string}> $unsent   every package: a note prints under the block of the package it names, and the transport check reads them all
      * @param array<string, string>                                                       $versions the version the lock pins, per package
-     * @param list<string>                                                                $edited   copies whose body no longer hashes to their header
      */
     public function __construct(
         private readonly int $checked,
         array $skipped,
         array $unsent,
         private readonly array $versions,
-        private readonly array $edited = [],
     ) {
         $this->skippedGroups = self::grouped($skipped);
         $this->unsentGroups = self::grouped($unsent);
@@ -43,34 +40,13 @@ class Coverage
     }
 
     /**
-     * The copies whose body no longer hashes to the header a pin run wrote, so the file holds something else now.
-     *
-     * @param array<string, string> $files patch text by the source the site declared
-     *
-     * @return list<string>
-     */
-    public static function editedCopies(array $files): array
-    {
-        $out = [];
-        foreach ($files as $source => $text) {
-            $header = Header::read($text);
-            if (isset($header['sha256']) && $header['sha256'] !== Header::hash(Header::body($text))) {
-                $out[] = $source;
-            }
-        }
-
-        return $out;
-    }
-
-    /**
      * What a run covered, narrowed to the scope it was asked about.
      */
     public static function of(Site $site, Scope $scope): self
     {
-        $config = $site->patches();
-        $edited = self::editedCopies($config->files);
+        $config = $site->patches;
         if ($scope->isWhole()) {
-            return new self(\count($config->patches), $config->skipped, $config->unsent, $site->installed(), $edited);
+            return new self(\count($config->patches), $config->skipped, $config->unsent, $site->installed);
         }
 
         $checked = 0;
@@ -86,7 +62,7 @@ class Coverage
             }
         }
 
-        return new self($checked, $skipped, $config->unsent, $site->installed(), $edited);
+        return new self($checked, $skipped, $config->unsent, $site->installed);
     }
 
     /**
@@ -143,16 +119,6 @@ class Coverage
     }
 
     /**
-     * The copies a person edited after the site took them.
-     *
-     * @return list<string>
-     */
-    public function edited(): array
-    {
-        return $this->edited;
-    }
-
-    /**
      * The declared sources whose text the run held back, so a file the service missed anyway can be told apart from one kept back on purpose.
      *
      * @return list<string>
@@ -167,6 +133,11 @@ class Coverage
      */
     private static function skippedNote(int $count, string $reason): string
     {
+        // A 2.x site's reason is composer patches-doctor's to give.
+        if ('' === $reason) {
+            return Text::plural($count, '@count patch skipped', '@count patches skipped');
+        }
+
         return Text::plural($count, '@count patch skipped (@reason)', '@count patches skipped (@reason)', ['@reason' => $reason]);
     }
 

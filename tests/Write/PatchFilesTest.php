@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Write;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Header;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
+use TresBienTech\Drupatch\Tests\Scratch;
+use TresBienTech\Drupatch\Write\Copied;
 use TresBienTech\Drupatch\Write\Decisions;
 use TresBienTech\Drupatch\Write\PatchFiles;
 use TresBienTech\Drupatch\Write\WorkingTree;
@@ -27,20 +28,7 @@ class PatchFilesTest extends TestCase
 
     protected function tearDown(): void
     {
-        self::remove($this->root);
-    }
-
-    private static function remove(string $path): void
-    {
-        if (\is_dir($path)) {
-            foreach (\array_diff((array) \scandir($path), ['.', '..']) as $entry) {
-                self::remove($path.'/'.$entry);
-            }
-            @\rmdir($path);
-
-            return;
-        }
-        @\unlink($path);
+        Scratch::remove($this->root);
     }
 
     /**
@@ -53,21 +41,26 @@ class PatchFilesTest extends TestCase
         return false === $found ? [] : $found;
     }
 
-    private function writer(Plan $plan): PatchFiles
+    /**
+     * @param array<string, string> $provenance what the declarations record about their copies
+     */
+    private function writer(Plan $plan, array $provenance = []): PatchFiles
     {
-        return new PatchFiles($this->root, null, self::declaring($plan));
+        return new PatchFiles($this->root, null, Copied::none(self::declaring($plan, $provenance)));
     }
 
     /**
      * The declarations of a site that declared exactly what the plan names.
      *
-     * @return list<array{package: string, title: string, source: string}>
+     * @param array<string, string> $provenance what each declaration records about its copy
+     *
+     * @return list<array{package: string, title: string, source: string, provenance: array<string, string>}>
      */
-    private static function declaring(Plan $plan): array
+    private static function declaring(Plan $plan, array $provenance = []): array
     {
         $out = [];
         foreach ($plan->patches as $row) {
-            $out[] = ['package' => $row->package, 'title' => $row->title, 'source' => $row->source];
+            $out[] = ['package' => $row->package, 'title' => $row->title, 'source' => $row->source, 'provenance' => $provenance];
         }
 
         return $out;
@@ -255,7 +248,7 @@ class PatchFilesTest extends TestCase
             $this->rerolledRow(['status' => 'clean', 'patch' => "a\n"], ['package' => 'drupal/core', 'source' => 'patches/core/htaccess.patch']),
             $this->rerolledRow(['status' => 'clean', 'patch' => "b\n"], ['package' => 'drupal/pathauto', 'source' => 'patches/pathauto/translated.patch']),
         ]]);
-        $writer = new PatchFiles($this->root, new WorkingTree(new FakeGit(0, ' M patches/core/htaccess.patch', 'patches/core/htaccess.patch')), self::declaring($plan));
+        $writer = new PatchFiles($this->root, new WorkingTree(new FakeGit(0, ' M patches/core/htaccess.patch', 'patches/core/htaccess.patch')), Copied::none(self::declaring($plan)));
 
         $result = $writer->write($plan);
 
@@ -270,12 +263,48 @@ class PatchFilesTest extends TestCase
     {
         $this->declare('patches/core/htaccess.patch', "the same diff\n");
         $plan = $this->plan(['status' => 'clean', 'patch' => "the same diff\n"], 'patches/core/htaccess.patch');
-        $writer = new PatchFiles($this->root, new WorkingTree(new FakeGit(0, '?? patches/core/htaccess.patch')), self::declaring($plan));
+        $writer = new PatchFiles($this->root, new WorkingTree(new FakeGit(0, '?? patches/core/htaccess.patch')), Copied::none(self::declaring($plan)));
 
         $result = $writer->write($plan);
 
         self::assertSame([], $result['refused']);
         self::assertSame(['patches/core/htaccess.patch'], \array_map(static fn ($file): string => $file['path'], $result['written']));
+    }
+
+    // A copy this run made is not a file anybody wrote by hand, so the
+    // re-roll that follows it replaces it.
+    public function testAFileThisRunWroteIsNotRefusedForBeingUntracked(): void
+    {
+        $this->declare('patch/core/htaccess.patch', "from drupal.org\n");
+        $plan = $this->plan(['status' => 'clean', 'patch' => "re-rolled\n"], 'patch/core/htaccess.patch');
+        $writer = new PatchFiles(
+            $this->root,
+            new WorkingTree(new FakeGit(0, '?? patch/core/htaccess.patch')),
+            new Copied([self::made('patch/core/htaccess.patch')], [], [], [], self::declaring($plan)),
+        );
+
+        $result = $writer->write($plan);
+
+        self::assertSame([], $result['refused']);
+        self::assertSame("re-rolled\n", \file_get_contents($this->root.'/patch/core/htaccess.patch'));
+    }
+
+    public function testAnUntrackedFileThisRunDidNotWriteIsStillRefused(): void
+    {
+        $this->declare('patches/core/mine.patch', "mine\n");
+        $plan = $this->plan(['status' => 'clean', 'patch' => "re-rolled\n"], 'patches/core/mine.patch');
+        $writer = new PatchFiles(
+            $this->root,
+            new WorkingTree(new FakeGit(0, '?? patches/core/mine.patch')),
+            new Copied([self::made('patch/core/htaccess.patch')], [], [], [], self::declaring($plan)),
+        );
+
+        $result = $writer->write($plan);
+
+        self::assertCount(1, $result['refused']);
+        self::assertSame(WorkingTree::UNTRACKED, $result['refused'][0]['reason']);
+        self::assertSame('--force', $result['refused'][0]['lifts']);
+        self::assertSame("mine\n", \file_get_contents($this->root.'/patches/core/mine.patch'));
     }
 
     public function testAPatchDeclaredAsAUrlIsNamedRatherThanWritten(): void
@@ -328,43 +357,56 @@ class PatchFilesTest extends TestCase
         self::assertStringContainsString('composer drupatch:pin', $result['refused'][0]['reason']);
     }
 
-    // The file the site copied says where its bytes came from. A re-roll
-    // changes the bytes, so it says which release they were merged against
-    // and hashes what it wrote.
+    // The declaration of a copied patch says where its bytes came from. A
+    // re-roll changes the bytes, so the record says which release they were
+    // merged against.
     public function testARerollOverACopiedPatchKeepsItsProvenance(): void
     {
-        $header = Header::line([
+        $recorded = [
             'mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940',
             'base' => 'aaa',
             'head' => 'bbb',
             'fetched' => '2026-09-01',
-            'sha256' => Header::hash("old\n"),
-        ]);
-        $this->declare('patch/webform/mr940.diff', $header."old\n");
+        ];
+        $this->declare('patch/webform/mr940.diff', "old\n");
+        $plan = $this->plan(['status' => 'clean', 'patch' => "new\n"], 'patch/webform/mr940.diff');
+
+        $result = $this->writer($plan, $recorded)->write($plan);
+
+        self::assertSame('patch/webform/mr940.diff', $result['written'][0]['path']);
+        self::assertSame("new\n", \file_get_contents($this->root.'/patch/webform/mr940.diff'));
+        $read = $result['written'][0]['provenance'];
+        self::assertSame('https://git.drupalcode.org/project/webform/-/merge_requests/940', $read['mr']);
+        self::assertSame('bbb', $read['head']);
+        self::assertSame('6.3.2', $read['rerolled']);
+        self::assertArrayNotHasKey('sha256', $read, 'the patch lock keeps its own hash over the same file');
+    }
+
+    // A repository written by an older release still holds the `# drupatch`
+    // line, so a re-roll reads the record from it.
+    public function testARerollReadsAnOldHeaderWhenTheDeclarationRecordsNothing(): void
+    {
+        $line = '# drupatch {"mr":"https://git.drupalcode.org/project/webform/-/merge_requests/940","head":"bbb"}'."\n";
+        $this->declare('patch/webform/mr940.diff', $line."old\n");
         $plan = $this->plan(['status' => 'clean', 'patch' => "new\n"], 'patch/webform/mr940.diff');
 
         $result = $this->writer($plan)->write($plan);
 
-        self::assertSame('patch/webform/mr940.diff', $result['written'][0]['path']);
-        $written = (string) \file_get_contents($this->root.'/patch/webform/mr940.diff');
-        self::assertSame("new\n", Header::body($written));
-        $read = Header::read($written);
-        self::assertSame('https://git.drupalcode.org/project/webform/-/merge_requests/940', $read['mr']);
-        self::assertSame('bbb', $read['head']);
-        self::assertSame('6.3.2', $read['rerolled']);
-        self::assertSame(Header::hash("new\n"), $read['sha256']);
+        self::assertSame("new\n", \file_get_contents($this->root.'/patch/webform/mr940.diff'));
+        self::assertSame('bbb', $result['written'][0]['provenance']['head']);
     }
 
-    // A patch the site wrote by hand has no header, and a re-roll of it
-    // stays a plain diff.
-    public function testARerollOverAPlainPatchAddsNoHeader(): void
+    // A patch the site wrote by hand has no record, and a re-roll of it
+    // gets none.
+    public function testARerollOverAPlainPatchRecordsNothing(): void
     {
         $this->declare('patches/a.patch', "old\n");
         $plan = $this->plan(['status' => 'clean', 'patch' => "new\n"], 'patches/a.patch');
 
-        $this->writer($plan)->write($plan);
+        $result = $this->writer($plan)->write($plan);
 
         self::assertSame("new\n", \file_get_contents($this->root.'/patches/a.patch'));
+        self::assertSame([], $result['written'][0]['provenance']);
     }
 
     public function testALocalPatchWhoseRerollMergedNothingStillGetsItsConflictFile(): void
@@ -584,9 +626,9 @@ class PatchFilesTest extends TestCase
             ['status' => 'clean', 'patch' => "new diff\n", 'verified' => true],
             ['source' => 'web/sites/default/settings.php']
         )]]);
-        $writer = new PatchFiles($this->root, null, [
-            ['package' => 'drupal/other', 'title' => 'Something else', 'source' => 'patches/other.patch'],
-        ]);
+        $writer = new PatchFiles($this->root, null, Copied::none([
+            ['package' => 'drupal/other', 'title' => 'Something else', 'source' => 'patches/other.patch', 'provenance' => []],
+        ]));
 
         $result = $writer->write($plan);
 
@@ -601,9 +643,9 @@ class PatchFilesTest extends TestCase
             ['status' => 'clean', 'patch' => "new diff\n", 'verified' => true],
             ['source' => 'web/sites/default/settings.php']
         )]]);
-        $writer = new PatchFiles($this->root, null, [
-            ['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patches/webform/alter.patch'],
-        ]);
+        $writer = new PatchFiles($this->root, null, Copied::none([
+            ['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patches/webform/alter.patch', 'provenance' => []],
+        ]));
 
         $result = $writer->write($plan);
 
@@ -623,10 +665,94 @@ class PatchFilesTest extends TestCase
 
         foreach ($cases as $case) {
             $plan = $this->plan($case['reroll']);
-            $result = (new PatchFiles($this->root, null, []))->write($plan);
+            $result = (new PatchFiles($this->root, null, Copied::none([])))->write($plan);
 
             self::assertCount(1, $result['refused'], 'a row with no patch to write is refused');
             self::assertSame($case['want'], $result['refused'][0]['reason']);
         }
+    }
+
+    // A write lands on the path its declaration names, and the add run names
+    // the copy it made. Naming the request the bytes came from would refuse
+    // every write, since a URL is no file to replace.
+    public function testARerollOfACopiedPatchIsWrittenToTheCopy(): void
+    {
+        $this->declare('patch/webform/mr940.diff', "old\n");
+        $plan = $this->plan(['status' => 'clean', 'patch' => "new\n"], 'patch/webform/mr940.diff');
+        $copied = [
+            'package' => 'drupal/webform',
+            'title' => 'Fix the alter hook',
+            'source' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940.diff',
+            'path' => 'patch/webform/mr940.diff',
+            'provenance' => [],
+        ];
+
+        $written = (new PatchFiles($this->root, null, self::addCopy($copied, true)))->write($plan);
+
+        self::assertSame('patch/webform/mr940.diff', $written['written'][0]['path']);
+        self::assertSame("new\n", \file_get_contents($this->root.'/patch/webform/mr940.diff'));
+    }
+
+    // An earlier add left the copy, and a person may have edited it since.
+    public function testAnAddRerollAsksGitBeforeReplacingACopyAnEarlierRunLeft(): void
+    {
+        $this->declare('patch/webform/mr940.diff', "mine\n");
+        $plan = $this->plan(['status' => 'clean', 'patch' => "new\n"], 'patch/webform/mr940.diff');
+        $tree = new WorkingTree(new FakeGit(0, ' M patch/webform/mr940.diff', 'patch/webform/mr940.diff'));
+
+        $written = (new PatchFiles($this->root, $tree, self::addCopy(self::copied(), false)))->write($plan);
+
+        self::assertSame([], $written['written']);
+        self::assertSame([WorkingTree::UNCOMMITTED, '--force'], [$written['refused'][0]['reason'], $written['refused'][0]['lifts']]);
+        self::assertSame("mine\n", \file_get_contents($this->root.'/patch/webform/mr940.diff'));
+    }
+
+    // The copy this run made is its own to replace, whatever git says of it.
+    public function testAnAddRerollReplacesTheCopyItsRunMade(): void
+    {
+        $this->declare('patch/webform/mr940.diff', "copied\n");
+        $plan = $this->plan(['status' => 'clean', 'patch' => "new\n"], 'patch/webform/mr940.diff');
+        $tree = new WorkingTree(new FakeGit(0, '?? patch/webform/mr940.diff', 'patch/webform/mr940.diff'));
+
+        $written = (new PatchFiles($this->root, $tree, self::addCopy(self::copied(), true)))->write($plan);
+
+        self::assertSame("new\n", \file_get_contents($this->root.'/patch/webform/mr940.diff'));
+        self::assertSame([], $written['refused']);
+    }
+
+    /**
+     * A copy the run wrote at this path, on a declaration the case does not name.
+     *
+     * @return array{package: string, title: string, source: string, path: string, provenance: array<string, string>}
+     */
+    private static function made(string $path): array
+    {
+        return ['package' => 'drupal/core', 'title' => 'Copied here', 'source' => 'https://www.drupal.org/files/issues/x.patch', 'path' => $path, 'provenance' => []];
+    }
+
+    /**
+     * What an add run's copy step returns: the copy it made, or one an earlier run left.
+     *
+     * @param array{package: string, title: string, source: string, path: string, provenance: array<string, string>} $copied
+     */
+    private static function addCopy(array $copied, bool $ours): Copied
+    {
+        $declared = [['package' => $copied['package'], 'title' => $copied['title'], 'source' => $copied['source'], 'provenance' => []]];
+
+        return Copied::after($declared, $ours ? [$copied] : [], $ours ? [] : [$copied], [], []);
+    }
+
+    /**
+     * @return array{package: string, title: string, source: string, path: string, provenance: array<string, string>}
+     */
+    private static function copied(): array
+    {
+        return [
+            'package' => 'drupal/webform',
+            'title' => 'Fix the alter hook',
+            'source' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940.diff',
+            'path' => 'patch/webform/mr940.diff',
+            'provenance' => [],
+        ];
     }
 }

@@ -31,6 +31,7 @@ class PlanServer
         \file_put_contents($this->dir.'/plan.json', (string) \json_encode($plan));
         \file_put_contents($this->dir.'/router.php', \sprintf(<<<'ROUTER'
             <?php
+            file_put_contents(__DIR__ . '/request.json', file_get_contents('php://input'));
             http_response_code(%d);
             header('Content-Type: application/json');
             echo file_get_contents(__DIR__ . '/plan.json');
@@ -44,6 +45,16 @@ class PlanServer
             $this->pipes
         );
         self::waitFor($port);
+    }
+
+    /**
+     * The body of the last request the server answered.
+     *
+     * @return array<string, mixed>
+     */
+    public function request(): array
+    {
+        return (array) \json_decode((string) @\file_get_contents($this->dir.'/request.json'), true);
     }
 
     public function stop(): void

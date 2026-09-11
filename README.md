@@ -44,9 +44,9 @@ which holds a mirror of every drupal.org release and does the work. It is run
 by [Très Bien Tech](https://tresbien.tech), a long time Drupal contributor.
 
 Installing the plugin sends nothing, and nothing is sent until you run a
-command. The check and the re-roll are the only two that reach the service. The
-pin sends it nothing, and your composer.json, your lock file and your patch text
-stay on your machine.
+command. Four commands reach the service: the check, the re-roll, the add and
+the upgrade. The pin sends it nothing, and your composer.json, your lock file
+and your patch text stay on your machine.
 
 [Settings](#settings) says what the request holds and what you can leave out.
 
@@ -62,18 +62,53 @@ composer config allow-plugins.tresbientech/drupal-patch-check true
 ## The commands
 
 ```
-composer drupatch:check    judges every patch, writes nothing
-composer drupatch:pin      copies every patch declared as a URL into your site
-composer drupatch:reroll   writes what merges, and rewrites your declarations
+composer drupatch:check                   judges every patch, writes nothing
+composer drupatch:pin                     copies every patch declared as a URL into your site
+composer drupatch:reroll                  writes what merges, and rewrites your declarations
+composer drupatch:add <issue>             copies a merge request in, checks it and declares it
+composer drupatch:upgrade-patch-manager   moves your site to cweagans/composer-patches 2.x
 ```
 
-All three take `--package`, `--patch`, `--dry-run` and `--format`. The check and
-the re-roll take `--target`; `--target latest` plans against the newest core
-your own constraint allows.
+The check, the pin and the re-roll take `--package`, `--patch`, `--dry-run` and
+`--format`. The check and the re-roll take `--target`; `--target latest` plans
+against the newest core your own constraint allows.
 
-They read `extra.patches` in your composer.json, the map
-cweagans/composer-patches applies: one block per package, and inside it one
-entry per patch, its title as the key and its file or URL as the value.
+The re-roll, the add and the upgrade take `--drop-tests` and `--keep-tests`. A
+re-roll of a core patch onto 12.0 or later leaves the patch's test files out,
+and every other re-roll keeps them. `--drop-tests` leaves them out of every
+re-roll, and `--keep-tests` keeps them in every one. The run lists what it
+left out.
+
+They read your declarations where cweagans/composer-patches reads them:
+`extra.patches` in composer.json, or the patches file your settings name. Both
+the title-to-file map and the expanded object form are read.
+
+The re-roll, the pin and the add ask git about composer.json or the patches file
+before they ask the service or write anything. When the patches there have
+uncommitted changes, the run stops and names the file. `--force` skips the
+question.
+
+## Moving to cweagans/composer-patches 2.x
+
+2.x applies every patch with `git apply` alone. A patch that applied under 1.x
+only with fuzz stops applying. One command moves the site:
+
+```
+$ composer drupatch:upgrade-patch-manager
+```
+
+It re-rolls each patch 2.x would refuse, moves your declarations into
+`patches.json`, carries over the settings 2.x renamed, and requires `^2`. Then it
+runs `composer update cweagans/composer-patches --with-dependencies`,
+`composer patches-relock` and `composer patches-repatch`. The site ends on 2.x
+with its patches applied.
+
+`--dry-run` prints what the run would change and the commands it would run. A
+command that fails stops the run, and the report names the commands left.
+Running the upgrade again runs them.
+
+The upgrade writes nothing when git reports composer.json or the patches file
+changed. Commit them first, or pass `--force`.
 
 ## Patches declared as a URL
 
@@ -100,14 +135,37 @@ Drupal Patch Check: 1 patch copied into the site
 The copy is written under `patch/<project>/`, or wherever `patch-directory`
 says.
 
-The first line of the file records where the bytes came from, the two commits
-the diff was taken between, and a hash of the rest of the file. A later run
-reads it back: `check` says when the file was edited, and `pin` says when the
-merge request has new commits. `pin --refresh` takes those new commits, and
-nothing else does.
+The file holds the diff and nothing else. Where the bytes came from goes on the
+declaration, under `extra.drupatch`, which cweagans/composer-patches 2.x copies
+into `patches.lock.json` untouched:
 
-Pin does not overwrite a copied patch that git reports as changed. It does not
-rewrite a composer.json that has uncommitted changes. `--force` does both.
+```json
+"drupal/webform": [
+    {
+        "description": "3521733: browser back/forward cache",
+        "url": "patch/webform/mr940.diff",
+        "extra": {
+            "drupatch": {
+                "mr": "https://git.drupalcode.org/project/webform/-/merge_requests/940",
+                "base": "e0f2f213bd2103d4d020d4800aed82643ec40b5f",
+                "head": "ec708af86e4565bc55739e65dd203e26caaf4553",
+                "fetched": "2026-09-10"
+            }
+        }
+    }
+]
+```
+
+That record is the only thing still naming the merge request once the
+declaration names a file, so `pin --refresh` reads it back, asks whether the
+request has new commits, and takes them. A bare `pin` run asks nothing about a
+copy already in place. Nothing else takes new bytes.
+
+The record holds no hash. 2.x hashes every patch it locks, a local file
+included, and refuses one whose bytes moved.
+
+Pin does not overwrite a copied patch that git reports as changed. `--force`
+does.
 
 A commit URL is copied the same way, under `commit-<sha>.diff`. Any other URL is
 copied under the name it ends in.

@@ -8,7 +8,8 @@ use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Scope;
+use TresBienTech\Drupatch\Plugin;
+use TresBienTech\Drupatch\Read\Scope;
 
 /**
  * The boundary between the server's JSON and the plugin's data.

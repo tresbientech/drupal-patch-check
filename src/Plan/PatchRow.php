@@ -31,6 +31,9 @@ class PatchRow
     /** The failure mode the server sends for a patch that applied and left a file that does not parse. */
     public const BROKEN_SYNTAX = 'broken syntax';
 
+    /** The failure mode a site on 2.x of the patch manager gives a patch only a lenient apply took. */
+    public const REFUSED_BY_TWO = 'refused by 2.x';
+
     private function __construct(
         public readonly string $package,
         public readonly string $project,
@@ -43,6 +46,22 @@ class PatchRow
         public readonly string $error,
         /** Why a strict apply refused a patch a looser one accepted. */
         public readonly string $strictRefused,
+        /**
+         * Whether the patch needed a lenient apply.
+         *
+         * A strict refusal the mirror caused sets no fuzzy: a release
+         * archive carries a packaging block the git tag does not, so such
+         * a patch applies on a site as it stands.
+         */
+        public readonly bool $fuzzy,
+        /**
+         * The `-p` level the patch applies at, and null when none did.
+         *
+         * 1.x guesses the level per patch. 2.x applies at the depth the
+         * definition names, then the one its package defaults to, so a patch
+         * needing another level has to record it.
+         */
+        public readonly ?int $appliesAt,
         /**
          * The earlier patches of the package that did not apply whole and
          * left part of themselves in the tree this one was judged against.
@@ -125,6 +144,8 @@ class PatchRow
             (string) ($data['note'] ?? ''),
             (string) ($result['error'] ?? ''),
             (string) ($result['strict_refused'] ?? ''),
+            true === ($result['fuzzy'] ?? null),
+            \is_int($result['applies_at'] ?? null) ? $result['applies_at'] : null,
             \array_values(\array_filter($without, \is_string(...))),
             self::failedHunks($failed),
             (int) ($result['hunks_failed_total'] ?? \count($failed)),
@@ -135,6 +156,37 @@ class PatchRow
             \is_array($result['core_references'] ?? null) ? $result['core_references'] : [],
             (string) ($result['failure_mode'] ?? ''),
             \array_values(\array_filter((array) ($result['syntax_errors'] ?? []), \is_string(...))),
+        );
+    }
+
+    /**
+     * This row on a site whose patch manager applies with `git apply` alone, which refuses the patch.
+     */
+    public function refusedByTwo(): self
+    {
+        return new self(
+            $this->package,
+            $this->project,
+            $this->version,
+            $this->installed,
+            $this->title,
+            $this->source,
+            $this->verdict,
+            $this->note,
+            $this->error,
+            $this->strictRefused,
+            $this->fuzzy,
+            $this->appliesAt,
+            $this->judgedWithout,
+            $this->hunksFailed,
+            $this->failedTotal,
+            $this->shippedTotal,
+            $this->hunksShipped,
+            $this->decidedBy,
+            $this->reroll,
+            $this->coreReferences,
+            self::REFUSED_BY_TWO,
+            $this->syntaxErrors,
         );
     }
 
@@ -167,11 +219,43 @@ class PatchRow
     }
 
     /**
+     * The declaration this row came from, null when the site declared none.
+     *
+     * Package and title pair them, because a site declares one patch per
+     * title on a package and the answer carries the site's own words back.
+     * Every reader that needs a row's declaration asks here.
+     *
+     * @param list<array{package: string, title: string, source: string, provenance: array<string, string>, ...}> $declared
+     *
+     * @return array{package: string, title: string, source: string, provenance: array<string, string>, ...}|null
+     */
+    public function declaredIn(array $declared): ?array
+    {
+        foreach ($declared as $patch) {
+            if ($patch['package'] === $this->package && $patch['title'] === $this->title) {
+                return $patch;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * The patch the merge ran on, when the server did not use the declared one.
      */
     public function mergedFrom(): string
     {
         return (string) ($this->reroll['merged_from'] ?? '');
+    }
+
+    /**
+     * The test files the re-roll left out.
+     *
+     * @return list<string>
+     */
+    public function droppedTests(): array
+    {
+        return \array_values(\array_filter((array) ($this->reroll['dropped_tests'] ?? []), \is_string(...)));
     }
 
     /**

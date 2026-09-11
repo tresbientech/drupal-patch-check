@@ -6,7 +6,7 @@ namespace TresBienTech\Drupatch\Tests;
 
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
-use TresBienTech\Drupatch\PatchText;
+use TresBienTech\Drupatch\Fetch\PatchText;
 
 /**
  * What one declared source yields: the text that travels, or why the run could not get it.

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Commit;
+use TresBienTech\Drupatch\Source\Commit;
 
 /**
  * A commit URL pins its own bytes. The site copies them so its install stops

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Plan;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Client;
-use TresBienTech\Drupatch\PatchConfig;
+use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Service\Client;
 
 /**
  * The body is what `--dry-run` prints, so a case here is a case about
@@ -48,7 +48,7 @@ final class ClientBodyTest extends TestCase
     {
         $mr = 'https://git.drupalcode.org/project/webform/-/merge_requests/940';
         $patches = new PatchConfig(
-            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => $mr.'.patch']],
+            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => $mr.'.patch', 'file' => 'composer.json', 'shape' => 'compact', 'provenance' => []]],
             [$mr.'.patch' => "diff --git a/x b/x\ndeclared\n", $mr.'.diff' => "diff --git a/x b/x\nsquashed\n"],
             [],
             [],
@@ -68,11 +68,11 @@ final class ClientBodyTest extends TestCase
     public function testAPatchWhoseTextWasHeldBackCarriesNone(): void
     {
         $patches = new PatchConfig(
-            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/big.patch']],
+            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/big.patch', 'file' => 'composer.json', 'shape' => 'compact', 'provenance' => []]],
             [],
             [],
             [],
-            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/big.patch', 'reason' => 'above the 16 MB cap']],
+            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/big.patch', 'reason' => 'above the 16 MB cap', 'file' => 'composer.json', 'shape' => 'compact', 'provenance' => []]],
         );
 
         $body = self::body('{}', '{}', $patches);
@@ -156,7 +156,7 @@ final class ClientBodyTest extends TestCase
     private function resolution(): PatchConfig
     {
         return new PatchConfig(
-            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/a.patch']],
+            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/a.patch', 'file' => 'composer.json', 'shape' => 'compact', 'provenance' => []]],
             ['patches/a.patch' => "diff --git a/x b/x\n"],
             [],
             [],
@@ -198,5 +198,34 @@ final class ClientBodyTest extends TestCase
             [['package' => 'drupal/webform', 'patch' => "diff --git a/x b/x\n"]],
             $body['patch_config']
         );
+    }
+
+    // A vendored patch travels under a local path, so the record on its
+    // declaration is how the service reaches the merge request behind it.
+    public function testAVendoredPatchSendsItsProvenance(): void
+    {
+        $record = ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'base' => 'aaa', 'head' => 'bbb'];
+        $patches = new PatchConfig(
+            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patch/webform/mr940.diff', 'file' => 'composer.json', 'shape' => 'expanded', 'provenance' => $record]],
+            ['patch/webform/mr940.diff' => "diff --git a/x b/x\n"],
+            [],
+            [],
+            [],
+        );
+
+        $body = self::body('{}', '{}', $patches);
+
+        self::assertSame([[
+            'package' => 'drupal/webform',
+            'patch' => "diff --git a/x b/x\n",
+            'provenance' => $record,
+        ]], $body['patch_config']);
+    }
+
+    public function testADeclarationWithNoRecordSendsNoProvenanceField(): void
+    {
+        $body = self::body('{}', '{}', $this->resolution());
+
+        self::assertArrayNotHasKey('provenance', $body['patch_config'][0]);
     }
 }

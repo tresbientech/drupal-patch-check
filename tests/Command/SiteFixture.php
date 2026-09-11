@@ -7,6 +7,8 @@ namespace TresBienTech\Drupatch\Tests\Command;
 use Composer\Composer;
 use Composer\Factory;
 use Composer\IO\NullIO;
+use TresBienTech\Drupatch\Manager;
+use TresBienTech\Drupatch\Tests\Scratch;
 
 /**
  * A site on disk the command can be run against: the two composer files,
@@ -29,8 +31,32 @@ final class SiteFixture
     /** @var list<array{string, string}> */
     private array $patches = [];
 
+    /** @var list<array{string, string}> the files written again after the commit */
+    private array $changed = [];
+
+    /** @var list<string> files that get a trailing newline after the commit */
+    private array $edited = [];
+
+    /** Whether the site is a git checkout with everything committed. */
+    private bool $committed = false;
+
+    /** @var array<string, array<string, string>> the record a declaration carries, by title */
+    private array $pinned = [];
+
     /** @var array<string, mixed> */
     private array $extra = [];
+
+    /** The patch manager release the site has installed, empty for none. */
+    private string $manager = '';
+
+    /** @var array<string, array<string, string>> declarations on packages other than drupal/webform, by package then title */
+    private array $others = [];
+
+    /** Where the declarations go, empty for composer.json's extra.patches. */
+    private string $patchesFile = '';
+
+    /** Whether the declarations are written as a list of objects. */
+    private bool $expanded = false;
 
     public function __construct()
     {
@@ -55,10 +81,75 @@ final class SiteFixture
         return $this;
     }
 
+    /** Declares one patch that already records where its bytes came from, which only the expanded shape can hold. */
+    public function declaresPinned(string $title, string $source, string $mr, string $base): self
+    {
+        $this->declaresPatch($title, $source);
+        $this->pinned[$title] = ['mr' => $mr, 'base' => $base];
+
+        return $this->expanded();
+    }
+
+    /** Installs one release of the patch manager, which every version-dependent answer reads. */
+    public function withManager(string $version): self
+    {
+        $this->manager = $version;
+
+        return $this;
+    }
+
+    /** Puts the declarations in a patches file rather than in composer.json, under the key the version reads. */
+    public function inPatchesFile(string $path): self
+    {
+        $this->patchesFile = $path;
+
+        return $this;
+    }
+
+    /** Writes the declarations as a list of objects, the expanded shape 2.x reads. */
+    public function expanded(): self
+    {
+        $this->expanded = true;
+
+        return $this;
+    }
+
+    /** Declares one patch on a package the lock does not hold, which the service is never asked about. */
+    public function declaresOn(string $package, string $title, string $source): self
+    {
+        $this->others[$package][$title] = $source;
+
+        return $this;
+    }
+
     /** Adds one key under composer.json's extra. */
     public function withExtra(string $key, mixed $value): self
     {
         $this->extra[$key] = $value;
+
+        return $this;
+    }
+
+    /** Makes the site a git checkout with every file committed, which is what the guard reads. */
+    public function inGit(): self
+    {
+        $this->committed = true;
+
+        return $this;
+    }
+
+    /** Adds a newline to this file once the site is committed, so git reports it changed and it still parses. */
+    public function edits(string $path): self
+    {
+        $this->edited[] = $path;
+
+        return $this;
+    }
+
+    /** Writes this file again once the site is committed, so git reports it changed. */
+    public function leavesChanged(string $path, string $body): self
+    {
+        $this->changed[] = [$path, $body];
 
         return $this;
     }
@@ -74,11 +165,6 @@ final class SiteFixture
         return $this;
     }
 
-    public function root(): string
-    {
-        return $this->root;
-    }
-
     public function has(string $path): bool
     {
         return \is_file($this->root.'/'.$path);
@@ -92,33 +178,53 @@ final class SiteFixture
     /** Writes the two composer files and enters the site. */
     public function enter(string $endpoint): Composer
     {
-        $map = [];
-        foreach ($this->patches as [$title, $source]) {
-            $map[$title] = $source;
+        $extra = $this->extra;
+        if ('' === $this->patchesFile) {
+            $extra += ['patches' => ['drupal/webform' => $this->declarations()] + $this->others];
+        } else {
+            $extra += Manager::ofVersion($this->manager)->isOne()
+                ? ['patches-file' => $this->patchesFile]
+                : ['composer-patches' => ['patches-file' => $this->patchesFile]];
+            $this->write($this->patchesFile, (string) \json_encode(['patches' => ['drupal/webform' => $this->declarations()] + $this->others], \JSON_PRETTY_PRINT));
+        }
+        $require = ['drupal/webform' => '^6.2'];
+        if ('' !== $this->manager) {
+            $require[Manager::PACKAGE] = '^'.Manager::ofVersion($this->manager)->line;
         }
         $this->write('composer.json', (string) \json_encode([
             'name' => 'site/site',
-            'require' => ['drupal/webform' => '^6.2'],
-            'extra' => $this->extra + [
-                'patches' => ['drupal/webform' => $map],
-            ],
+            'require' => $require,
+            'extra' => $extra,
             // The plan server in the tests is plain HTTP on loopback.
             'config' => ['secure-http' => false],
         ], \JSON_PRETTY_PRINT));
+        $locked = [[
+            'name' => 'drupal/webform',
+            'version' => '6.2.9',
+            'type' => 'drupal-module',
+            'notification-url' => 'https://packages.drupal.org/8/downloads',
+        ]];
+        $installed = [['name' => 'drupal/webform', 'version' => '6.2.9', 'version_normalized' => '6.2.9.0', 'type' => 'drupal-module']];
+        if ('' !== $this->manager) {
+            $locked[] = ['name' => Manager::PACKAGE, 'version' => $this->manager, 'type' => 'composer-plugin'];
+            $installed[] = ['name' => Manager::PACKAGE, 'version' => $this->manager, 'version_normalized' => \ltrim($this->manager, 'v').'.0', 'type' => 'composer-plugin'];
+        }
         $this->write('composer.lock', (string) \json_encode([
-            'packages' => [[
-                'name' => 'drupal/webform',
-                'version' => '6.2.9',
-                'type' => 'drupal-module',
-                'notification-url' => 'https://packages.drupal.org/8/downloads',
-            ]],
+            'packages' => $locked,
             'packages-dev' => [],
         ], \JSON_PRETTY_PRINT));
         $this->write('vendor/composer/installed.json', (string) \json_encode([
-            'packages' => [['name' => 'drupal/webform', 'version' => '6.2.9', 'version_normalized' => '6.2.9.0', 'type' => 'drupal-module']],
+            'packages' => $installed,
             'dev' => false,
         ]));
 
+        $this->commit();
+        foreach ($this->changed as [$path, $body]) {
+            $this->write($path, $body);
+        }
+        foreach ($this->edited as $path) {
+            \file_put_contents($this->root.'/'.$path, "\n", \FILE_APPEND);
+        }
         $this->cwd = (string) \getcwd();
         $this->composerEnv = \getenv('COMPOSER');
         $this->endpointEnv = \getenv('DRUPATCH_ENDPOINT');
@@ -127,6 +233,43 @@ final class SiteFixture
         \putenv('DRUPATCH_ENDPOINT='.$endpoint);
 
         return Factory::create(new NullIO(), $this->root.'/composer.json', true);
+    }
+
+    /**
+     * Puts the whole site in git, so the guard reads a clean checkout rather than refusing every file.
+     */
+    private function commit(): void
+    {
+        if (!$this->committed) {
+            return;
+        }
+        $git = 'git -C '.\escapeshellarg($this->root).' -c commit.gpgsign=false -c user.name=drupatch -c user.email=drupatch@example.invalid ';
+        foreach (['init -q', 'add -Af', 'commit -q -m fixture'] as $step) {
+            \exec($git.$step.' 2>&1');
+        }
+    }
+
+    /**
+     * The declarations of drupal/webform, in the shape this fixture writes.
+     *
+     * @return array<int|string, mixed>
+     */
+    private function declarations(): array
+    {
+        $out = [];
+        foreach ($this->patches as [$title, $source]) {
+            if ($this->expanded) {
+                $entry = ['description' => $title, 'url' => $source];
+                if (isset($this->pinned[$title])) {
+                    $entry['extra'] = ['drupatch' => $this->pinned[$title]];
+                }
+                $out[] = $entry;
+                continue;
+            }
+            $out[$title] = $source;
+        }
+
+        return $out;
     }
 
     public function leave(): void
@@ -144,18 +287,6 @@ final class SiteFixture
         } else {
             \putenv('DRUPATCH_ENDPOINT='.$this->endpointEnv);
         }
-        self::remove($this->root);
-    }
-
-    private static function remove(string $dir): void
-    {
-        foreach ((array) \scandir($dir) as $entry) {
-            if (!\is_string($entry) || '.' === $entry || '..' === $entry) {
-                continue;
-            }
-            $full = $dir.'/'.$entry;
-            \is_dir($full) ? self::remove($full) : @\unlink($full);
-        }
-        @\rmdir($dir);
+        Scratch::remove($this->root);
     }
 }

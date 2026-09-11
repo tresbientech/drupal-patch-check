@@ -22,16 +22,6 @@ class WorkingTree
     }
 
     /**
-     * True when git reports the file as changed or untracked.
-     */
-    public function isModified(string $root, string $path): bool
-    {
-        $status = $this->status($root, $path);
-
-        return null !== $status && '' !== $status;
-    }
-
-    /**
      * Why this file may not be replaced, empty when it may.
      */
     public function refusal(string $root, string $path): string

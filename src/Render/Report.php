@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Render;
 
-use TresBienTech\Drupatch\CheckCommand;
-use TresBienTech\Drupatch\MergeRequest;
+use TresBienTech\Drupatch\Command\CheckCommand;
+use TresBienTech\Drupatch\Command\RerollCommand;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\RerollCommand;
+use TresBienTech\Drupatch\Source\MergeRequest;
 use TresBienTech\Drupatch\Text;
+use TresBienTech\Drupatch\Write\ConfigRewriter;
 use TresBienTech\Drupatch\Write\PatchFiles;
 
 /**
@@ -82,9 +83,6 @@ class Report
     /** Under a row the site declared as a merge request URL. */
     public const UNPINNED_ROW = 'declared as a merge request URL';
 
-    /** Under a row whose copy no longer holds what the site took. */
-    public const EDITED_ROW = 'edited since it was copied into the site';
-
     /** The two lines after the count, wrapped for the narrowest terminal. */
     private const UNPINNED_REST = [
         'account can push to a merge request, so what composer applies here can',
@@ -98,6 +96,7 @@ class Report
      */
     private const STATUSES = [
         PatchRow::BROKEN_SYNTAX => ['!', 'error', 0],
+        PatchRow::REFUSED_BY_TWO => ['!', 'error', 0],
         'conflicts' => ['!', 'error', 0],
         'unknown' => ['?', 'comment', 1],
         'applies' => ['·', '', 2],
@@ -193,16 +192,17 @@ class Report
     /**
      * The whole report in printed order: the rows, the files a re-roll wrote, what it would not write, what a fix rewrote, then what to run next.
      *
-     * @param list<string> $scope the options a next run repeats, `--target 11.4.5` and each `--package`
+     * @param list<string> $scope      the options a next run repeats, `--target 11.4.5` and each `--package`
+     * @param bool         $testsNamed whether the run named --drop-tests or --keep-tests
      *
      * @return list<string>
      */
-    public static function report(Plan $plan, Coverage $coverage, ?Outcomes $outcomes, int $width = 100, array $scope = []): array
+    public static function report(Plan $plan, Coverage $coverage, ?Outcomes $outcomes, int $width = 100, array $scope = [], bool $testsNamed = false): array
     {
         return \array_merge(
             self::lines($plan, $coverage, $width, $outcomes),
             self::shipped($outcomes),
-            self::written($outcomes),
+            self::written($outcomes, $testsNamed),
             self::refused($outcomes),
             self::rewrite($outcomes),
             self::footer($plan, $outcomes, $scope),
@@ -232,9 +232,11 @@ class Report
         );
         $lines = [$coverage->isVacuous() ? self::caveat(self::NOTHING_CHECKED) : $headline, ''];
 
+        $numbers = [];
         $grouped = [];
-        foreach ($plan->patches as $row) {
+        foreach ($plan->numbered() as [$row, $number]) {
             $grouped[$row->package][] = $row;
+            $numbers[$row->package][] = $number;
         }
         // The service states a blocked package on its scan row; a plan
         // warning names no package at all.
@@ -256,7 +258,7 @@ class Report
         if (null === $outcomes) {
             foreach ($grouped as $package => $rows) {
                 $note = $placed[$package] ?? '';
-                $blocks[] = self::group($rows, '' === $note ? [] : [$note], $coverage->notesFor($package), $titleWidth, $coverage->edited());
+                $blocks[] = self::group($rows, '' === $note ? [] : [$note], $coverage->notesFor($package), $titleWidth, $numbers[$package]);
             }
         }
         foreach ($blocks as $i => $block) {
@@ -347,11 +349,11 @@ class Report
      * @param non-empty-list<PatchRow> $rows
      * @param list<string>             $warnings
      * @param list<string>             $notes
-     * @param list<string>             $edited   sources whose copy no longer holds what the site took
+     * @param list<int>                $numbers  the patch number of each row, in the same order
      *
      * @return list<string>
      */
-    private static function group(array $rows, array $warnings, array $notes, int $titleWidth, array $edited = []): array
+    private static function group(array $rows, array $warnings, array $notes, int $titleWidth, array $numbers): array
     {
         $lines = ['  '.Text::t('@heading   @tally', ['@heading' => self::heading($rows[0]), '@tally' => self::packageTally($rows)])];
         foreach ($warnings as $warning) {
@@ -361,7 +363,7 @@ class Report
             $details = self::details($row);
             $lines[] = \rtrim(\sprintf(
                 '    %'.self::NUMBER_WIDTH.'s %s %-9s %s  %s',
-                '#'.($i + 1),
+                '#'.$numbers[$i],
                 self::marked($row->status()),
                 $row->verdict,
                 self::pad(self::fit($row->label(), $titleWidth), $titleWidth),
@@ -369,9 +371,6 @@ class Report
             ));
             if (null !== MergeRequest::of($row->source)) {
                 $lines[] = self::detailIndent().'<fg=red>'.self::UNPINNED_ROW.'</>';
-            }
-            if (\in_array($row->source, $edited, true)) {
-                $lines[] = self::detailIndent().'<fg=red>'.self::EDITED_ROW.'</>';
             }
             foreach ($details as $line) {
                 $lines[] = self::detailIndent().self::detail($line);
@@ -439,7 +438,14 @@ class Report
         if ([] !== $row->unioned()) {
             $out[] = self::unionNote(\count($row->unioned()));
         }
-        if ('' !== $row->strictRefused) {
+        if ([] !== $row->droppedTests()) {
+            $out[] = self::droppedTestsNote(\count($row->droppedTests()));
+        }
+        // The service's reason speaks for a manager that applies loosely,
+        // which a site on 2.x does not run.
+        if (PatchRow::REFUSED_BY_TWO === $row->failureMode) {
+            $out[] = Text::t('your patch manager refuses it; `@reroll` writes a version it applies', ['@reroll' => self::REROLL]);
+        } elseif ('' !== $row->strictRefused) {
             $out[] = $row->strictRefused;
         }
         if ([] !== $row->judgedWithout) {
@@ -485,7 +491,7 @@ class Report
         }
         $dropped = [];
         foreach ($outcomes->changes() as $change) {
-            if ('dropped' === $change['action']) {
+            if (ConfigRewriter::DROPPED === $change['action']) {
                 $dropped[PatchRow::keyOf($change['package'], $change['title'])] = true;
             }
         }
@@ -517,9 +523,11 @@ class Report
      * The files a re-roll wrote, in two groups: the patches the site can
      * use, and the conflict files a person still has to decide.
      *
+     * @param bool $testsNamed whether the run named --drop-tests or --keep-tests
+     *
      * @return list<string>
      */
-    public static function written(?Outcomes $outcomes): array
+    public static function written(?Outcomes $outcomes, bool $testsNamed = false): array
     {
         $clean = [];
         $conflicted = [];
@@ -532,19 +540,19 @@ class Report
         }
 
         return \array_merge(
-            self::writtenFiles('re-rolled:', $clean),
-            self::writtenFiles('re-rolled with conflicts:', $conflicted),
+            self::writtenFiles('re-rolled:', $clean, $testsNamed),
+            self::writtenFiles('re-rolled with conflicts:', $conflicted, $testsNamed),
         );
     }
 
     /**
      * One group of written files under its heading.
      *
-     * @param list<array{path: string, status: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>, from: string}> $files
+     * @param list<array{path: string, status: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>, dropped: list<string>, from: string}> $files
      *
      * @return list<string>
      */
-    private static function writtenFiles(string $heading, array $files): array
+    private static function writtenFiles(string $heading, array $files, bool $testsNamed): array
     {
         if ([] === $files) {
             return [];
@@ -572,6 +580,12 @@ class Report
                 if (null !== MergeRequest::of($file['from'])) {
                     $lines[] = '      send your re-roll to that merge request and every site using it is fixed';
                 }
+            }
+            // A run that named neither flag took the service's default, so
+            // the line says how to get the files back.
+            if ([] !== $file['dropped']) {
+                $note = self::droppedTestsNote(\count($file['dropped']));
+                $lines[] = '      '.($testsNamed ? $note : Text::t('@note; a re-roll with --keep-tests keeps them', ['@note' => $note]));
             }
             if ([] !== $file['unioned']) {
                 $lines[] = '      '.Text::t('@note:', ['@note' => self::unionNote(\count($file['unioned']))]);
@@ -665,12 +679,12 @@ class Report
     }
 
     /**
-     * @param array{action: 'dropped'|'repointed', package: string, title: string, path: string} $change
+     * @param array{action: 'dropped'|'repointed', package: string, title: string, path: string, provenance: array<string, string>} $change
      */
     private static function change(array $change): string
     {
         $values = ['@package' => $change['package'], '@title' => $change['title'], '@path' => $change['path']];
-        if ('repointed' === $change['action']) {
+        if (ConfigRewriter::REPOINTED === $change['action']) {
             return '    '.Text::t('~ @package: @title → @path', $values);
         }
         if ('' === $change['path']) {
@@ -699,6 +713,18 @@ class Report
             $regions,
             'the merge kept both additions in @count region, check it',
             'the merge kept both additions in @count regions, check them'
+        );
+    }
+
+    /**
+     * The test files a re-roll left out of the merge.
+     */
+    public static function droppedTestsNote(int $files): string
+    {
+        return Text::plural(
+            $files,
+            'the re-roll left out @count test file, so your patch carries the fix alone',
+            'the re-roll left out @count test files, so your patch carries the fix alone'
         );
     }
 
@@ -1045,7 +1071,7 @@ class Report
         // left to drop is what it did not touch.
         $dropped = 0;
         foreach ($outcomes->changes() as $change) {
-            if ('dropped' === $change['action']) {
+            if (ConfigRewriter::DROPPED === $change['action']) {
                 ++$dropped;
             }
         }
