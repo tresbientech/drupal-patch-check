@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Fetch\PatchText;
 use TresBienTech\Drupatch\Fetch\Vendoring;
 use TresBienTech\Drupatch\Manager;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 use TresBienTech\Drupatch\Tests\Scratch;
@@ -60,7 +61,7 @@ class MoveTest extends TestCase
     }
 
     /**
-     * @param list<array{package: string, title: string, source: string, provenance: array<string, string>}> $declarations
+     * @param list<Declaration> $declarations
      *
      * @return list<string>
      */
@@ -72,13 +73,13 @@ class MoveTest extends TestCase
     public function testAUrlPatchIsCopiedInSoItsRerollHasAFileToLandOn(): void
     {
         $plan = $this->planFrom(['patches' => [$this->rerolledRow(['status' => 'clean', 'patch' => "new\n"], ['source' => self::MR])]]);
-        $declarations = [['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => self::MR, 'provenance' => []]];
+        $declarations = [new Declaration('drupal/webform', 'Fix the alter hook', self::MR, 'composer.json', false, [])];
 
         $moved = $this->move()->run($plan, $declarations, new Scope([], [self::MR]));
 
         self::assertSame(['patch/webform/mr940.diff'], self::sources($moved['declarations']));
         self::assertSame("new\n", \file_get_contents($this->root.'/patch/webform/mr940.diff'));
-        self::assertSame('bbb', $moved['declarations'][0]['provenance']['head']);
+        self::assertSame('bbb', $moved['declarations'][0]->provenance['head']);
     }
 
     // The copy and the re-roll are one run, so the guard that protects a
@@ -86,7 +87,7 @@ class MoveTest extends TestCase
     public function testTheRerollLandsOnTheCopyThisRunMadeThoughGitCallsItUntracked(): void
     {
         $plan = $this->planFrom(['patches' => [$this->rerolledRow(['status' => 'clean', 'patch' => "new\n"], ['source' => self::MR])]]);
-        $declarations = [['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => self::MR, 'provenance' => []]];
+        $declarations = [new Declaration('drupal/webform', 'Fix the alter hook', self::MR, 'composer.json', false, [])];
 
         $moved = $this->move(new WorkingTree(new FakeGit(0, '?? patch/webform/mr940.diff')))
             ->run($plan, $declarations, new Scope([], [self::MR]));
@@ -100,7 +101,7 @@ class MoveTest extends TestCase
     public function testAPatchTheServiceDidNotRerollIsLeftAlone(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row(['source' => self::MR])]]);
-        $declarations = [['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => self::MR, 'provenance' => []]];
+        $declarations = [new Declaration('drupal/webform', 'Fix the alter hook', self::MR, 'composer.json', false, [])];
 
         $moved = $this->move()->run($plan, $declarations, Scope::none());
 
@@ -112,7 +113,7 @@ class MoveTest extends TestCase
     public function testTheWholeSiteIsCopiedInWhenTheRunAsksForIt(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row(['source' => self::MR])]]);
-        $declarations = [['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => self::MR, 'provenance' => []]];
+        $declarations = [new Declaration('drupal/webform', 'Fix the alter hook', self::MR, 'composer.json', false, [])];
 
         $moved = $this->move()->run($plan, $declarations, Scope::whole());
 
@@ -128,7 +129,7 @@ class MoveTest extends TestCase
         $plan = $this->planFrom(['patches' => [$this->rerolledRow($reroll, ['source' => 'patch/webform/mr940.diff'])]]);
         \mkdir($this->root.'/patch/webform', 0o777, true);
         \file_put_contents($this->root.'/patch/webform/mr940.diff', self::DIFF);
-        $declarations = [['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patch/webform/mr940.diff', 'provenance' => []]];
+        $declarations = [new Declaration('drupal/webform', 'Fix the alter hook', 'patch/webform/mr940.diff', 'composer.json', false, [])];
 
         $moved = $this->move()->run($plan, $declarations, Scope::none());
 

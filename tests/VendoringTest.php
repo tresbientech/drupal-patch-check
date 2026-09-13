@@ -9,9 +9,11 @@ use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Fetch\PatchText;
 use TresBienTech\Drupatch\Fetch\Vendoring;
 use TresBienTech\Drupatch\Manager;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Source\Provenance;
 use TresBienTech\Drupatch\Tests\Write\FakeGit;
+use TresBienTech\Drupatch\Write\PatchFiles;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
 class VendoringTest extends TestCase
@@ -79,11 +81,11 @@ class VendoringTest extends TestCase
     /**
      * @param array<string, string> $provenance what the declaration records about the copy
      *
-     * @return list<array{package: string, title: string, source: string, provenance: array<string, string>}>
+     * @return list<Declaration>
      */
     private static function declarations(string $source = self::MR, array $provenance = []): array
     {
-        return [['package' => 'drupal/webform', 'title' => 'fix the alter hook', 'source' => $source, 'provenance' => $provenance]];
+        return [new Declaration('drupal/webform', 'fix the alter hook', $source, 'composer.json', false, $provenance)];
     }
 
     /**
@@ -127,11 +129,7 @@ class VendoringTest extends TestCase
     {
         $answers = self::answers();
         $answers['https://git.drupalcode.org/api/v4/projects/project%2Fwebform/merge_requests/940'] = [429, ''];
-        $declarations = \array_merge(self::declarations(), [[
-            'package' => 'drupal/token',
-            'title' => 'fix the other thing',
-            'source' => 'https://git.drupalcode.org/project/token/-/merge_requests/12.diff',
-        ]]);
+        $declarations = [...self::declarations(), new Declaration('drupal/token', 'fix the other thing', 'https://git.drupalcode.org/project/token/-/merge_requests/12.diff', 'composer.json', false, [])];
         $answers['https://git.drupalcode.org/api/v4/projects/project%2Ftoken/merge_requests/12'] = [200, self::REFS];
         $answers['https://git.drupalcode.org/project/token/-/compare/aaa...bbb?format=diff'] = [200, self::DIFF];
 
@@ -161,7 +159,7 @@ class VendoringTest extends TestCase
 
         $result = $this->vendoring($answers)->run(self::declarations(), new Scope([], []), false);
 
-        self::assertSame('the merge request names no commits yet', $result->refused[0]['reason']);
+        self::assertSame('the merge request has no commits yet', $result->refused[0]['reason']);
     }
 
     // The file is the site's now, and taking new bytes is its own move.
@@ -226,6 +224,31 @@ class VendoringTest extends TestCase
         self::assertSame(WorkingTree::UNCOMMITTED, $result->refused[0]['reason']);
         self::assertSame('--force', $result->refused[0]['lifts']);
         self::assertSame(self::DIFF, (string) \file_get_contents($this->root.'/patch/webform/mr940.diff'));
+    }
+
+    // A copy the site declares by path is refreshed at that path, whatever
+    // folder a new copy of the same request would get.
+    public function testRefreshWritesToThePathTheDeclarationNames(): void
+    {
+        \mkdir($this->root.'/patches/webform', 0o777, true);
+        \file_put_contents($this->root.'/patches/webform/mr940.diff', self::DIFF);
+        $recorded = Provenance::of(['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'base' => 'aaa', 'head' => 'old', 'fetched' => '2026-09-01']);
+
+        $result = $this->vendoring(self::answers())->run(self::declarations('patches/webform/mr940.diff', $recorded), new Scope([], []), false, true);
+
+        self::assertSame('patches/webform/mr940.diff', $result->vendored[0]['path'] ?? null);
+        self::assertSame('bbb', $result->vendored[0]['provenance']['head']);
+        self::assertFileDoesNotExist($this->root.'/patch/webform/mr940.diff');
+    }
+
+    public function testRefreshRefusesADeclaredPathOutsideTheSite(): void
+    {
+        $recorded = Provenance::of(['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'base' => 'aaa', 'head' => 'old', 'fetched' => '2026-09-01']);
+
+        $result = $this->vendoring(self::answers())->run(self::declarations('../mr940.diff', $recorded), new Scope([], []), false, true);
+
+        self::assertSame(PatchFiles::OUTSIDE_ROOT, $result->refused[0]['reason'] ?? null);
+        self::assertSame([], $result->vendored);
     }
 
     // A commit URL pins itself, so a run asks nothing about one it holds.

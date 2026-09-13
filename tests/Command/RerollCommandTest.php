@@ -6,13 +6,14 @@ namespace TresBienTech\Drupatch\Tests\Command;
 
 use Closure;
 use Composer\Console\Application;
+use Composer\Factory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 use TresBienTech\Drupatch\Command\RerollCommand;
-use TresBienTech\Drupatch\Fetch\PatchText;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Read\Site;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\StubHost;
 use TresBienTech\Drupatch\Write\PatchFiles;
@@ -75,9 +76,9 @@ class RerollCommandTest extends TestCase
                 parent::__construct();
             }
 
-            protected function patchText(string $root): PatchText
+            protected function site(): Site
             {
-                return new PatchText($root, StubHost::fetch($this->hosts), '');
+                return Site::at($this->requireComposer(), $this->getIO(), Factory::getComposerFile(), StubHost::fetch($this->hosts));
             }
         };
         $command->setComposer($composer);
@@ -378,6 +379,18 @@ class RerollCommandTest extends TestCase
         $tester = $this->drive($site, [], self::conflicting(), hosts: self::drupalcode());
 
         self::assertSame("new diff\n", $site->has('patch/webform/mr940.diff') ? $site->read('patch/webform/mr940.diff') : null, $tester->getDisplay());
+    }
+
+    // The run repointed the declaration to the copy it made, and the
+    // report says so under the file it rewrote.
+    public function testAResolvedTitleIsReportedAsARewrite(): void
+    {
+        $site = (new SiteFixture())->declaresPatch('3521733: Fix the alter hook', 'patches/webform/fix.patch')->withManager('2.0.0')->inGit();
+
+        $tester = $this->drive($site, [], self::conflicting(), hosts: self::drupalcode());
+
+        self::assertStringContainsString('~ drupal/webform: 3521733: Fix the alter hook → patch/webform/mr940.diff', $tester->getDisplay());
+        self::assertStringNotContainsString('is unchanged', $tester->getDisplay());
     }
 
     /**

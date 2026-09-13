@@ -1,0 +1,12 @@
+<info>Drupal Patch Check</info>: 3 patches for a move to core 11.4.5
+
+  drupal/webform 6.2.9   2 applies
+     #1 · applies   Fix the alter hook                                                  alter.patch
+     #2 · applies   Second thoughts                                                     second.patch
+
+  drupal/core 11.4.5   1 merged
+     #1 <info>✓</info> merged    Menu cache                                                          menu.patch
+
+  patches: 2 applies, 1 merged
+
+  Next:  composer drupatch:reroll   drops the shipped entry from composer.json

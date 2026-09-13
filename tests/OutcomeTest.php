@@ -7,7 +7,7 @@ namespace TresBienTech\Drupatch\Tests;
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Read\Scope;
-use TresBienTech\Drupatch\Render\Outcomes;
+use TresBienTech\Drupatch\Render\Report;
 
 class OutcomeTest extends TestCase
 {
@@ -40,7 +40,7 @@ class OutcomeTest extends TestCase
             'result' => ['failure_mode' => 'broken syntax', 'syntax_errors' => ['src/A.php: unexpected } on line 4']],
         ])]]);
 
-        self::assertSame('applies', $plan->patches[0]->verdict);
+        self::assertSame('applies', $plan->rows()[0]->verdict);
         self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode());
     }
 
@@ -127,14 +127,14 @@ class OutcomeTest extends TestCase
     // The scope decides what the exit code is about.
     public function testNarrowingDecidesWhatTheExitCodeIsAbout(): void
     {
-        $plan = $this->planFrom(['patches' => [
+        $answer = ['patches' => [
             $this->row(['package' => 'drupal/token', 'verdict' => 'applies']),
             $this->row(['package' => 'drupal/webform', 'verdict' => 'conflicts']),
-        ]]);
+        ]];
 
-        self::assertSame(Plan::ACTION_NEEDED, $plan->exitCode());
-        self::assertSame(Plan::CLEAN, $plan->only(new Scope(['token'], []))->exitCode());
-        self::assertSame(Plan::ACTION_NEEDED, $plan->only(new Scope(['webform'], []))->exitCode());
+        self::assertSame(Plan::ACTION_NEEDED, $this->planFrom($answer)->exitCode());
+        self::assertSame(Plan::CLEAN, $this->planFrom($answer, null, new Scope(['token'], []))->exitCode());
+        self::assertSame(Plan::ACTION_NEEDED, $this->planFrom($answer, null, new Scope(['webform'], []))->exitCode());
     }
 
     public function testASiteWithNothingToSayIsClean(): void
@@ -156,17 +156,17 @@ class OutcomeTest extends TestCase
 
     public function testTheDocumentNamesTheFileInPlaceOfTheDiffItWrote(): void
     {
-        $raw = ['plan' => ['patches' => [
-            ['package' => 'drupal/webform', 'title' => 'Fix', 'result' => ['reroll' => ['status' => 'clean', 'patch' => "the diff\n"]]],
-            ['package' => 'drupal/webform', 'title' => 'Menu', 'result' => ['reroll' => ['status' => 'conflicts', 'patch' => "part\n", 'conflicts' => [['file' => 'a.php', 'regions' => 1]]]]],
-            ['package' => 'drupal/token', 'title' => 'Cache', 'result' => ['reroll' => ['status' => 'clean', 'patch' => "refused diff\n"]]],
-        ]], 'summary' => ['exit_code' => 1]];
-        $outcomes = Outcomes::fromWrite(['written' => [
+        $plan = $this->planFrom(['counts' => ['conflicts' => 3], 'patches' => [
+            $this->row(['title' => 'Fix', 'verdict' => 'conflicts', 'result' => ['reroll' => ['status' => 'clean', 'patch' => "the diff\n"]]]),
+            $this->row(['title' => 'Menu', 'verdict' => 'conflicts', 'result' => ['reroll' => ['status' => 'conflicts', 'patch' => "part\n", 'conflicts' => [['file' => 'a.php', 'regions' => 1]]]]]),
+            $this->row(['package' => 'drupal/token', 'title' => 'Cache', 'verdict' => 'conflicts', 'result' => ['reroll' => ['status' => 'clean', 'patch' => "refused diff\n"]]]),
+        ]]);
+        $write = ['written' => [
             ['path' => 'patches/webform/fix.patch', 'provenance' => [], 'status' => 'clean', 'package' => 'drupal/webform', 'title' => 'Fix', 'verified' => true, 'unioned' => [], 'regions' => 0, 'open' => [], 'removed' => [], 'dropped' => [], 'from' => ''],
             ['path' => 'patches/webform/menu.conflict.patch', 'provenance' => [], 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'Menu', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'dropped' => [], 'from' => ''],
-        ], 'refused' => [['package' => 'drupal/token', 'title' => 'Cache', 'path' => 'patches/token/cache.patch', 'reason' => 'changed', 'lifts' => '--force', 'shipped' => false]]]);
+        ], 'refused' => [['package' => 'drupal/token', 'title' => 'Cache', 'path' => 'patches/token/cache.patch', 'reason' => 'changed', 'lifts' => '--force', 'shipped' => false]]];
 
-        $document = $outcomes->intoDocument($raw);
+        $document = Report::json($plan, $write, null);
 
         $rows = $document['plan']['patches'];
         self::assertSame(['status' => 'clean', 'patch' => '', 'path' => 'patches/webform/fix.patch'], $rows[0]['result']['reroll']);
@@ -175,13 +175,13 @@ class OutcomeTest extends TestCase
         self::assertSame([['file' => 'a.php', 'regions' => 1]], $rows[1]['result']['reroll']['conflicts'], 'the regions stay');
         self::assertSame("refused diff\n", $rows[2]['result']['reroll']['patch'], 'a refused row keeps its text');
         self::assertArrayNotHasKey('path', $rows[2]['result']['reroll']);
-        self::assertSame(['exit_code' => 1], $document['summary'], 'nothing else in the document moves');
+        self::assertSame([['path' => 'patches/token/cache.patch', 'reason' => 'changed']], $document['refused']);
     }
 
     public function testARunThatWroteNothingLeavesTheDocumentAlone(): void
     {
-        $raw = ['plan' => ['patches' => [['package' => 'drupal/webform', 'title' => 'Fix', 'result' => ['reroll' => ['patch' => "d\n"]]]]]];
+        $plan = $this->planFrom(['patches' => [$this->row(['title' => 'Fix', 'result' => ['reroll' => ['patch' => "d\n"]]])]]);
 
-        self::assertSame($raw, Outcomes::fromWrite(['written' => [], 'refused' => []])->intoDocument($raw));
+        self::assertSame($plan->document()['plan'], Report::json($plan, ['written' => [], 'refused' => []], null)['plan']);
     }
 }

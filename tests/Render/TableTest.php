@@ -6,42 +6,85 @@ namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Render\Coverage;
-use TresBienTech\Drupatch\Render\Outcomes;
+use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
 /**
- * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Render\Outcomes
+ * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Write\PatchFiles
+ * @phpstan-import-type Coverage from \TresBienTech\Drupatch\Read\Run
+ * @phpstan-import-type Section from Report
+ * @phpstan-import-type Write from Report
+ * @phpstan-import-type Rewrite from Report
  */
 class TableTest extends TestCase
 {
     use PlanFactory;
 
+    /** The sections a plain run's table is made of. */
+    private const TABLE = ['headline', 'warnings', 'unjudged', 'package', 'tally', 'unpinned'];
+
     /**
      * The table for a run that judged every patch the site declared.
      *
+     * @param Write|null $write
+     *
      * @return list<string>
      */
-    private static function table(Plan $plan, int $width = 100, ?Outcomes $outcomes = null): array
+    private static function table(Plan $plan, int $width = 100, ?array $write = null): array
     {
-        return Report::lines($plan, self::covered($plan), $width, $outcomes);
+        return self::only(self::TABLE, Report::check($plan, self::covered($plan), $write, null, $width, [], false));
     }
 
     /**
      * The whole report for such a run.
      *
+     * @param Write|null   $write
+     * @param Rewrite|null $rewrite
+     *
      * @return list<string>
      */
-    private static function whole(Plan $plan, ?Outcomes $outcomes, int $width): array
+    private static function whole(Plan $plan, ?array $write, int $width, ?array $rewrite = null): array
     {
-        return Report::report($plan, self::covered($plan), $outcomes, $width);
+        return Report::print(Report::check($plan, self::covered($plan), $write, $rewrite, $width, [], false));
     }
 
-    private static function covered(Plan $plan): Coverage
+    /**
+     * What a re-roll run prints about what it did, section by section, over a plan with no rows unless one is given.
+     *
+     * @param list<string> $names
+     * @param Write|null   $write
+     * @param Rewrite|null $rewrite
+     *
+     * @return list<string>
+     */
+    private static function sections(array $names, ?array $write, ?array $rewrite = null, bool $testsNamed = false, ?Plan $plan = null): array
     {
-        return new Coverage(\count($plan->patches), [], [], []);
+        $plan ??= Plan::fromArray(self::wire(['target_core' => '11.4.5', 'counts' => [], 'patches' => []]), [], null, Scope::whole());
+
+        return self::only($names, Report::check($plan, self::covered($plan), $write, $rewrite, 100, [], $testsNamed));
+    }
+
+    /**
+     * The named sections, printed.
+     *
+     * @param list<string>  $names
+     * @param list<Section> $sections
+     *
+     * @return list<string>
+     */
+    private static function only(array $names, array $sections): array
+    {
+        return Report::print(\array_values(\array_filter($sections, static fn (array $section): bool => \in_array($section['name'], $names, true))));
+    }
+
+    /**
+     * @return Coverage
+     */
+    private static function covered(Plan $plan): array
+    {
+        return ['checked' => \count($plan->rows()), 'skipped' => [], 'unsent' => [], 'versions' => []];
     }
 
     /**
@@ -49,15 +92,16 @@ class TableTest extends TestCase
      *
      * @param list<array{package: string, title: string, reason: string}>                 $skipped
      * @param list<array{package: string, title: string, source: string, reason: string}> $unsent
+     * @param Write|null                                                                  $write
      *
      * @return list<string>
      */
-    private static function tableWith(Plan $plan, array $skipped = [], array $unsent = [], ?Outcomes $outcomes = null): array
+    private static function tableWith(Plan $plan, array $skipped = [], array $unsent = [], ?array $write = null): array
     {
-        return Report::lines($plan, new Coverage(\count($plan->patches), $skipped, $unsent, [
+        return self::only(self::TABLE, Report::check($plan, ['checked' => \count($plan->rows()), 'skipped' => $skipped, 'unsent' => $unsent, 'versions' => [
             'drupal/webform' => '6.2.9',
             'acquia/cohesion' => '7.6.1',
-        ]), 100, $outcomes);
+        ]], $write, null, 100, [], false));
     }
 
     // A re-roll run did nothing about a package the service does not
@@ -66,7 +110,7 @@ class TableTest extends TestCase
     {
         $skipped = [['package' => 'acquia/cohesion', 'title' => 'Page builder fix', 'reason' => 'not a drupal.org project']];
 
-        $lines = self::tableWith($this->plan(), $skipped, [], Outcomes::fromWrite(['written' => [], 'refused' => []]));
+        $lines = self::tableWith($this->plan(), $skipped, [], ['written' => [], 'refused' => []]);
 
         self::assertStringNotContainsString('acquia/cohesion', \implode("\n", $lines));
         self::assertSame('', $lines[1]);
@@ -80,7 +124,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => [], 'patches' => []]);
         $skipped = [['package' => 'acquia/cohesion', 'title' => 'Fix', 'reason' => 'not a drupal.org project']];
 
-        $lines = self::tableWith($plan, $skipped, [], Outcomes::fromWrite(['written' => [], 'refused' => []]));
+        $lines = self::tableWith($plan, $skipped, [], ['written' => [], 'refused' => []]);
 
         self::assertSame('<comment>Drupal Patch Check: no patch could be checked; the reasons are below</comment>', $lines[0]);
         self::assertSame('  <comment>acquia/cohesion 7.6.1   1 patch skipped (not a drupal.org project)</comment>', $lines[2]);
@@ -186,7 +230,7 @@ class TableTest extends TestCase
     {
         $written = $this->writtenFile('patch/webform/22.patch', 'clean', 'drupal/webform', 'Fix a');
         $written['from'] = 'https://git.drupalcode.org/project/webform/-/merge_requests/22.patch';
-        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+        $out = \implode("\n", self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]));
 
         self::assertStringContainsString('      copied into the site from https://git.drupalcode.org/project/webform/-/merge_requests/22.patch', $out);
         self::assertStringContainsString('      send your re-roll to that merge request and every site using it is fixed', $out);
@@ -206,14 +250,17 @@ class TableTest extends TestCase
     public function testARerollOfALocalPatchPointsNowhere(): void
     {
         $written = $this->writtenFile('patchs/webform/fix.patch');
-        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+        $out = \implode("\n", self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]));
 
         self::assertStringNotContainsString('merge request', $out);
     }
 
-    private static function wrote(): Outcomes
+    /**
+     * @return Write
+     */
+    private static function wrote(): array
     {
-        return Outcomes::fromWrite(['written' => [], 'refused' => []]);
+        return ['written' => [], 'refused' => []];
     }
 
     private function fromMergeRequest(string $verdict): Plan
@@ -482,7 +529,7 @@ class TableTest extends TestCase
         $lines = self::table($plan);
         $row = self::rowWith($lines, '<error>!</error> conflicts Fix the alter hook');
 
-        self::assertSame('                    <fg=cyan>the re-roll left out 2 test files, so your patch carries the fix alone</>', $lines[$row + 1]);
+        self::assertSame('                    <fg=cyan>the re-roll left out 2 test files, so your patch holds the fix alone</>', $lines[$row + 1]);
     }
 
     // A row that only broke because of an earlier patch must say so, or
@@ -625,7 +672,7 @@ class TableTest extends TestCase
             $this->row(['title' => 'Broken', 'verdict' => 'conflicts']),
         ]]);
 
-        $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [], 'refused' => []]), 100));
+        $out = \implode("\n", self::whole($plan, ['written' => [], 'refused' => []], 100));
 
         self::assertStringNotContainsString('Quiet', $out);
         self::assertStringNotContainsString('Broken', $out);
@@ -643,7 +690,7 @@ class TableTest extends TestCase
         ]]);
         $written = $this->writtenFile('patches/webform/a.patch', 'clean', 'drupal/webform', 'Fix a', true);
 
-        $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
+        $out = \implode("\n", self::whole($plan, ['written' => [$written], 'refused' => []], 100));
 
         self::assertStringContainsString('  patches: 1 now applies, 1 conflicts left', $out);
     }
@@ -661,7 +708,7 @@ class TableTest extends TestCase
             $this->writtenFile('patches/webform/b.conflict.patch', 'conflicts', 'drupal/webform', 'Fix b', false, 2),
         ];
 
-        $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => $written, 'refused' => []]), 100));
+        $out = \implode("\n", self::whole($plan, ['written' => $written, 'refused' => []], 100));
 
         self::assertStringContainsString('  patches: 2 conflicts left', $out);
         self::assertStringNotContainsString('now appl', $out);
@@ -705,10 +752,10 @@ class TableTest extends TestCase
             $this->row(['title' => 'Menu cache', 'verdict' => 'merged']),
             $this->row(['title' => 'Fix b', 'verdict' => 'conflicts']),
         ]]);
-        $outcomes = Outcomes::fromWrite(['written' => [], 'refused' => []]);
-        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '', 'provenance' => []]], 'composer.json');
+        $outcomes = ['written' => [], 'refused' => []];
+        $rewrite = ['changes' => [['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Menu cache', 'path' => '', 'provenance' => []]], 'declaration' => 'composer.json'];
 
-        $out = \implode("\n", self::whole($plan, $outcomes, 100));
+        $out = \implode("\n", self::whole($plan, $outcomes, 100, $rewrite));
 
         self::assertStringContainsString('  patches: 1 conflicts left', $out);
         self::assertStringNotContainsString('to drop', $out);
@@ -1068,7 +1115,7 @@ class TableTest extends TestCase
     public function testTheWrittenFilesPrintAboveTheFooter(): void
     {
         $result = ['written' => [$this->writtenFile('patchs/webform.patch')], 'refused' => [['package' => 'drupal/core', 'title' => 'Fix a', 'path' => 'patches/core/a.patch', 'reason' => WorkingTree::UNCOMMITTED, 'lifts' => '--force', 'shipped' => false]]];
-        $lines = self::whole($this->plan(), Outcomes::fromWrite($result), 100);
+        $lines = self::whole($this->plan(), $result, 100);
 
         $wrote = self::indexOfLineContaining($lines, 'patchs/webform.patch');
         $footer = self::indexOfLineContaining($lines, '--force');
@@ -1081,7 +1128,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row()]]);
         $lines = self::whole($plan, null, 100);
 
-        self::assertSame([], Report::footer($plan));
+        self::assertSame([], self::sections(['next'], null, null, false, $plan));
         self::assertStringNotContainsString('Next:', \implode("\n", $lines));
     }
 
@@ -1092,13 +1139,13 @@ class TableTest extends TestCase
 
         self::assertSame(
             \array_merge(
-                self::table($plan, 100, Outcomes::fromWrite($result)),
-                Report::written(Outcomes::fromWrite($result)),
-                Report::refused(Outcomes::fromWrite($result)),
-                Report::rewrite(Outcomes::fromWrite($result)),
-                Report::footer($plan, Outcomes::fromWrite($result)),
+                self::table($plan, 100, $result),
+                self::sections(['re-rolled', 'conflicted'], $result),
+                self::sections(['refused'], $result),
+                self::sections(['rewrite'], $result),
+                self::sections(['next'], $result, null, false, $plan),
             ),
-            self::whole($plan, Outcomes::fromWrite($result), 100),
+            self::whole($plan, $result, 100),
         );
     }
 
@@ -1328,7 +1375,7 @@ class TableTest extends TestCase
     public function testAVerifiedRerollIsListedWithItsStatusBelowTheTally(): void
     {
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'verified' => true], ['title' => 'Fix a'])]]);
-        $lines = self::whole($plan, Outcomes::fromWrite(['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []]), 100);
+        $lines = self::whole($plan, ['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []], 100);
 
         $wrote = self::indexOfLineContaining($lines, 'patches/webform/fix.patch');
         self::assertSame('  re-rolled:', $lines[$wrote - 1]);
@@ -1340,7 +1387,7 @@ class TableTest extends TestCase
     {
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'conflicts'], ['title' => 'Fix a'])]]);
         $written = $this->writtenFile('patches/webform/fix.conflict.patch', 'conflicts', 'drupal/webform', 'Fix a', false, 3);
-        $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
+        $out = \implode("\n", self::whole($plan, ['written' => [$written], 'refused' => []], 100));
 
         self::assertStringContainsString('  re-rolled with conflicts:', $out);
         self::assertStringContainsString('    patches/webform/fix.conflict.patch  (3 regions to decide)', $out);
@@ -1349,7 +1396,7 @@ class TableTest extends TestCase
     public function testEachOpenRegionIsPrintedWithItsFileAndIndex(): void
     {
         $written = $this->writtenFile('patches/webform/fix.conflict.patch', 'conflicts', 'drupal/webform', 'Fix a', false, 2, 'src/Manager.php');
-        $lines = Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []]));
+        $lines = self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]);
 
         $at = self::indexOfLineContaining($lines, 'patches/webform/fix.conflict.patch');
         self::assertSame('      src/Manager.php region 0', $lines[$at + 1]);
@@ -1359,7 +1406,7 @@ class TableTest extends TestCase
     public function testTheRegionLinesCountWhatTheHeadingCounts(): void
     {
         $written = $this->writtenFile('patches/webform/fix.conflict.patch', 'conflicts', 'drupal/webform', 'Fix a', false, 4, 'src/Manager.php');
-        $lines = Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []]));
+        $lines = self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]);
 
         self::assertStringContainsString('(4 regions to decide)', \implode("\n", $lines));
         self::assertCount(4, \array_filter($lines, static fn (string $line): bool => \str_contains($line, ' region ')));
@@ -1370,7 +1417,7 @@ class TableTest extends TestCase
         $written = $this->writtenFile('patches/webform/fix.conflict.patch', 'conflicts', 'drupal/webform', 'Fix a', false, 1);
         $written['regions'] = 2;
         $written['open'] = [['file' => 'src/Manager.php', 'region' => 0], ['file' => 'config/services.yml', 'region' => 0]];
-        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+        $out = \implode("\n", self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]));
 
         self::assertStringContainsString('      src/Manager.php region 0', $out);
         self::assertStringContainsString('      config/services.yml region 0', $out);
@@ -1380,7 +1427,7 @@ class TableTest extends TestCase
     {
         $written = $this->writtenFile('patchs/claro.conflict.patch', 'conflicts', 'drupal/core', 'Override claro preprocess', false, 0);
         $written['removed'] = ['core/themes/claro/claro.theme'];
-        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+        $out = \implode("\n", self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]));
 
         self::assertStringContainsString('    patchs/claro.conflict.patch  (the release removed core/themes/claro/claro.theme)', $out);
         self::assertStringNotContainsString('regions to decide', $out);
@@ -1390,7 +1437,7 @@ class TableTest extends TestCase
     {
         $written = $this->writtenFile('patchs/mixed.conflict.patch', 'conflicts', 'drupal/core', 'Fix a', false, 1, 'src/Kept.php');
         $written['removed'] = ['src/Gone.php'];
-        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+        $out = \implode("\n", self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]));
 
         self::assertStringContainsString('(1 region to decide)', $out);
         self::assertStringContainsString('      src/Kept.php region 0', $out);
@@ -1402,12 +1449,12 @@ class TableTest extends TestCase
         $written = $this->writtenFile('patchs/claro.conflict.patch', 'conflicts', 'drupal/core', 'Fix a', false, 0);
         $written['removed'] = ['core/themes/claro/claro.theme'];
 
-        self::assertSame([], Report::nextSteps([], Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+        self::assertSame([], Report::nextSteps([], ['written' => [$written], 'refused' => []], null));
     }
 
     public function testACleanRerollPrintsNoRegionLine(): void
     {
-        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []])));
+        $out = \implode("\n", self::sections(['re-rolled', 'conflicted'], ['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []]));
 
         self::assertStringNotContainsString(' region ', $out);
     }
@@ -1422,7 +1469,7 @@ class TableTest extends TestCase
     public function testOneOpenRegionIsSingular(): void
     {
         $written = $this->writtenFile('patches/webform/fix.conflict.patch', 'conflicts', 'drupal/webform', 'Fix a', false, 1);
-        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+        $out = \implode("\n", self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]));
 
         self::assertStringContainsString('(1 region to decide)', $out);
     }
@@ -1430,7 +1477,7 @@ class TableTest extends TestCase
     public function testNothingPrintsUnderARowForTheWriteItself(): void
     {
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean', 'verified' => true], ['title' => 'Fix a'])]]);
-        $lines = self::whole($plan, Outcomes::fromWrite(['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []]), 100);
+        $lines = self::whole($plan, ['written' => [$this->writtenFile('patches/webform/fix.patch')], 'refused' => []], 100);
 
         $wrote = self::indexOfLineContaining($lines, 'patches/webform/fix.patch');
         self::assertSame('', $lines[$wrote + 1] ?? '');
@@ -1438,8 +1485,8 @@ class TableTest extends TestCase
 
     public function testARunThatWroteNothingListsNothing(): void
     {
-        self::assertSame([], Report::written(null));
-        self::assertSame([], Report::written(Outcomes::fromWrite(['written' => [], 'refused' => []])));
+        self::assertSame([], self::sections(['re-rolled', 'conflicted'], null));
+        self::assertSame([], self::sections(['re-rolled', 'conflicted'], ['written' => [], 'refused' => []]));
     }
 
     /**
@@ -1450,7 +1497,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => ['conflicts' => 1], 'patches' => [$this->rerolledRow(['status' => 'clean'], ['title' => 'Fix a'])]]);
         $refusal = ['package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patches/webform/fix.patch', 'reason' => $reason, 'lifts' => $lifts, 'shipped' => false];
 
-        return self::whole($plan, Outcomes::fromWrite(['written' => [], 'refused' => [$refusal]]), 100);
+        return self::whole($plan, ['written' => [], 'refused' => [$refusal]], 100);
     }
 
     public function testARefusalIsListedWithItsReasonBelowTheTally(): void
@@ -1466,10 +1513,10 @@ class TableTest extends TestCase
 
     public function testRefusalsSharingAReasonPrintItOnce(): void
     {
-        $lines = \implode("\n", Report::refused(Outcomes::fromWrite(['written' => [], 'refused' => [
+        $lines = \implode("\n", self::sections(['refused'], ['written' => [], 'refused' => [
             ['package' => 'drupal/core', 'title' => 'Fix a', 'path' => 'patches/core/a.patch', 'reason' => WorkingTree::NOT_A_CHECKOUT, 'lifts' => '--force', 'shipped' => false],
             ['package' => 'drupal/pathauto', 'title' => 'Fix b', 'path' => 'patches/pathauto/b.patch', 'reason' => WorkingTree::NOT_A_CHECKOUT, 'lifts' => '--force', 'shipped' => false],
-        ]])));
+        ]]));
 
         self::assertSame(1, \substr_count($lines, WorkingTree::NOT_A_CHECKOUT));
         self::assertStringContainsString('drupal/core', $lines);
@@ -1481,12 +1528,12 @@ class TableTest extends TestCase
     // falls, and the patches under it keep their declared order.
     public function testRefusalsKeepTheOrderTheSiteDeclaresThem(): void
     {
-        $lines = Report::refused(Outcomes::fromWrite(['written' => [], 'refused' => [
+        $lines = self::sections(['refused'], ['written' => [], 'refused' => [
             ['package' => 'drupal/z', 'title' => 'Set placeholder', 'path' => 'patches/z/placeholder.patch', 'reason' => WorkingTree::UNCOMMITTED, 'lifts' => '--force', 'shipped' => false],
             ['package' => 'drupal/z', 'title' => 'Fix SVG', 'path' => 'patches/z/svg.patch', 'reason' => WorkingTree::UNCOMMITTED, 'lifts' => '--force', 'shipped' => false],
             ['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'patches/a/a.patch', 'reason' => WorkingTree::NOT_A_CHECKOUT, 'lifts' => '--force', 'shipped' => false],
             ['package' => 'drupal/m', 'title' => 'Fix m', 'path' => 'patches/m/m.patch', 'reason' => WorkingTree::UNCOMMITTED, 'lifts' => '--force', 'shipped' => false],
-        ]]));
+        ]]);
 
         self::assertSame([
             '',
@@ -1502,8 +1549,8 @@ class TableTest extends TestCase
 
     public function testNothingRefusedPrintsNothing(): void
     {
-        self::assertSame([], Report::refused(null));
-        self::assertSame([], Report::refused(Outcomes::fromWrite(['written' => [], 'refused' => []])));
+        self::assertSame([], self::sections(['refused'], null));
+        self::assertSame([], self::sections(['refused'], ['written' => [], 'refused' => []]));
     }
 
     // The release carries the patch, so the run has nothing to write and
@@ -1520,7 +1567,7 @@ class TableTest extends TestCase
             ['package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patches/webform/fix.patch', 'reason' => WorkingTree::UNCOMMITTED, 'lifts' => '--force', 'shipped' => false],
         ];
 
-        $lines = self::whole($plan, Outcomes::fromWrite(['written' => [], 'refused' => $refused]), 100);
+        $lines = self::whole($plan, ['written' => [], 'refused' => $refused], 100);
 
         $block = self::indexOfLineContaining($lines, 'already in the release, drop it:');
         self::assertGreaterThan(self::indexOfLineContaining($lines, 'patches: '), $block);
@@ -1540,10 +1587,10 @@ class TableTest extends TestCase
             $this->row(['package' => 'drupal/geoip', 'title' => 'Automated Drupal 10 compatibility fixes', 'verdict' => 'merged']),
         ]]);
         $refused = [['package' => 'drupal/geoip', 'title' => 'Automated Drupal 10 compatibility fixes', 'path' => 'https://www.drupal.org/files/issues/2023-06-16/gepop.3.0.x-update-to-d10.patch', 'reason' => 'the merge changes nothing: the patch is already in the release', 'lifts' => '', 'shipped' => true]];
-        $outcomes = Outcomes::fromWrite(['written' => [], 'refused' => $refused]);
-        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/geoip', 'title' => 'Automated Drupal 10 compatibility fixes', 'path' => '', 'provenance' => []]], 'composer.json');
+        $outcomes = ['written' => [], 'refused' => $refused];
+        $rewrite = ['changes' => [['action' => 'dropped', 'package' => 'drupal/geoip', 'title' => 'Automated Drupal 10 compatibility fixes', 'path' => '', 'provenance' => []]], 'declaration' => 'composer.json'];
 
-        $lines = self::whole($plan, $outcomes, 100);
+        $lines = self::whole($plan, $outcomes, 100, $rewrite);
 
         $block = self::indexOfLineContaining($lines, 'already in the release, dropped:');
         self::assertSame('    drupal/geoip: Automated Drupal 10 compatibility fixes', $lines[$block + 1]);
@@ -1559,8 +1606,8 @@ class TableTest extends TestCase
             ['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'patches/a.patch', 'reason' => 'the merge changes nothing: the patch is already in the release', 'lifts' => '', 'shipped' => true],
             ['package' => 'drupal/b', 'title' => 'Fix b', 'path' => 'patches/b.patch', 'reason' => 'the merge changes nothing: the patch is already in the release', 'lifts' => '', 'shipped' => true],
         ];
-        $outcomes = Outcomes::fromWrite(['written' => [], 'refused' => $refused]);
-        $outcomes->recordFix([['action' => 'dropped', 'package' => 'drupal/a', 'title' => 'Fix a', 'path' => '', 'provenance' => []]], 'composer.json');
+        $outcomes = ['written' => [], 'refused' => $refused];
+        $rewrite = ['changes' => [['action' => 'dropped', 'package' => 'drupal/a', 'title' => 'Fix a', 'path' => '', 'provenance' => []]], 'declaration' => 'composer.json'];
 
         self::assertSame([
             '',
@@ -1571,7 +1618,7 @@ class TableTest extends TestCase
             '  already in the release, dropped:',
             '    drupal/a: Fix a',
             '      patches/a.patch',
-        ], Report::shipped($outcomes));
+        ], self::sections(['shipped', 'dropped'], $outcomes, $rewrite));
     }
 
     public function testNothingShippedPrintsNoBlock(): void
@@ -1579,7 +1626,7 @@ class TableTest extends TestCase
         $lines = $this->refusedRun(WorkingTree::UNCOMMITTED, '--force');
 
         self::assertStringNotContainsString('already in the release', \implode("\n", $lines));
-        self::assertSame([], Report::shipped(null));
+        self::assertSame([], self::sections(['shipped', 'dropped'], null));
     }
 
     // Every refusal was a shipped patch: the block says it all, and an
@@ -1588,7 +1635,7 @@ class TableTest extends TestCase
     {
         $refused = [['package' => 'drupal/geoip', 'title' => 'Fix a', 'path' => 'patches/geoip/a.patch', 'reason' => 'the merge changes nothing: the patch is already in the release', 'lifts' => '', 'shipped' => true]];
 
-        self::assertSame([], Report::refused(Outcomes::fromWrite(['written' => [], 'refused' => $refused])));
+        self::assertSame([], self::sections(['refused'], ['written' => [], 'refused' => $refused]));
     }
 
     /**
@@ -1599,10 +1646,10 @@ class TableTest extends TestCase
      */
     private function fixRun(Plan $plan, array $changes, string $declaration = 'composer.json', array $written = []): array
     {
-        $outcomes = Outcomes::fromWrite(['written' => $written, 'refused' => []]);
-        $outcomes->recordFix($changes, $declaration);
+        $outcomes = ['written' => $written, 'refused' => []];
+        $rewrite = ['changes' => $changes, 'declaration' => $declaration];
 
-        return self::whole($plan, $outcomes, 100);
+        return self::whole($plan, $outcomes, 100, $rewrite);
     }
 
     public function testADroppedEntryIsListedUnderTheFileItLeft(): void
@@ -1696,7 +1743,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['target_is_installed' => true, 'counts' => ['conflicts' => 1], 'patches' => [$this->row(['verdict' => 'conflicts'])]]);
 
         self::assertStringContainsString(
-            '  composer already applied these patches to your files',
+            '  <comment>composer already applied these patches to your files</comment>',
             \implode("\n", self::whole($plan, null, 100)),
         );
     }
@@ -1730,7 +1777,7 @@ class TableTest extends TestCase
             $this->rerolledRow(['status' => 'conflicts', 'patch' => "diff\n"], ['title' => 'Fix b']),
         ]]);
         $written = $this->writtenFile('patches/webform/fix.patch', 'clean', 'drupal/webform', 'Fix a');
-        $out = \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100));
+        $out = \implode("\n", self::whole($plan, ['written' => [$written], 'refused' => []], 100));
 
         self::assertStringContainsString('1 now applies', $out);
         self::assertStringContainsString('conflicts left', $out, 'a conflict is still open, and the caveat still stays out');
@@ -1748,7 +1795,7 @@ class TableTest extends TestCase
     {
         $written = $this->writtenFile('patches/redirect/45.patch', 'clean', 'drupal/redirect', 'Alias guidance');
         $written['from'] = 'https://git.drupalcode.org/project/redirect/-/merge_requests/45.patch';
-        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+        $out = \implode("\n", self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]));
 
         self::assertStringContainsString('    patches/redirect/45.patch  (verified against the release)', $out);
         self::assertStringContainsString('      copied into the site from https://git.drupalcode.org/project/redirect/-/merge_requests/45.patch', $out);
@@ -1757,7 +1804,7 @@ class TableTest extends TestCase
     public function testAPatchTheSiteAlreadyDeclaredAsAFileIsNotCalledCopied(): void
     {
         $written = $this->writtenFile('patchs/webform/fix.patch');
-        $out = \implode("\n", Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []])));
+        $out = \implode("\n", self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]));
 
         self::assertStringNotContainsString('copied into the site', $out);
     }
@@ -1770,7 +1817,7 @@ class TableTest extends TestCase
 
         self::assertStringContainsString(
             '      copied into the site from https://example.test/fix.patch',
-            \implode("\n", self::whole($plan, Outcomes::fromWrite(['written' => [$written], 'refused' => []]), 100)),
+            \implode("\n", self::whole($plan, ['written' => [$written], 'refused' => []], 100)),
         );
     }
 
@@ -1782,7 +1829,7 @@ class TableTest extends TestCase
         ]);
         $wrote = ['written' => [$this->writtenFile('patches/a.patch')], 'refused' => []];
 
-        self::assertStringNotContainsString('writes the re-roll', \implode("\n", self::whole($plan, Outcomes::fromWrite($wrote), 100)));
+        self::assertStringNotContainsString('writes the re-roll', \implode("\n", self::whole($plan, $wrote, 100)));
     }
 
     public function testAReportOfARunThatDidNotWriteStillSuggestsTheFlag(): void
@@ -1806,7 +1853,7 @@ class TableTest extends TestCase
             ['package' => 'drupal/a', 'title' => 'Fix a', 'path' => 'patches/a.patch', 'reason' => WorkingTree::NOT_A_CHECKOUT, 'lifts' => '--force', 'shipped' => false],
         ]];
 
-        self::assertSame(self::whole($plan, Outcomes::fromWrite($wrote), 100), self::whole($plan, Outcomes::fromWrite($wrote), 100));
+        self::assertSame(self::whole($plan, $wrote, 100), self::whole($plan, $wrote, 100));
     }
 
     public function testSaysHowManyRegionsTheMergeDecidedOnItsOwn(): void
@@ -1839,7 +1886,7 @@ class TableTest extends TestCase
     public function testNamesTheRegionsTheMergeDecidedBesideTheFileItWrote(): void
     {
         $written = ['unioned' => [['file' => 'src/Form.php', 'line' => 12], ['file' => 'src/Batch.php', 'line' => 40]]] + $this->writtenFile('patches/webform-fix-a-1234abcd.patch');
-        $lines = Report::written(Outcomes::fromWrite(['written' => [$written], 'refused' => []]));
+        $lines = self::sections(['re-rolled', 'conflicted'], ['written' => [$written], 'refused' => []]);
 
         self::assertSame('  re-rolled:', $lines[1]);
         self::assertStringContainsString('patches/webform-fix-a-1234abcd.patch', $lines[2]);
@@ -1896,7 +1943,7 @@ class TableTest extends TestCase
 
         self::assertStringContainsString('<error>!</error> applies', $lines[$at], 'the cell keeps the verdict, the mark says there is work');
         self::assertSame(
-            Report::detailIndent().'<fg=cyan>broken syntax: src/A.php: Cannot use A\\C as C because the name is already in use on line 118</>',
+            \str_repeat(' ', Report::PREFIX).'<fg=cyan>broken syntax: src/A.php: Cannot use A\\C as C because the name is already in use on line 118</>',
             $lines[$at + 1],
         );
     }

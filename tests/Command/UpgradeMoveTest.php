@@ -12,9 +12,9 @@ use TresBienTech\Drupatch\Command\UpgradeCommand;
 use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\ManagerCommands;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Render\UpgradeReport;
+use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Settings;
-use TresBienTech\Drupatch\Write\Upgrade;
+use TresBienTech\Drupatch\Write\Declarations;
 
 /**
  * The move driven end to end against a site on disk, because the two
@@ -103,6 +103,15 @@ class UpgradeMoveTest extends TestCase
         self::assertFalse($this->server?->request()['drop_tests'] ?? null);
     }
 
+    // The service's copy of the release data can lag a project by months,
+    // so what the site has in its own vendor directory travels with the move.
+    public function testTheMoveSendsWhatEachInstalledReleaseDeclares(): void
+    {
+        $this->drive(self::onOne()->declaresCore('^10.3 || ^11'), self::fuzzy());
+
+        self::assertSame(['drupal/webform' => '^10.3 || ^11'], (array) ($this->server?->request()['installed_core'] ?? []));
+    }
+
     public function testAMoveNamingNoFlagSendsNoChoice(): void
     {
         $this->drive(self::onOne(), self::fuzzy());
@@ -122,7 +131,7 @@ class UpgradeMoveTest extends TestCase
             $patches['patches']['drupal/webform'] ?? null
         );
         $json = $this->json('composer.json');
-        self::assertSame(Upgrade::CONSTRAINT, $json['require'][Manager::PACKAGE] ?? null);
+        self::assertSame(Declarations::CONSTRAINT, $json['require'][Manager::PACKAGE] ?? null);
         self::assertArrayNotHasKey('patches', (array) $json['extra']);
         self::assertSame(UpgradeCommand::PATCHES_FILE, $json['extra'][Settings::KEY]['patches-file'] ?? null);
         self::assertSame(['update', ManagerCommands::RELOCK, ManagerCommands::REPATCH], $this->composer->commands());
@@ -139,7 +148,7 @@ class UpgradeMoveTest extends TestCase
         $tester = $this->drive(self::onOne(), self::fuzzy());
 
         self::assertSame(Plan::ACTION_NEEDED, $tester->getStatusCode());
-        self::assertSame(Upgrade::CONSTRAINT, $this->json('composer.json')['require'][Manager::PACKAGE] ?? null);
+        self::assertSame(Declarations::CONSTRAINT, $this->json('composer.json')['require'][Manager::PACKAGE] ?? null);
         self::assertTrue($this->site?->has(UpgradeCommand::PATCHES_FILE));
         self::assertSame(['update'], $this->composer->commands());
         self::assertStringContainsString(
@@ -190,7 +199,7 @@ class UpgradeMoveTest extends TestCase
         $tester = $this->drive(self::onOne(), ['verdict' => 'applies', 'result' => ['applies_at' => 1, 'fuzzy' => true, 'reroll' => $reroll]], ['--dry-run' => true]);
 
         self::assertStringContainsString('    drupal/webform    #1  leaves 2 regions to decide', $tester->getDisplay());
-        self::assertStringContainsString(UpgradeReport::STOPS, $tester->getDisplay());
+        self::assertStringContainsString(Report::STOPS, $tester->getDisplay());
     }
 
     // The service is asked about drupal.org packages alone, and the patches
@@ -254,7 +263,7 @@ class UpgradeMoveTest extends TestCase
         self::assertFalse($this->site?->has(UpgradeCommand::PATCHES_FILE));
         self::assertSame([], $this->composer->commands());
         self::assertStringContainsString('#1  no re-roll: reroll: git timed out', $tester->getDisplay());
-        self::assertStringContainsString(UpgradeReport::STAYED, $tester->getDisplay());
+        self::assertStringContainsString(Report::STAYED, $tester->getDisplay());
     }
 
     // The move rewrites composer.json whole, so an edit a person has not
@@ -294,7 +303,7 @@ class UpgradeMoveTest extends TestCase
     {
         $this->drive(self::onOne()->edits('composer.json'), self::fuzzy(), ['--force' => true]);
 
-        self::assertSame(Upgrade::CONSTRAINT, $this->json('composer.json')['require'][Manager::PACKAGE] ?? null);
+        self::assertSame(Declarations::CONSTRAINT, $this->json('composer.json')['require'][Manager::PACKAGE] ?? null);
     }
 
     public function testARenamedSettingCarriesOverAndADroppedOneGoes(): void
@@ -358,7 +367,7 @@ class UpgradeMoveTest extends TestCase
         self::assertArrayHasKey('patches', (array) $json['extra']);
         self::assertFalse($this->site?->has(UpgradeCommand::PATCHES_FILE));
         self::assertSame(['update', ManagerCommands::RELOCK, ManagerCommands::REPATCH], $this->composer->commands());
-        self::assertStringContainsString(UpgradeReport::RESUMED, $tester->getDisplay());
+        self::assertStringContainsString(Report::RESUMED, $tester->getDisplay());
         self::assertStringContainsString('moved to cweagans/composer-patches 2.x', $tester->getDisplay());
     }
 
@@ -378,6 +387,6 @@ class UpgradeMoveTest extends TestCase
 
         self::assertSame(Plan::CLEAN, $tester->getStatusCode());
         self::assertSame([], $this->composer->commands());
-        self::assertStringContainsString(UpgradeReport::RESUMED."\n  a real run finishes with:", $tester->getDisplay());
+        self::assertStringContainsString(Report::RESUMED."\n  a real run finishes with:", $tester->getDisplay());
     }
 }

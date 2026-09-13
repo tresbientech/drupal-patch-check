@@ -7,7 +7,6 @@ namespace TresBienTech\Drupatch\Tests\Render;
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Read\Scope;
-use TresBienTech\Drupatch\Render\Outcomes;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 
@@ -15,7 +14,7 @@ class SummaryTest extends TestCase
 {
     use PlanFactory;
 
-    private function plan(): Plan
+    private function plan(?Scope $scope = null): Plan
     {
         return $this->planFrom([
             'target_core' => '11.4.5',
@@ -26,12 +25,12 @@ class SummaryTest extends TestCase
                 $this->row(['package' => 'drupal/token', 'verdict' => 'merged', 'title' => 'c']),
                 $this->row(['package' => 'drupal/autotitle', 'verdict' => 'unknown', 'title' => 'd']),
             ],
-        ]);
+        ], null, $scope);
     }
 
     public function testNamesThePackagesBehindEachFinding(): void
     {
-        $summary = Report::summary($this->plan());
+        $summary = Report::summary($this->plan(), null, null);
 
         self::assertSame(['drupal/webform'], $summary['conflicts']);
         self::assertSame(['drupal/autotitle'], $summary['unclear']);
@@ -44,31 +43,31 @@ class SummaryTest extends TestCase
     {
         $plan = $this->plan();
 
-        $counts = Report::summary($plan)['counts'] ?? [];
+        $counts = Report::summary($plan, null, null)['counts'] ?? [];
 
-        self::assertSame(\count($plan->patches), \array_sum($counts));
+        self::assertSame(\count($plan->rows()), \array_sum($counts));
         self::assertSame(['applies' => 1, 'conflicts' => 1, 'merged' => 1, 'unknown' => 1], $counts);
     }
 
     public function testNamesTheCommandsTheTableWouldOffer(): void
     {
-        self::assertSame([''], \array_column(Report::summary($this->plan())['next'], 'flag'));
-        self::assertSame([Report::REROLL], \array_column(Report::summary($this->plan())['next'], 'command'));
+        self::assertSame([''], \array_column(Report::summary($this->plan(), null, null)['next'], 'flag'));
+        self::assertSame([Report::REROLL], \array_column(Report::summary($this->plan(), null, null)['next'], 'command'));
     }
 
     public function testAPlanWithNothingToRunCarriesNoNext(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'applies'])]]);
 
-        self::assertArrayNotHasKey('next', Report::summary($plan));
+        self::assertArrayNotHasKey('next', Report::summary($plan, null, null));
     }
 
     public function testNamesResolveAfterARunWroteAConflictFile(): void
     {
         $wrote = ['written' => [['path' => 'patches/a.conflict.patch', 'provenance' => [], 'status' => 'conflicts', 'package' => 'drupal/webform', 'title' => 'a', 'verified' => false, 'unioned' => [], 'regions' => 1, 'open' => [['file' => 'src/A.php', 'region' => 0]], 'removed' => [], 'dropped' => [], 'from' => '']], 'refused' => []];
 
-        self::assertSame(['', ''], \array_column(Report::summary($this->plan(), Outcomes::fromWrite($wrote))['next'], 'flag'));
-        self::assertSame([Report::REROLL, Report::REROLL], \array_column(Report::summary($this->plan(), Outcomes::fromWrite($wrote))['next'], 'command'));
+        self::assertSame(['', ''], \array_column(Report::summary($this->plan(), $wrote, null)['next'], 'flag'));
+        self::assertSame([Report::REROLL, Report::REROLL], \array_column(Report::summary($this->plan(), $wrote, null)['next'], 'command'));
     }
 
     public function testAPackageIsNamedOnceHoweverManyRowsItHas(): void
@@ -78,14 +77,14 @@ class SummaryTest extends TestCase
             $this->row(['package' => 'drupal/webform', 'verdict' => 'conflicts', 'title' => 'b']),
         ]]);
 
-        self::assertSame(['drupal/webform'], Report::summary($plan)['conflicts']);
+        self::assertSame(['drupal/webform'], Report::summary($plan, null, null)['conflicts']);
     }
 
     public function testCarriesTheExitCodeTheRunWillUse(): void
     {
         $plan = $this->plan();
 
-        self::assertSame($plan->exitCode(), Report::summary($plan)['exit_code']);
+        self::assertSame($plan->exitCode(), Report::summary($plan, null, null)['exit_code']);
     }
 
     // Strict is off unless asked for, and a plan whose only findings are
@@ -99,17 +98,17 @@ class SummaryTest extends TestCase
             'patches' => [$this->row(['verdict' => 'unknown'])],
         ]);
 
-        self::assertSame(Plan::CLEAN, Report::summary($plan)['exit_code']);
+        self::assertSame(Plan::CLEAN, Report::summary($plan, null, null)['exit_code']);
     }
 
     public function testSaysWhatTheRunWasAbout(): void
     {
-        $summary = Report::summary($this->plan());
+        $summary = Report::summary($this->plan(), null, null);
 
         self::assertSame('11.4.5', $summary['target_core']);
         self::assertFalse($summary['target_is_installed']);
 
-        $bare = Report::summary($this->planFrom(['target_core' => '', 'target_is_installed' => true]));
+        $bare = Report::summary($this->planFrom(['target_core' => '', 'target_is_installed' => true]), null, null);
         self::assertSame('', $bare['target_core']);
         self::assertTrue($bare['target_is_installed']);
     }
@@ -122,7 +121,7 @@ class SummaryTest extends TestCase
             $this->row(['verdict' => 'applies', 'title' => 'c']),
         ]]);
 
-        self::assertSame(['applies' => 3], Report::summary($plan)['counts'] ?? []);
+        self::assertSame(['applies' => 3], Report::summary($plan, null, null)['counts'] ?? []);
     }
 
     public function testSaysWhichConstraintChoseTheTarget(): void
@@ -131,15 +130,15 @@ class SummaryTest extends TestCase
             'target_core' => '11.4.5',
             'target_from' => 'drupal/core-recommended',
             'plan' => ['patches' => []],
-        ]);
+        ], [], null, Scope::whole());
 
-        self::assertSame('drupal/core-recommended', Report::summary($resolved)['target_from']);
-        self::assertArrayNotHasKey('target_from', Report::summary($this->plan()), 'a named target chose itself');
+        self::assertSame('drupal/core-recommended', Report::summary($resolved, null, null)['target_from']);
+        self::assertArrayNotHasKey('target_from', Report::summary($this->plan(), null, null), 'a named target chose itself');
     }
 
     public function testNarrowingNarrowsTheSummaryWithEverythingElse(): void
     {
-        $summary = Report::summary($this->plan()->only(new Scope(['token'], [])));
+        $summary = Report::summary($this->plan(new Scope(['token'], [])), null, null);
 
         self::assertSame(['merged' => 1], $summary['counts']);
         self::assertSame([], $summary['conflicts']);
@@ -157,12 +156,12 @@ class SummaryTest extends TestCase
             $this->row(['package' => 'drupal/c', 'decided_by' => 'bundle']),
         ]]);
 
-        self::assertSame(['bundle' => 1, 'composer' => 2], Report::summary($plan)['decided_by'] ?? []);
+        self::assertSame(['bundle' => 1, 'composer' => 2], Report::summary($plan, null, null)['decided_by'] ?? []);
     }
 
     public function testSaysNothingAboutSourcesWhenNoRowNamesOne(): void
     {
-        self::assertSame([], Report::summary($this->plan())['decided_by'] ?? []);
+        self::assertSame([], Report::summary($this->plan(), null, null)['decided_by'] ?? []);
     }
 
     // The verdict alone says the patch applied, so a job that reads only
@@ -175,7 +174,7 @@ class SummaryTest extends TestCase
                 'syntax_errors' => ['src/A.php: unexpected } on line 4'],
             ]]),
             $this->row(['title' => 'Fix b']),
-        ]]));
+        ]]), null, null);
 
         self::assertSame(['applies' => 1, 'broken syntax' => 1], $summary['counts']);
         self::assertSame(['drupal/domain'], $summary['broken']);
@@ -184,7 +183,7 @@ class SummaryTest extends TestCase
 
     public function testASiteWithNothingToSayStillCarriesAShape(): void
     {
-        $summary = Report::summary($this->planFrom());
+        $summary = Report::summary($this->planFrom(), null, null);
 
         self::assertSame([], $summary['counts']);
         self::assertSame([], $summary['conflicts']);
@@ -209,13 +208,13 @@ class SummaryTest extends TestCase
                 'decided_by',
                 'exit_code',
             ],
-            \array_keys(Report::summary($this->planFrom())),
+            \array_keys(Report::summary($this->planFrom(), null, null)),
         );
     }
 
     public function testNoSummaryValueCarriesAMarkOrAnEllipsis(): void
     {
-        $encoded = (string) \json_encode(Report::summary($this->plan()));
+        $encoded = (string) \json_encode(Report::summary($this->plan(), null, null));
 
         foreach (['!', '?', '·', '✓', '…', 'Next:'] as $decoration) {
             self::assertStringNotContainsString($decoration, $encoded, 'the report\'s decoration reached the summary');

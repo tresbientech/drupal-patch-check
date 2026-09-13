@@ -18,6 +18,24 @@ class IssueReference
     /** The same issue as a GitLab work item. */
     private const WORK_ITEM = '#^https://git\.drupalcode\.org/project/([a-z0-9_]+)/-/work_items/(\d+)$#';
 
+    /** Core's drupal.org project, which holds its issues and merge requests. */
+    private const CORE_PROJECT = 'drupal';
+
+    /** The composer package core's project installs as. */
+    private const CORE_PACKAGE = 'drupal/core';
+
+    /** Core's composer packages, all in the project `drupal`. Composer takes them from Packagist rather than packages.drupal.org. */
+    public const CORE_PACKAGES = [
+        self::CORE_PACKAGE,
+        'drupal/core-recommended',
+        'drupal/core-composer-scaffold',
+        'drupal/core-dev',
+        'drupal/core-project-message',
+    ];
+
+    /** The vendor every other drupal.org project installs under. */
+    private const VENDOR = 'drupal/';
+
     private function __construct(
         /** The drupal.org machine name, which is also the GitLab project path. */
         public readonly string $project,
@@ -38,6 +56,30 @@ class IssueReference
         }
 
         return null;
+    }
+
+    /**
+     * The composer package a drupal.org project installs as: `drupal/core` for core's project `drupal`, `drupal/<project>` for every other.
+     */
+    public static function packageOf(string $project): string
+    {
+        return self::CORE_PROJECT === $project ? self::CORE_PACKAGE : self::VENDOR.$project;
+    }
+
+    /**
+     * The drupal.org project a composer package belongs to: `drupal` for every core package, the name after `drupal/` for every other.
+     */
+    public static function projectOf(string $package): string
+    {
+        return \in_array($package, self::CORE_PACKAGES, true) ? self::CORE_PROJECT : \str_replace(self::VENDOR, '', $package);
+    }
+
+    /**
+     * The folder a copy of a patch on this package goes under: the package's name after `drupal/`, so `core` for `drupal/core`.
+     */
+    public static function folderOf(string $package): string
+    {
+        return \str_replace(self::VENDOR, '', $package);
     }
 
     /** A drupal.org issue number as a declaration writes one, with no longer run of digits around it. */

@@ -1,0 +1,8 @@
+<info>Drupal Patch Check</info>: 1 patch for a move to core 11.4.5
+
+  drupal/webform 6.2.9   1 broken syntax
+     #1 <error>!</error> applies   Fix the alter hook                                                   alter.patch
+                    <fg=cyan>broken syntax: src/A.php: Cannot use A\C as C because the name is already in use on line 118</>
+                    <fg=cyan>broken syntax: webform.services.yml: mapping values are not allowed in this context on line 12</>
+
+  patches: 1 broken syntax

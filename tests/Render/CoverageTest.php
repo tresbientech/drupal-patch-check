@@ -5,10 +5,18 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Render\Coverage;
+use TresBienTech\Drupatch\Render\Report;
+use TresBienTech\Drupatch\Tests\PlanFactory;
 
-final class CoverageTest extends TestCase
+/**
+ * What a run did not judge: the patches it never sent, and the ones it sent without their text.
+ *
+ * @phpstan-import-type Coverage from \TresBienTech\Drupatch\Read\Run
+ */
+class CoverageTest extends TestCase
 {
+    use PlanFactory;
+
     private const FORK = 'not a drupal.org project';
 
     private const HOST = 'the service does not fetch from that host';
@@ -25,10 +33,7 @@ final class CoverageTest extends TestCase
             $this->skip('acquia/cohesion', 'Tmgmt issue fix'),
         ]);
 
-        self::assertSame(
-            ['acquia/cohesion 7.6.1   3 patches skipped (not a drupal.org project)'],
-            $coverage->unjudged([]),
-        );
+        self::assertSame(['acquia/cohesion 7.6.1   3 patches skipped (not a drupal.org project)'], $this->unjudged($coverage));
     }
 
     public function testTwoPackagesGetALineEach(): void
@@ -42,7 +47,7 @@ final class CoverageTest extends TestCase
         self::assertSame([
             'acquia/cohesion 7.6.1   2 patches skipped (not a drupal.org project)',
             'drupal/nouislider_js 1.0.0   1 patch skipped (not a drupal.org project)',
-        ], $coverage->unjudged([]));
+        ], $this->unjudged($coverage));
     }
 
     // The reason is the patch's, not the package's, so one package can
@@ -58,32 +63,26 @@ final class CoverageTest extends TestCase
         self::assertSame([
             'drupal/webform 6.2.9   2 patches skipped (the service does not fetch from that host)',
             'drupal/webform 6.2.9   1 patch skipped (not a drupal.org project)',
-        ], $coverage->unjudged([]));
+        ], $this->unjudged($coverage));
     }
 
     // A package the site declares a patch for but does not install has
-    // no release to name, so the line carries the name alone.
+    // no release to give, so the line carries the name alone.
     public function testAPackageTheSiteDoesNotInstallIsNamedWithoutAVersion(): void
     {
         $coverage = $this->coverage(50, [$this->skip('acme/gone', 'In-house fix')]);
 
-        self::assertSame(
-            ['acme/gone   1 patch skipped (not a drupal.org project)'],
-            $coverage->unjudged([]),
-        );
+        self::assertSame(['acme/gone   1 patch skipped (not a drupal.org project)'], $this->unjudged($coverage));
     }
 
     // A package already in the table says what it skipped inside its own
-    // block, so its name is printed once.
+    // table, so its name is printed once.
     public function testAPackageTheTableAlreadyShowsGetsNoLineOfItsOwn(): void
     {
         $coverage = $this->coverage(50, [$this->skip('drupal/webform', 'From our gitlab', self::HOST)]);
 
-        self::assertSame([], $coverage->unjudged(['drupal/webform']));
-        self::assertSame(
-            ['1 patch skipped (the service does not fetch from that host)'],
-            $coverage->notesFor('drupal/webform'),
-        );
+        self::assertSame([], $this->unjudged($coverage, [$this->row()]));
+        self::assertSame(['1 patch skipped (the service does not fetch from that host)'], $this->notes($coverage));
     }
 
     // On 2.x the reason is left to composer patches-doctor, so the note
@@ -92,12 +91,12 @@ final class CoverageTest extends TestCase
     {
         $coverage = $this->coverage(50, [$this->skip('drupal/webform', 'From our gitlab', '')]);
 
-        self::assertSame(['1 patch skipped'], $coverage->notesFor('drupal/webform'));
+        self::assertSame(['1 patch skipped'], $this->notes($coverage));
     }
 
     public function testAPackageWithNothingHeldBackHasNothingToSay(): void
     {
-        self::assertSame([], $this->coverage(50)->notesFor('drupal/webform'));
+        self::assertSame([], $this->notes($this->coverage(50)));
     }
 
     // Skipped and withheld are different states: one was never sent, the
@@ -113,7 +112,7 @@ final class CoverageTest extends TestCase
         self::assertSame([
             '1 patch skipped (the service does not fetch from that host)',
             '1 patch text not sent (above the 16 MB cap)',
-        ], $coverage->notesFor('drupal/webform'));
+        ], $this->notes($coverage));
     }
 
     public function testTwoWithheldTextsShareTheirLine(): void
@@ -123,43 +122,96 @@ final class CoverageTest extends TestCase
             $this->withhold('drupal/webform', 'Also huge', 'patches/also.patch'),
         ]);
 
-        self::assertSame(
-            ['2 patch texts not sent (above the 16 MB cap)'],
-            $coverage->notesFor('drupal/webform'),
-        );
+        self::assertSame(['2 patch texts not sent (above the 16 MB cap)'], $this->notes($coverage));
     }
 
-    // The report tells a lost file from a withheld one by this list, so
-    // it carries the declared path rather than the title.
+    // The report tells a lost file from a withheld one by its declared
+    // path, so a file the run held back is not called lost.
     public function testTheWithheldSourcesAreNamedByTheirDeclaredPath(): void
     {
-        $coverage = $this->coverage(50, [], [
-            $this->withhold('drupal/webform', 'Huge', 'patches/huge.patch'),
-        ]);
+        $coverage = $this->coverage(50, [], [$this->withhold('drupal/webform', 'Huge', 'patches/huge.patch')]);
+        $plan = $this->planFrom(['missing_files' => ['patches/huge.patch', 'patches/lost.patch'], 'patches' => [$this->row()]]);
 
-        self::assertSame(['patches/huge.patch'], $coverage->withheld());
+        self::assertContains('  patch text not sent for: patches/lost.patch', Report::print(Report::check($plan, $coverage, null, null, 100, [], false)));
     }
 
     public function testNoPatchTitleReachesTheOutput(): void
     {
         $coverage = $this->coverage(53, [$this->skip('acquia/cohesion', 'Page builder lock logic')]);
 
-        self::assertStringNotContainsString('Page builder lock logic', \implode("\n", $coverage->unjudged([])));
+        self::assertStringNotContainsString('Page builder lock logic', \implode("\n", $this->report($coverage)));
     }
 
     public function testDeclaringPatchesAndCheckingNoneIsVacuous(): void
     {
-        self::assertTrue($this->coverage(0, [$this->skip('drupal/a', 'Fix')])->isVacuous());
+        self::assertStringContainsString('no patch could be checked', $this->report($this->coverage(0, [$this->skip('drupal/a', 'Fix')]))[0]);
     }
 
     public function testDeclaringNoPatchesAtAllIsNotVacuous(): void
     {
-        self::assertFalse($this->coverage(0)->isVacuous());
+        self::assertStringNotContainsString('no patch could be checked', $this->report($this->coverage(0))[0]);
     }
 
     public function testCheckingSomePatchesIsNotVacuous(): void
     {
-        self::assertFalse($this->coverage(1, [$this->skip('drupal/a', 'Fix')])->isVacuous());
+        self::assertStringNotContainsString('no patch could be checked', $this->report($this->coverage(1, [$this->skip('drupal/a', 'Fix')]))[0]);
+    }
+
+    /**
+     * The report for a plan holding these rows, printed.
+     *
+     * @param Coverage                   $coverage
+     * @param list<array<string, mixed>> $rows
+     *
+     * @return list<string>
+     */
+    private function report(array $coverage, array $rows = []): array
+    {
+        return Report::print(Report::check($this->planFrom(['patches' => $rows]), $coverage, null, null, 100, [], false));
+    }
+
+    /**
+     * The skipped packages the report lists, without their indent and colour.
+     *
+     * @param Coverage                   $coverage
+     * @param list<array<string, mixed>> $rows     the rows the table has, whose packages are not listed again
+     *
+     * @return list<string>
+     */
+    private function unjudged(array $coverage, array $rows = []): array
+    {
+        return self::caveats($this->report($coverage, $rows), '  ');
+    }
+
+    /**
+     * What the report says under drupal/webform's rows about the patches it did not judge.
+     *
+     * @param Coverage $coverage
+     *
+     * @return list<string>
+     */
+    private function notes(array $coverage): array
+    {
+        return self::caveats($this->report($coverage, [$this->row()]), '        ');
+    }
+
+    /**
+     * The caveat lines at one indent, without the indent and the colour.
+     *
+     * @param list<string> $lines
+     *
+     * @return list<string>
+     */
+    private static function caveats(array $lines, string $indent): array
+    {
+        $out = [];
+        foreach ($lines as $line) {
+            if (1 === \preg_match('/^'.$indent.'<comment>(.+)<\/comment>$/', $line, $match)) {
+                $out[] = $match[1];
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -181,14 +233,16 @@ final class CoverageTest extends TestCase
     /**
      * @param list<array{package: string, title: string, reason: string}>                 $skipped
      * @param list<array{package: string, title: string, source: string, reason: string}> $unsent
+     *
+     * @return Coverage
      */
-    private function coverage(int $patches, array $skipped = [], array $unsent = []): Coverage
+    private function coverage(int $patches, array $skipped = [], array $unsent = []): array
     {
-        return new Coverage($patches, $skipped, $unsent, [
+        return ['checked' => $patches, 'skipped' => $skipped, 'unsent' => $unsent, 'versions' => [
             'acquia/cohesion' => '7.6.1',
             'drupal/nouislider_js' => '1.0.0',
             'drupal/webform' => '6.2.9',
             'drupal/a' => '1.0.0',
-        ]);
+        ]];
     }
 }

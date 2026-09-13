@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Write;
 
 use TresBienTech\Drupatch\Fetch\Vendoring;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\Scope;
 
 /**
@@ -17,9 +18,8 @@ use TresBienTech\Drupatch\Read\Scope;
  *
  * @phpstan-import-type CopiedRow from Vendoring
  * @phpstan-import-type RefusedRow from Vendoring
- * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Render\Outcomes
+ * @phpstan-import-type WrittenRow from PatchFiles
  *
- * @phpstan-type Declaration array{package: string, title: string, source: string, provenance: array<string, string>}
  * @phpstan-type Moved array{vendored: list<CopiedRow>, refused: list<RefusedRow>, written: list<WrittenRow>, unwritten: list<array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}>, open: list<array{path: string, regions: int}>, declarations: list<Declaration>}
  */
 class Move
@@ -56,7 +56,7 @@ class Move
     }
 
     /**
-     * The declarations carrying what each re-roll recorded: the release it was merged against, over the record the copy arrived with.
+     * The declarations carrying what each re-roll recorded: the release it was merged against, over the provenance the copy arrived with.
      *
      * The source is left alone. A clean re-roll replaced the file the
      * declaration already names, and a conflicted one went to a file no
@@ -69,15 +69,14 @@ class Move
      */
     private static function recorded(array $declarations, array $rows): array
     {
+        $records = [];
         foreach ($rows as $row) {
-            foreach ($declarations as $i => $declaration) {
-                if ($declaration['package'] === $row['package'] && $declaration['title'] === $row['title'] && [] !== $row['provenance']) {
-                    $declarations[$i]['provenance'] = $row['provenance'];
-                }
+            if ([] !== $row['provenance']) {
+                $records[Declaration::keyOf($row['package'], $row['title'])] = $row['provenance'];
             }
         }
 
-        return $declarations;
+        return \array_map(static fn (Declaration $declaration): Declaration => isset($records[$declaration->key()]) ? $declaration->at($declaration->source, $records[$declaration->key()]) : $declaration, $declarations);
     }
 
     /**

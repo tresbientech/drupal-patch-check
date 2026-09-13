@@ -108,7 +108,7 @@ class IssueResolverTest extends TestCase
         $answers = [self::API => [200, (string) \json_encode(['title' => 'Fix'])]];
 
         self::assertSame(
-            'the merge request names no source project, so the issue behind it cannot be read',
+            'the merge request gives no source project, so the issue behind it cannot be read',
             self::resolver($answers)->behind(self::request())
         );
     }

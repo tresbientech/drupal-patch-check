@@ -1,0 +1,15 @@
+<info>Drupal Patch Check</info>: 1 patch copied into the site, 1 patch already in the site, 1 patch not copied
+
+  copied into the site:
+    drupal/webform: 3521733: bfcache
+      patch/webform/mr940.diff
+
+  already in the site:
+    drupal/core: Menu cache
+      patch/drupal/menu.diff
+
+  not copied:
+    <comment>the host answered 404</comment>
+      drupal/domain: Access fix
+
+  composer.json: 1 declaration now points at a file in the site

@@ -1,0 +1,7 @@
+<info>Drupal Patch Check</info>: 1 patch for a move to core 11.4.5
+
+  drupal/webform 6.2.9   1 applies
+     #1 · applies   Fix the alter hook                                                   alter.patch
+                    <fg=cyan>the patch carries the packaging block as context</>
+
+  patches: 1 applies

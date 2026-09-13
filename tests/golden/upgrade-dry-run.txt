@@ -1,0 +1,22 @@
+
+  cweagans/composer-patches 1.7.3 -> ^2
+
+  4 patches need a re-roll before 2.x applies them:
+    drupal/webform    #1  re-rolls clean
+    drupal/core       #2  leaves 3 regions to decide
+    drupal/pathauto   #1  no re-roll: no release takes this patch
+    drupal/metatag    #1  already in the release
+  a real run stops on the rows that do not re-roll clean and writes nothing
+
+  1 patch applies at a depth other than its package default:
+    drupal/webform    #1  -p2
+
+  layout:
+    extra.patches            -> patches.json
+                                extra.composer-patches.patches-file
+
+  nothing written (--dry-run)
+  a real run finishes with:
+    composer update cweagans/composer-patches --with-dependencies
+    composer patches-relock
+    composer patches-repatch

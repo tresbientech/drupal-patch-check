@@ -6,12 +6,12 @@ namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Render\UpgradeReport;
+use TresBienTech\Drupatch\Render\Report;
 
 /**
  * @phpstan-import-type MoveReport from \TresBienTech\Drupatch\Command\UpgradeCommand
  */
-#[CoversClass(UpgradeReport::class)]
+#[CoversClass(Report::class)]
 class UpgradeReportTest extends TestCase
 {
     /**
@@ -40,7 +40,7 @@ class UpgradeReportTest extends TestCase
 
     public function testItNamesTheReleaseItMovesFromAndWritesNothing(): void
     {
-        $lines = UpgradeReport::lines(self::move());
+        $lines = Report::print(Report::upgrade(self::move()));
 
         self::assertContains('  cweagans/composer-patches 1.7.3 -> ^2', $lines);
         self::assertSame([
@@ -58,18 +58,18 @@ class UpgradeReportTest extends TestCase
         $wrote = ['vendored' => 0, 'rerolled' => 0, 'forcible' => 0, 'files' => [], 'open' => [], 'refused' => []];
 
         self::assertSame(
-            ['', '  cweagans/composer-patches 1.7.3 -> ^2', '', '  '.UpgradeReport::RESUMED],
-            UpgradeReport::lines(self::move(['resumed' => true, 'wrote' => $wrote]))
+            ['', '  cweagans/composer-patches 1.7.3 -> ^2', '', '  '.Report::RESUMED],
+            Report::print(Report::upgrade(self::move(['resumed' => true, 'wrote' => $wrote])))
         );
         self::assertSame(
-            ['  '.UpgradeReport::RESUMED, '  a real run finishes with:'],
-            \array_slice(UpgradeReport::lines(self::move(['resumed' => true])), 3, 2)
+            ['  '.Report::RESUMED, '  a real run finishes with:'],
+            \array_slice(Report::print(Report::upgrade(self::move(['resumed' => true]))), 3, 2)
         );
     }
 
     public function testAMoveWhoseCommandsFinishedClosesOnTheLineItReached(): void
     {
-        self::assertSame(['', '  moved to cweagans/composer-patches 2.x'], UpgradeReport::moved());
+        self::assertSame(['', '  moved to cweagans/composer-patches 2.x'], Report::print(Report::moved()));
     }
 
     /**
@@ -88,13 +88,13 @@ class UpgradeReportTest extends TestCase
     // its re-roll comes to rather than why git apply refused it.
     public function testEachStrictRefusalSaysWhatItsRerollDoes(): void
     {
-        $lines = UpgradeReport::lines(self::move(['refused' => [
+        $lines = Report::print(Report::upgrade(self::move(['refused' => [
             self::refusal('drupal/webform', 1, 'clean'),
             self::refusal('drupal/core', 2, 'open', 1),
             self::refusal('drupal/token', 1, 'open', 3),
             self::refusal('drupal/pathauto', 2, 'none', why: 'no release takes this patch'),
             self::refusal('drupal/metatag', 1, 'shipped'),
-        ]]));
+        ]])));
 
         self::assertContains('  5 patches need a re-roll before 2.x applies them:', $lines);
         self::assertContains('    drupal/webform    #1  re-rolls clean', $lines);
@@ -106,38 +106,38 @@ class UpgradeReportTest extends TestCase
 
     public function testOnePatchToRerollIsCountedInTheSingular(): void
     {
-        $lines = UpgradeReport::lines(self::move(['refused' => [self::refusal('drupal/webform', 1, 'clean')]]));
+        $lines = Report::print(Report::upgrade(self::move(['refused' => [self::refusal('drupal/webform', 1, 'clean')]])));
 
         self::assertContains('  1 patch needs a re-roll before 2.x applies it:', $lines);
     }
 
     public function testADryRunSaysARealRunStopsOnARowThatDoesNotRerollClean(): void
     {
-        $lines = UpgradeReport::lines(self::move(['refused' => [
+        $lines = Report::print(Report::upgrade(self::move(['refused' => [
             self::refusal('drupal/webform', 1, 'clean'),
             self::refusal('drupal/core', 2, 'open', 1),
-        ]]));
+        ]])));
 
-        self::assertContains('  '.UpgradeReport::STOPS, $lines);
+        self::assertContains('  '.Report::STOPS, $lines);
     }
 
     public function testADryRunWhoseRerollsAllLandSaysNothingAboutStopping(): void
     {
-        $lines = UpgradeReport::lines(self::move(['refused' => [
+        $lines = Report::print(Report::upgrade(self::move(['refused' => [
             self::refusal('drupal/webform', 1, 'clean'),
             self::refusal('drupal/metatag', 1, 'shipped'),
-        ]]));
+        ]])));
 
-        self::assertNotContains('  '.UpgradeReport::STOPS, $lines);
+        self::assertNotContains('  '.Report::STOPS, $lines);
     }
 
     // The re-roll replaces the fuzzy apply, so no line sends the site to a
     // plugin that brings fuzz back.
     public function testNoLineNamesAPatcherThatBringsFuzzBack(): void
     {
-        $lines = UpgradeReport::lines(self::move(['refused' => [
+        $lines = Report::print(Report::upgrade(self::move(['refused' => [
             self::refusal('drupal/pathauto', 2, 'none', why: 'no release takes this patch'),
-        ]]));
+        ]])));
 
         foreach ($lines as $line) {
             self::assertStringNotContainsString('patch-patcher', $line);
@@ -147,7 +147,7 @@ class UpgradeReportTest extends TestCase
     // A patch the service never judged has no verdict to promise anything about.
     public function testAPatchWithNoVerdictIsCountedApart(): void
     {
-        $lines = UpgradeReport::lines(self::move(['unchecked' => 2]));
+        $lines = Report::print(Report::upgrade(self::move(['unchecked' => 2])));
 
         self::assertContains('  the move stops no checked patch from applying', $lines);
         self::assertContains('  2 patches were not checked, so this run cannot say whether 2.x applies them', $lines);
@@ -155,16 +155,16 @@ class UpgradeReportTest extends TestCase
 
     public function testASiteWhosePatchesAllApplyIsToldSo(): void
     {
-        $lines = UpgradeReport::lines(self::move());
+        $lines = Report::print(Report::upgrade(self::move()));
 
         self::assertContains('  the move stops no patch from applying', $lines);
     }
 
     public function testADepthOtherThanThePackageDefaultIsNamedWithItsLevel(): void
     {
-        $lines = UpgradeReport::lines(self::move(['depths' => [
+        $lines = Report::print(Report::upgrade(self::move(['depths' => [
             ['package' => 'drupal/core', 'number' => 3, 'depth' => 0],
-        ]]));
+        ]])));
 
         self::assertContains('  1 patch applies at a depth other than its package default:', $lines);
         self::assertContains('    drupal/core       #3  -p0', $lines);
@@ -172,7 +172,7 @@ class UpgradeReportTest extends TestCase
 
     public function testNoDepthBlockPrintsWhenEveryPatchSitsAtItsDefault(): void
     {
-        foreach (UpgradeReport::lines(self::move()) as $line) {
+        foreach (Report::print(Report::upgrade(self::move())) as $line) {
             self::assertStringNotContainsString('depth other than', $line);
         }
     }
@@ -181,7 +181,7 @@ class UpgradeReportTest extends TestCase
     // the declarations move out of it once.
     public function testTheLayoutMoveNamesTheFileAndTheKeyThatFindsIt(): void
     {
-        $lines = UpgradeReport::lines(self::move());
+        $lines = Report::print(Report::upgrade(self::move()));
 
         self::assertContains('  layout:', $lines);
         self::assertContains('    extra.patches            -> patches.json', $lines);
@@ -190,10 +190,10 @@ class UpgradeReportTest extends TestCase
 
     public function testARenamedSettingCarriesItsNewNameAndADroppedOneItsReason(): void
     {
-        $lines = UpgradeReport::lines(self::move([
+        $lines = Report::print(Report::upgrade(self::move([
             'renamed' => ['patches-ignore' => 'ignore-dependency-patches'],
             'dropped' => ['patchLevel' => 'a measured depth replaces it'],
-        ]));
+        ])));
 
         self::assertContains('  settings:', $lines);
         self::assertContains('    extra.patches-ignore     -> extra.composer-patches.ignore-dependency-patches', $lines);
@@ -202,7 +202,7 @@ class UpgradeReportTest extends TestCase
 
     public function testASiteThatMovesNoSettingPrintsNoSettingBlock(): void
     {
-        foreach (UpgradeReport::lines(self::move()) as $line) {
+        foreach (Report::print(Report::upgrade(self::move())) as $line) {
             self::assertStringNotContainsString('settings:', $line);
         }
     }
@@ -211,7 +211,7 @@ class UpgradeReportTest extends TestCase
     {
         self::assertSame(
             ['', '  <error>this site already runs cweagans/composer-patches 2.x</error>'],
-            UpgradeReport::lines(self::move(['error' => 'this site already runs cweagans/composer-patches 2.x']))
+            Report::print(Report::upgrade(self::move(['error' => 'this site already runs cweagans/composer-patches 2.x'])))
         );
     }
 
@@ -219,28 +219,28 @@ class UpgradeReportTest extends TestCase
     // be run twice and the site is left with a patch that will not apply.
     public function testARefusalForceLiftsNamesTheCommandThatClearsIt(): void
     {
-        $lines = UpgradeReport::lines(self::move(['wrote' => [
+        $lines = Report::print(Report::upgrade(self::move(['wrote' => [
             'vendored' => 1,
             'rerolled' => 0,
             'forcible' => 1,
             'files' => ['patches.json', 'composer.json'],
             'open' => [],
             'refused' => [['title' => 'Draft translations', 'reason' => 'it has never been committed']],
-        ]]));
+        ]])));
 
         self::assertContains('  run `composer drupatch:reroll --force` to replace the file this run would not overwrite', $lines);
     }
 
     public function testARunWithNothingToForceNamesNoCommand(): void
     {
-        $lines = UpgradeReport::lines(self::move(['wrote' => [
+        $lines = Report::print(Report::upgrade(self::move(['wrote' => [
             'vendored' => 1,
             'rerolled' => 1,
             'forcible' => 0,
             'files' => ['patches.json', 'composer.json'],
             'open' => [],
             'refused' => [],
-        ]]));
+        ]])));
 
         foreach ($lines as $line) {
             self::assertStringNotContainsString('--force', $line);
@@ -251,29 +251,29 @@ class UpgradeReportTest extends TestCase
     // neither and the requirement still names 1.x.
     public function testARunThatWroteNothingSaysTheSiteStaysOn1x(): void
     {
-        $lines = UpgradeReport::lines(self::move(['wrote' => [
+        $lines = Report::print(Report::upgrade(self::move(['wrote' => [
             'vendored' => 0,
             'rerolled' => 0,
             'forcible' => 0,
             'files' => [],
             'open' => [],
             'refused' => [],
-        ]]));
+        ]])));
 
-        self::assertContains('  '.UpgradeReport::STAYED, $lines);
+        self::assertContains('  '.Report::STAYED, $lines);
         self::assertNotContains('  wrote ', $lines);
     }
 
     public function testTheOpenRegionLineNamesTheRerollCommandOnce(): void
     {
-        $lines = UpgradeReport::lines(self::move(['wrote' => [
+        $lines = Report::print(Report::upgrade(self::move(['wrote' => [
             'vendored' => 0,
             'rerolled' => 0,
             'forcible' => 0,
             'files' => [],
             'open' => [['path' => 'patch/webform/mr940.conflict.patch', 'regions' => 2]],
             'refused' => [],
-        ]]));
+        ]])));
 
         self::assertContains('  decide them, run `composer drupatch:reroll`, then run this command again', $lines);
     }
@@ -282,13 +282,13 @@ class UpgradeReportTest extends TestCase
     // lists rather than pushing its own number out of line.
     public function testALongPackageNameWidensBothListsAlike(): void
     {
-        $lines = UpgradeReport::lines(self::move([
+        $lines = Report::print(Report::upgrade(self::move([
             'refused' => [
                 self::refusal('drupal/entity_reference_revisions', 1, 'clean'),
                 self::refusal('drupal/pathauto', 12, 'clean'),
             ],
             'depths' => [['package' => 'drupal/core', 'number' => 3, 'depth' => 1]],
-        ]));
+        ])));
 
         self::assertContains('    drupal/entity_reference_revisions   #1  re-rolls clean', $lines);
         self::assertContains('    drupal/pathauto                    #12  re-rolls clean', $lines);

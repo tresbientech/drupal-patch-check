@@ -9,7 +9,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Read\Run;
-use TresBienTech\Drupatch\Text;
+use TresBienTech\Drupatch\Render\Report;
 
 /**
  * Checks this site's patches, against the releases it installs or against the ones a target core would bring in. Writes nothing.
@@ -42,7 +42,7 @@ class CheckCommand extends PatchCommand
         [$format, $notes] = $printing;
 
         try {
-            $run = new Run($this->requireComposer(), $this->getIO(), $notes, $target, self::scope($input));
+            $run = new Run($this->site(), $this->requireComposer(), $this->getIO(), $notes, $target, self::scope($input));
             if ($dryRun) {
                 $output->writeln((string) \json_encode($run->body(false, []), \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES));
 
@@ -50,12 +50,12 @@ class CheckCommand extends PatchCommand
             }
             $plan = $run->plan(false, []);
         } catch (Throwable $e) {
-            $notes->writeln('<error>'.Text::t('drupatch: @message', ['@message' => $e->getMessage()]).'</error>');
+            $notes->writeln(Report::message($e->getMessage(), 'error'));
 
             return Plan::FAILED;
         }
 
-        $this->render($input, $output, $format, $run, $plan, null);
+        $this->render($input, $output, $format, $run, $plan, null, null);
 
         return $plan->exitCode();
     }

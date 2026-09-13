@@ -6,24 +6,26 @@ namespace TresBienTech\Drupatch\Plan;
 
 use RuntimeException;
 use TresBienTech\Drupatch\Manager;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Text;
 
 /**
  * One upgrade plan as the api answered it. The one place the server's
  * JSON becomes data: unknown fields are ignored, a non-plan is refused.
+ *
+ * The plan holds the scope the run acts on, and its rows are read through it.
  */
 class Plan
 {
     /**
      * @param array<string, int>    $counts
-     * @param array<string, int>    $packageCounts
      * @param list<string>          $noRelease
      * @param array<string, string> $rowNotes
-     * @param list<PatchRow>        $patches
+     * @param list<PatchRow>        $patches      every row the service answered, whatever the scope
      * @param list<string>          $missingFiles
      * @param list<string>          $warnings
-     * @param array<string, mixed>  $raw           the body as received, for --format=json
+     * @param array<string, mixed>  $raw          the body as received, for --format=json
      */
     private function __construct(
         public readonly string $targetCore,
@@ -32,25 +34,29 @@ class Plan
         public readonly string $bundleDate,
         /** The package whose constraint decided the target, for `--target latest`. */
         public readonly string $targetFrom,
-        public readonly array $counts,
-        public readonly array $packageCounts,
-        public readonly array $noRelease,
+        private readonly array $counts,
+        private readonly array $noRelease,
         /** The sentence a blocked package's scan row carries, keyed by package. */
         public readonly array $rowNotes,
-        public readonly array $patches,
+        private readonly array $patches,
         public readonly array $missingFiles,
-        public readonly array $warnings,
-        public readonly array $raw,
+        private readonly array $warnings,
+        private readonly array $raw,
+        private readonly Scope $scope,
+        /** The patch manager the rows are read under, null for the service's answer as sent. */
+        public readonly ?Manager $manager,
     ) {
     }
 
     /**
-     * @param array<mixed>                                                $decoded
-     * @param list<array{package: string, title: string, source: string}> $declared the site's own declarations, in the order the request listed them
+     * @param array<mixed>      $decoded
+     * @param list<Declaration> $declared the site's own declarations, in the order the request listed them
+     * @param Manager|null      $manager  the patch manager each row is read under, null to read the service's answer as sent
+     * @param Scope             $scope    what the run acts on
      *
      * @throws RuntimeException
      */
-    public static function fromArray(array $decoded, array $declared = []): self
+    public static function fromArray(array $decoded, array $declared, ?Manager $manager, Scope $scope): self
     {
         $data = $decoded;
         if (!\array_key_exists('plan', $data)) {
@@ -73,13 +79,13 @@ class Plan
             // past the end has none to read.
             $own = $declared[$i] ?? null;
             if (\is_array($row) && null !== $own) {
-                $row['title'] = $own['title'];
-                $row['source'] = $own['source'];
+                $row['title'] = $own->title;
+                $row['source'] = $own->source;
                 // `--format=json` prints the answer as received, so a job
                 // reading it needs the site's own words on the rows too.
                 $data['plan']['patches'][$i] = $row;
             }
-            $patches[] = PatchRow::fromArray($row);
+            $patches[] = PatchRow::fromArray($row, $manager);
         }
         // The blocked packages and their sentences come from the scan
         // rows, which is where the service states them.
@@ -106,115 +112,123 @@ class Plan
             (string) ($data['bundle_date'] ?? ''),
             (string) ($data['target_from'] ?? ''),
             (array) ($plan['counts'] ?? []),
-            (array) ($data['counts'] ?? []),
             $noRelease,
             $rowNotes,
             $patches,
             (array) ($plan['missing_files'] ?? []),
             (array) ($plan['warnings'] ?? []),
             $data,
+            $scope,
+            $manager,
         );
     }
 
     /**
-     * The same plan as the site's patch manager meets it.
+     * The rows in scope, in plan order.
      *
-     * 2.x applies with `git apply` alone, so a patch only a lenient apply
-     * took stops applying there. A row that already names a failure keeps it.
+     * @return list<PatchRow>
      */
-    public function forManager(Manager $manager): self
+    public function rows(): array
     {
-        if (!$manager->isTwo()) {
-            return $this;
-        }
-
-        return new self(
-            $this->targetCore,
-            $this->coreInstalled,
-            $this->targetIsInstalled,
-            $this->bundleDate,
-            $this->targetFrom,
-            $this->counts,
-            $this->packageCounts,
-            $this->noRelease,
-            $this->rowNotes,
-            \array_map(static fn (PatchRow $row): PatchRow => $row->fuzzy && '' === $row->failureMode ? $row->refusedByTwo() : $row, $this->patches),
-            $this->missingFiles,
-            $this->warnings,
-            $this->raw,
-        );
+        return \array_values(\array_filter($this->patches, fn (PatchRow $row): bool => $this->scope->has($row->package, $row->source)));
     }
 
     /**
-     * The same plan narrowed to a scope, counts recomputed from the rows that are left.
+     * Patches per verdict: the service's tally for the whole site, counted again from the rows in a narrower scope.
+     *
+     * @return array<string, int>
      */
-    public function only(Scope $scope): self
+    public function counts(): array
     {
-        if ($scope->isWhole()) {
-            return $this;
+        if ($this->scope->isWhole()) {
+            return $this->counts;
         }
-        $patches = \array_values(\array_filter(
-            $this->patches,
-            static fn (PatchRow $row): bool => $scope->has($row->package, $row->source)
-        ));
         $counts = [];
-        $left = [];
-        foreach ($patches as $row) {
+        foreach ($this->rows() as $row) {
             $counts[$row->verdict] = ($counts[$row->verdict] ?? 0) + 1;
-            $left[Scope::key($row->package)] = true;
         }
-        // What is said about a package follows the packages named. When
-        // only patches were named, it follows the packages their rows
-        // belong to.
-        $about = static fn (string $name): bool => [] === $scope->packages ? isset($left[Scope::key($name)]) : $scope->hasPackage($name);
-        $noRelease = \array_values(\array_filter($this->noRelease, $about));
-        // A warning about a package outside the scope is dropped; one
-        // naming no package stays.
-        $warnings = \array_values(\array_filter(
+
+        return $counts;
+    }
+
+    /**
+     * The blocked packages the scope is about.
+     *
+     * @return list<string>
+     */
+    public function noRelease(): array
+    {
+        return $this->scope->isWhole() ? $this->noRelease : \array_values(\array_filter($this->noRelease, $this->about(...)));
+    }
+
+    /**
+     * The plan's warnings the scope is about: a warning about a package outside the scope is left out, and one naming no package stays.
+     *
+     * @return list<string>
+     */
+    public function warnings(): array
+    {
+        if ($this->scope->isWhole()) {
+            return $this->warnings;
+        }
+
+        return \array_values(\array_filter(
             $this->warnings,
-            static function (string $warning) use ($about): bool {
+            function (string $warning): bool {
                 $first = \explode(' ', \trim($warning))[0];
 
-                return !\str_contains($first, '/') || $about($first);
+                return !\str_contains($first, '/') || $this->about($first);
             }
         ));
-        // --format=json owes the scope it was asked for, not the whole site.
-        $raw = $this->raw;
-        $raw['scope'] = $scope->packages;
-        if ([] !== $scope->sources) {
-            $raw['scope_patches'] = $scope->sources;
-        }
-        if (isset($raw['plan']) && \is_array($raw['plan'])) {
-            $nested = $raw['plan'];
-            $nested['patches'] = \array_values(\array_filter(
-                (array) ($nested['patches'] ?? []),
-                static fn (array $row): bool => $scope->has((string) ($row['package'] ?? ''), (string) ($row['source'] ?? ''))
-            ));
-            $nested['counts'] = $counts;
-            $nested['no_release'] = $noRelease;
-            $nested['warnings'] = $warnings;
-            $raw['plan'] = $nested;
-        }
-
-        return new self(
-            $this->targetCore,
-            $this->coreInstalled,
-            $this->targetIsInstalled,
-            $this->bundleDate,
-            $this->targetFrom,
-            $counts,
-            [],
-            $noRelease,
-            \array_filter($this->rowNotes, $about, \ARRAY_FILTER_USE_KEY),
-            $patches,
-            $this->missingFiles,
-            $warnings,
-            $raw,
-        );
     }
 
     /**
-     * The packages the plan has rows for, in plan order.
+     * Whether what is said about a package belongs to the scope. It follows the packages named, and when only patches were named, the packages their rows belong to.
+     */
+    private function about(string $package): bool
+    {
+        if ([] !== $this->scope->packages) {
+            return $this->scope->hasPackage($package);
+        }
+        foreach ($this->rows() as $row) {
+            if (Scope::key($row->package) === Scope::key($package)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The body as received, for --format=json, which owes the scope it was asked for rather than the whole site.
+     *
+     * @return array<string, mixed>
+     */
+    public function document(): array
+    {
+        if ($this->scope->isWhole()) {
+            return $this->raw;
+        }
+        $raw = $this->raw;
+        $raw['scope'] = $this->scope->packages;
+        if ([] !== $this->scope->sources) {
+            $raw['scope_patches'] = $this->scope->sources;
+        }
+        $nested = (array) $raw['plan'];
+        $nested['patches'] = \array_values(\array_filter(
+            (array) ($nested['patches'] ?? []),
+            fn (array $row): bool => $this->scope->has((string) ($row['package'] ?? ''), (string) ($row['source'] ?? ''))
+        ));
+        $nested['counts'] = $this->counts();
+        $nested['no_release'] = $this->noRelease();
+        $nested['warnings'] = $this->warnings();
+        $raw['plan'] = $nested;
+
+        return $raw;
+    }
+
+    /**
+     * The packages the service answered rows for, in plan order, whatever the scope.
      *
      * @return list<string>
      */
@@ -230,7 +244,7 @@ class Plan
 
     public function hasPatches(): bool
     {
-        return [] !== $this->patches;
+        return [] !== $this->rows();
     }
 
     /**
@@ -240,7 +254,7 @@ class Plan
      */
     public function worthMentioning(): array
     {
-        return \array_values(\array_filter($this->patches, static fn (PatchRow $row): bool => $row->needsMention()));
+        return \array_values(\array_filter($this->rows(), static fn (PatchRow $row): bool => $row->needsMention()));
     }
 
     /**
@@ -288,7 +302,7 @@ class Plan
     {
         $seen = [];
         $out = [];
-        foreach ($this->patches as $row) {
+        foreach ($this->rows() as $row) {
             $seen[$row->package] = ($seen[$row->package] ?? 0) + 1;
             $out[] = [$row, $seen[$row->package]];
         }
@@ -301,7 +315,7 @@ class Plan
      */
     public function exitCode(): int
     {
-        foreach ($this->patches as $row) {
+        foreach ($this->rows() as $row) {
             if ($row->fails()) {
                 return self::ACTION_NEEDED;
             }

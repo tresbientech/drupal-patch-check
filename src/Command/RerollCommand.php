@@ -12,19 +12,16 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
 use TresBienTech\Drupatch\Fetch\IssueResolver;
 use TresBienTech\Drupatch\Fetch\Vendoring;
-use TresBienTech\Drupatch\Manager;
-use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Plugin;
-use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Read\Declaration;
+use TresBienTech\Drupatch\Read\Request;
 use TresBienTech\Drupatch\Read\Run;
 use TresBienTech\Drupatch\Read\Scope;
-use TresBienTech\Drupatch\Read\Site;
-use TresBienTech\Drupatch\Render\Outcomes;
+use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Source\IssueReference;
 use TresBienTech\Drupatch\Source\MergeRequest;
+use TresBienTech\Drupatch\Source\UrlPatch;
 use TresBienTech\Drupatch\Text;
-use TresBienTech\Drupatch\Write\ConfigRewriter;
 use TresBienTech\Drupatch\Write\Copied;
 use TresBienTech\Drupatch\Write\Decisions;
 use TresBienTech\Drupatch\Write\Declarations;
@@ -66,8 +63,8 @@ class RerollCommand extends PatchCommand
 
         try {
             $dropTests = self::dropTests($input);
-            $run = new Run($this->requireComposer(), $this->getIO(), $notes, $target, self::scope($input), $dropTests);
-            $patches = $run->site->patches->patches;
+            $run = new Run($this->site(), $this->requireComposer(), $this->getIO(), $notes, $target, self::scope($input), $dropTests);
+            $patches = $run->request->patches->patches;
             $decided = Decisions::onDisk($run->site->root, $patches, self::scope($input));
             $fromDocument = [];
             $document = $input->getOption('decisions');
@@ -76,7 +73,7 @@ class RerollCommand extends PatchCommand
                 $merged = Decisions::merge($decided, $fromDocument);
                 $decided = $merged['decided'];
                 foreach ($merged['overridden'] as $region) {
-                    $notes->writeln('<comment>'.Text::t('drupatch: the document decides @file region @region of @source, over its conflict file', ['@file' => $region['file'], '@region' => $region['region'], '@source' => $patches[$region['patch']]['source']]).'</comment>');
+                    $notes->writeln(Report::message(Text::t('the document decides @file region @region of @source, over its conflict file', ['@file' => $region['file'], '@region' => $region['region'], '@source' => $patches[$region['patch']]->source]), 'comment'));
                 }
             }
             if ($dryRun) {
@@ -93,34 +90,36 @@ class RerollCommand extends PatchCommand
             // A conflicting patch whose title names an issue is resolved to
             // that issue's merge request first, so the merge below reads
             // upstream's current diff rather than the copy the site kept.
-            $pinned = $this->pinResolved($run, $plan, self::wantedRequest($input), $tree, $declarations, $notes);
+            $pinned = $this->pinResolved($run, $plan, self::wantedRequest($input), $tree, $notes);
+            $repointed = [];
             if ([] !== $pinned->changes()) {
-                $run = new Run($this->requireComposer(), $this->getIO(), $notes, $target, self::scope($input), $dropTests);
+                $repointed = $declarations->write($pinned->changes(), $run->request->patches->patches);
+                $run = new Run($this->site(), $this->requireComposer(), $this->getIO(), $notes, $target, self::scope($input), $dropTests);
                 $plan = $run->plan(true, $decided);
             }
             // The copies this run pinned are its own to replace.
-            $result = (new PatchFiles($run->site->root, $tree, $pinned->over($run->site->patches->patches)))->write($plan);
+            $result = (new PatchFiles($run->site->root, $tree, $pinned->over($run->request->patches->patches)))->write($plan);
         } catch (Throwable $e) {
-            $notes->writeln('<error>'.Text::t('drupatch: @message', ['@message' => $e->getMessage()]).'</error>');
+            $notes->writeln(Report::message($e->getMessage(), 'error'));
 
             return Plan::FAILED;
         }
 
         // The rewrite runs before anything prints, so what it did sits under
         // the rows; a rewrite that fails still gets the report printed first.
-        $outcomes = Outcomes::fromWrite($result);
+        $rewrite = null;
         $updateError = '';
         try {
-            [$changes, $rewritten] = $this->update($declarations, $run->site, $plan, $result['written']);
-            $outcomes->recordFix($changes, $rewritten);
+            [$changes, $rewritten] = $this->update($declarations, $run->request, $plan, $result['written']);
+            $rewrite = ['changes' => \array_merge($pinned->changes(), $changes), 'declaration' => self::documents(\array_merge($repointed, $rewritten))];
         } catch (Throwable $e) {
             $updateError = $e->getMessage();
         }
 
-        $this->render($input, $output, $format, $run, $plan, $outcomes);
+        $this->render($input, $output, $format, $run, $plan, $result, $rewrite);
 
         if ('' !== $updateError) {
-            $notes->writeln('<error>'.Text::t('drupatch: @message', ['@message' => $updateError]).'</error>');
+            $notes->writeln(Report::message($updateError, 'error'));
 
             return Plan::FAILED;
         }
@@ -139,39 +138,33 @@ class RerollCommand extends PatchCommand
     }
 
     /**
-     * Copies in every merge request this run resolved, and repoints the
-     * declarations at what it copied.
+     * Copies in every merge request this run resolved. The caller writes the
+     * repoints, so one place records what the run rewrote.
      *
      * @return Copied what the run copied in, over the declarations it resolved
      */
-    private function pinResolved(Run $run, Plan $plan, string $wanted, ?WorkingTree $tree, Declarations $declarations, OutputInterface $notes): Copied
+    private function pinResolved(Run $run, Plan $plan, string $wanted, ?WorkingTree $tree, OutputInterface $notes): Copied
     {
-        $composer = $this->requireComposer();
-        $manager = Manager::fromComposer($composer);
+        $site = $run->site;
         // 1.x reads the compact declaration and keeps the source alone, so a
         // copy made here would carry no base and the merge would gain
         // nothing by it.
-        if (!$manager->isTwo()) {
+        if (!$site->manager->isTwo()) {
             return Copied::none([]);
         }
-        $root = $run->site->root;
-        $declared = $run->site->patches->patches;
-        $text = $this->patchText($root);
-        $found = $this->resolveTitles($plan, $declared, new IssueResolver($text), $wanted);
+        $root = $site->root;
+        $text = $site->text();
+        $found = $this->resolveTitles($plan, $run->request->patches->patches, new IssueResolver($text), $wanted);
         foreach ($found['refused'] as $refusal) {
-            $notes->writeln('<comment>'.Text::t('drupatch: @title stays as declared: @reason', ['@title' => $refusal['title'], '@reason' => $refusal['reason']]).'</comment>');
+            $notes->writeln(Report::message(Text::t('@title stays as declared: @reason', ['@title' => $refusal['title'], '@reason' => $refusal['reason']]), 'comment'));
         }
         if ([] === $found['declarations']) {
             return Copied::none([]);
         }
-        $extra = $composer->getPackage()->getExtra();
-        $copy = (new Vendoring($root, $text, Plugin::patchDirectory($extra), $manager, $tree))
+        $copy = (new Vendoring($root, $text, $site->patchDirectory(), $site->manager, $tree))
             ->run($found['declarations'], Scope::whole(), false);
         foreach ($copy->refused as $row) {
-            $notes->writeln('<comment>'.Text::t('drupatch: @title stays as declared: @reason', ['@title' => $row['title'], '@reason' => $row['reason']]).'</comment>');
-        }
-        if ([] !== $copy->changes()) {
-            $declarations->write($copy->changes(), $declared);
+            $notes->writeln(Report::message(Text::t('@title stays as declared: @reason', ['@title' => $row['title'], '@reason' => $row['reason']]), 'comment'));
         }
 
         return $copy;
@@ -181,30 +174,30 @@ class RerollCommand extends PatchCommand
      * The declarations this run resolves to a merge request before it merges.
      *
      * A conflicting patch the site declared as a local file, holding no
-     * record of where its bytes came from and titled with a drupal.org issue
+     * patch provenance and titled with a drupal.org issue
      * number, belongs to that issue. Its merge requests are ranked against
      * the installed release the same way `drupatch:add` ranks them, and the
      * chosen one becomes the declaration's new source. The copy itself is
      * `Fetch\Vendoring`'s, so a resolved patch lands where every other
      * vendored patch lands.
      *
-     * @param list<array{package: string, title: string, source: string, file: string, shape: string, provenance: array<string, string>}> $declared
+     * @param list<Declaration> $declared
      *
-     * @return array{declarations: list<array{package: string, title: string, source: string, provenance: array<string, string>}>, refused: list<array{title: string, reason: string}>}
+     * @return array{declarations: list<Declaration>, refused: list<array{title: string, reason: string}>}
      */
     private function resolveTitles(Plan $plan, array $declared, IssueResolver $resolver, string $wanted): array
     {
         $declarations = [];
         $refused = [];
-        foreach ($plan->patches as $row) {
+        foreach ($plan->rows() as $row) {
             if (!$row->conflicts()) {
                 continue;
             }
-            $held = $row->declaredIn($declared);
-            if (null === $held || [] !== $held['provenance'] || PatchConfig::isUrl($held['source'])) {
+            $held = Declaration::find($declared, $row->key());
+            if (null === $held || [] !== $held->provenance || UrlPatch::isUrl($held->source)) {
                 continue;
             }
-            $issue = IssueReference::inDeclaration($row->project, $row->title, $held['source']);
+            $issue = IssueReference::inDeclaration($row->project, $row->title, $held->source);
             if (null === $issue) {
                 continue;
             }
@@ -213,7 +206,7 @@ class RerollCommand extends PatchCommand
                 $refused[] = ['title' => $row->title, 'reason' => $request];
                 continue;
             }
-            $declarations[] = ['package' => $row->package, 'title' => $row->title, 'source' => $request->url.'.diff', 'provenance' => []];
+            $declarations[] = $held->at($request->url.'.diff', []);
         }
 
         return ['declarations' => $declarations, 'refused' => $refused];
@@ -254,9 +247,9 @@ class RerollCommand extends PatchCommand
     /**
      * A decision the service found no conflicted region for decides nothing, and the service does not say so: it counts what it applied. A patch the document decided is refused when fewer were applied than sent, before anything is written.
      *
-     * @param list<array{package: string, title: string, source: string}> $patches
-     * @param array<int, list<array<string, mixed>>>                      $fromDocument
-     * @param array<int, list<array<string, mixed>>>                      $sent
+     * @param list<Declaration>                      $patches
+     * @param array<int, list<array<string, mixed>>> $fromDocument
+     * @param array<int, list<array<string, mixed>>> $sent
      */
     private static function refuseStaleDecisions(Plan $plan, array $patches, array $fromDocument, array $sent): void
     {
@@ -264,16 +257,16 @@ class RerollCommand extends PatchCommand
             return;
         }
         $rows = [];
-        foreach ($plan->patches as $row) {
+        foreach ($plan->rows() as $row) {
             $rows[$row->key()] = $row;
         }
         foreach (\array_keys($fromDocument) as $i) {
             $patch = $patches[$i];
-            $row = $rows[PatchRow::keyOf($patch['package'], $patch['title'])] ?? throw new RuntimeException(Text::t('the plan has no row for @source', ['@source' => $patch['source']]));
-            $applied = (int) ($row->reroll['resolutions_applied'] ?? 0);
+            $row = $rows[$patch->key()] ?? throw new RuntimeException(Text::t('the plan has no row for @source', ['@source' => $patch->source]));
+            $applied = $row->reroll->resolutionsApplied ?? 0;
             $count = \count($sent[$i] ?? []);
             if ($count > $applied) {
-                throw new RuntimeException(Text::t('@undecided of the @sent decisions sent for @source named no conflicted region, so they decided nothing; nothing was written', ['@undecided' => $count - $applied, '@sent' => $count, '@source' => $patch['source']]));
+                throw new RuntimeException(Text::t('@undecided of the @sent decisions sent for @source named no conflicted region, so they decided nothing; nothing was written', ['@undecided' => $count - $applied, '@sent' => $count, '@source' => $patch->source]));
             }
         }
     }
@@ -283,16 +276,27 @@ class RerollCommand extends PatchCommand
      *
      * @param list<array{path: string, provenance: array<string, string>, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int}> $written
      *
-     * @return array{0: list<array{action: 'dropped'|'repointed', package: string, title: string, path: string, provenance: array<string, string>}>, 1: string}
+     * @return array{0: list<array{action: 'dropped'|'repointed', package: string, title: string, path: string, provenance: array<string, string>}>, 1: list<string>}
      */
-    private function update(Declarations $declarations, Site $site, Plan $plan, array $written): array
+    private function update(Declarations $declarations, Request $request, Plan $plan, array $written): array
     {
-        $changes = ConfigRewriter::changes($plan, $written);
+        $changes = Declarations::changes($plan, $written);
         if ([] === $changes) {
-            return [[], PatchConfig::COMPOSER_JSON];
+            return [[], []];
         }
-        $rewritten = $declarations->write($changes, $site->patches->patches);
 
-        return [$changes, \implode(', ', $rewritten)];
+        return [$changes, $declarations->write($changes, $request->patches->patches)];
+    }
+
+    /**
+     * The documents a run rewrote, named once each; a run that rewrote none names composer.json, which is where the report says nothing changed.
+     *
+     * @param list<string> $written
+     */
+    private static function documents(array $written): string
+    {
+        $documents = \array_values(\array_unique($written));
+
+        return [] === $documents ? Declaration::COMPOSER_JSON : \implode(', ', $documents);
     }
 }

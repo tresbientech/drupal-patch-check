@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Tests\Write;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 use TresBienTech\Drupatch\Tests\Scratch;
@@ -54,13 +55,13 @@ class PatchFilesTest extends TestCase
      *
      * @param array<string, string> $provenance what each declaration records about its copy
      *
-     * @return list<array{package: string, title: string, source: string, provenance: array<string, string>}>
+     * @return list<Declaration>
      */
     private static function declaring(Plan $plan, array $provenance = []): array
     {
         $out = [];
-        foreach ($plan->patches as $row) {
-            $out[] = ['package' => $row->package, 'title' => $row->title, 'source' => $row->source, 'provenance' => $provenance];
+        foreach ($plan->rows() as $row) {
+            $out[] = new Declaration($row->package, $row->title, $row->source, 'composer.json', false, $provenance);
         }
 
         return $out;
@@ -627,7 +628,7 @@ class PatchFilesTest extends TestCase
             ['source' => 'web/sites/default/settings.php']
         )]]);
         $writer = new PatchFiles($this->root, null, Copied::none([
-            ['package' => 'drupal/other', 'title' => 'Something else', 'source' => 'patches/other.patch', 'provenance' => []],
+            new Declaration('drupal/other', 'Something else', 'patches/other.patch', 'composer.json', false, []),
         ]));
 
         $result = $writer->write($plan);
@@ -644,7 +645,7 @@ class PatchFilesTest extends TestCase
             ['source' => 'web/sites/default/settings.php']
         )]]);
         $writer = new PatchFiles($this->root, null, Copied::none([
-            ['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patches/webform/alter.patch', 'provenance' => []],
+            new Declaration('drupal/webform', 'Fix the alter hook', 'patches/webform/alter.patch', 'composer.json', false, []),
         ]));
 
         $result = $writer->write($plan);
@@ -737,7 +738,7 @@ class PatchFilesTest extends TestCase
      */
     private static function addCopy(array $copied, bool $ours): Copied
     {
-        $declared = [['package' => $copied['package'], 'title' => $copied['title'], 'source' => $copied['source'], 'provenance' => []]];
+        $declared = [new Declaration($copied['package'], $copied['title'], $copied['source'], 'composer.json', false, [])];
 
         return Copied::after($declared, $ours ? [$copied] : [], $ours ? [] : [$copied], [], []);
     }

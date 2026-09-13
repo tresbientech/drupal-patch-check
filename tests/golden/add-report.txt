@@ -1,0 +1,7 @@
+
+  drupal/webform, issue 3521733
+
+  vendored patch/webform/mr940.diff
+  verdict  applies
+
+  declared 3521733: Fix the back/forward cache

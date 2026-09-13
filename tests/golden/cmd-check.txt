@@ -1,0 +1,15 @@
+--- stdout
+Drupal Patch Check: 1 patch against the releases this site installs
+
+  drupal/webform 6.2.9   1 conflicts
+     #1 ! conflicts Fix the alter hook                                                     fix.patch
+                    webform.module:165: patch failed
+
+  patches: 1 conflicts
+  composer already applied these patches to your files
+
+  Next:  composer drupatch:reroll   writes the re-roll
+--- stderr
+
+--- exit
+1

@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 use TresBienTech\Drupatch\ManagerCommands;
+use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\Command\ComposerStub;
 
 /**
@@ -94,20 +95,22 @@ class ManagerCommandsTest extends TestCase
     // Each command was named as it started, so a run that finished adds nothing.
     public function testARunThatFinishedAddsNoLine(): void
     {
-        self::assertSame([], ManagerCommands::stopped(['ran' => [ManagerCommands::RELOCK, ManagerCommands::REPATCH], 'error' => '', 'left' => []]));
+        self::assertSame([], Report::print(Report::unfinished(['ran' => [ManagerCommands::RELOCK, ManagerCommands::REPATCH], 'error' => '', 'left' => []])));
     }
 
     // The declarations are written by then, so the run says what is left to do.
     public function testARunThatStoppedSaysWhatIsLeft(): void
     {
         self::assertSame([
+            '',
             '  <error>composer patches-relock exited 1</error>',
             '  run `composer patches-relock` then `composer patches-repatch` to finish',
-        ], ManagerCommands::stopped(['ran' => [], 'error' => 'composer patches-relock exited 1', 'left' => [ManagerCommands::RELOCK, ManagerCommands::REPATCH]]));
+        ], Report::print(Report::unfinished(['ran' => [], 'error' => 'composer patches-relock exited 1', 'left' => [ManagerCommands::RELOCK, ManagerCommands::REPATCH]])));
         self::assertSame([
+            '',
             '  <error>composer patches-repatch exited 1</error>',
             '  run `composer patches-repatch` to finish',
-        ], ManagerCommands::stopped(['ran' => [ManagerCommands::RELOCK], 'error' => 'composer patches-repatch exited 1', 'left' => [ManagerCommands::REPATCH]]));
+        ], Report::print(Report::unfinished(['ran' => [ManagerCommands::RELOCK], 'error' => 'composer patches-repatch exited 1', 'left' => [ManagerCommands::REPATCH]])));
     }
 
     public function testTheMoveInstallsTheManagerAndItsOwnDependenciesFirst(): void

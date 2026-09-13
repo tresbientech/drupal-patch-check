@@ -7,7 +7,7 @@ namespace TresBienTech\Drupatch\Tests\Request;
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Service\Client;
 
-final class FilteredTest extends TestCase
+class FilteredTest extends TestCase
 {
     private const DRUPAL = 'https://packages.drupal.org/8/downloads';
     private const PACKAGIST = 'https://packagist.org/downloads/';
@@ -122,7 +122,7 @@ final class FilteredTest extends TestCase
         self::assertStringNotContainsString('deploy.sh', $request['json']);
     }
 
-    public function testASitePrivateDeclarationsDropsExtraPatchesFromTheJson(): void
+    public function testTheJsonCarriesNoExtraPatches(): void
     {
         $json = [
             'require' => ['drupal/webform' => '^6.2'],
@@ -131,7 +131,7 @@ final class FilteredTest extends TestCase
         $lock = ['packages' => [['name' => 'drupal/webform', 'version' => '6.2.9', 'notification-url' => self::DRUPAL]]];
 
         $request = Client::filter(
-            \json_encode($json, \JSON_THROW_ON_ERROR),
+            $json,
             \json_encode($lock, \JSON_THROW_ON_ERROR),
         );
 
@@ -178,7 +178,7 @@ final class FilteredTest extends TestCase
         // notification-url of every entry are as they were installed.
         $lock = (string) \file_get_contents(__DIR__.'/fixtures/'.$fixture.'.lock.json');
 
-        $request = Client::filter('{}', $lock);
+        $request = Client::filter([], $lock);
 
         self::assertCount($checkable, $request['packages']);
         self::assertStringNotContainsString('vendor/', $request['lock']);
@@ -199,7 +199,7 @@ final class FilteredTest extends TestCase
         }
 
         return Client::filter(
-            \json_encode($json, \JSON_THROW_ON_ERROR),
+            $json,
             \json_encode($lock, \JSON_THROW_ON_ERROR),
         );
     }

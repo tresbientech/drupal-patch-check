@@ -7,9 +7,7 @@ namespace TresBienTech\Drupatch\Tests\Render;
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Read\Run;
-use TresBienTech\Drupatch\Render\Coverage;
-use TresBienTech\Drupatch\Render\HookReport;
-use TresBienTech\Drupatch\Render\Outcomes;
+use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 
@@ -27,9 +25,9 @@ class UnpinnedTest extends TestCase
      */
     private static function table(array $rows): string
     {
-        $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => $rows]));
+        $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => $rows]), [], null, Scope::whole());
 
-        return \implode("\n", Report::lines($plan, new Coverage(\count($rows), [], [], []), 100));
+        return \implode("\n", Report::print(Report::check($plan, ['checked' => \count($rows), 'skipped' => [], 'unsent' => [], 'versions' => []], null, null, 100, [], false)));
     }
 
     /**
@@ -89,10 +87,10 @@ class UnpinnedTest extends TestCase
     // under the site, so it says the same thing a plain run says.
     public function testAWriteRunSaysItToo(): void
     {
-        $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [$this->mrRow()]]));
-        $outcomes = Outcomes::fromWrite(['written' => [], 'refused' => []]);
+        $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [$this->mrRow()]]), [], null, Scope::whole());
+        $outcomes = ['written' => [], 'refused' => []];
 
-        $out = \implode("\n", Report::lines($plan, new Coverage(1, [], [], []), 100, $outcomes));
+        $out = \implode("\n", Report::print(Report::check($plan, ['checked' => 1, 'skipped' => [], 'unsent' => [], 'versions' => []], $outcomes, null, 100, [], false)));
 
         self::assertStringContainsString('1 patch is declared as a merge request URL. Anyone with a drupal.org', $out);
         self::assertStringContainsString('change between two installs. Run: composer drupatch:pin', $out);
@@ -103,18 +101,18 @@ class UnpinnedTest extends TestCase
         $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [
             $this->mrRow(['title' => 'a']),
             $this->row(['title' => 'b']),
-        ]]));
+        ]]), [], null, Scope::whole());
 
-        $summary = Report::summary($plan);
+        $summary = Report::summary($plan, null, null);
 
         self::assertSame([['package' => 'drupal/webform', 'title' => 'a', 'source' => self::MR]], $summary['unpinned']);
     }
 
     public function testTheSummaryLeavesTheKeyOutWhenThereAreNone(): void
     {
-        $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [$this->row()]]));
+        $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [$this->row()]]), [], null, Scope::whole());
 
-        self::assertArrayNotHasKey('unpinned', Report::summary($plan));
+        self::assertArrayNotHasKey('unpinned', Report::summary($plan, null, null));
     }
 
     // The run itself says it now, before the report the hook setting gates,
@@ -124,9 +122,9 @@ class UnpinnedTest extends TestCase
         $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [
             $this->mrRow(['title' => 'a', 'verdict' => 'conflicts']),
             $this->mrRow(['title' => 'b', 'verdict' => 'conflicts']),
-        ]]));
+        ]]), [], null, Scope::whole());
 
-        $lines = \implode("\n", HookReport::lines($plan));
+        $lines = \implode("\n", Report::print(Report::hook($plan)));
 
         self::assertStringContainsString('2 conflicts after this update', $lines);
         self::assertStringNotContainsString('merge request', $lines);
@@ -134,8 +132,8 @@ class UnpinnedTest extends TestCase
 
     public function testTheHookSaysNothingWithoutOne(): void
     {
-        $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [$this->row()]]));
+        $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [$this->row()]]), [], null, Scope::whole());
 
-        self::assertSame([], HookReport::lines($plan));
+        self::assertSame([], Report::print(Report::hook($plan)));
     }
 }

@@ -16,18 +16,15 @@ use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\ManagerCommands;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Plugin;
-use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Read\Site;
-use TresBienTech\Drupatch\Render\AddReport;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Service\Client;
 use TresBienTech\Drupatch\Source\IssueReference;
 use TresBienTech\Drupatch\Source\MergeRequest;
 use TresBienTech\Drupatch\Source\Ranking;
 use TresBienTech\Drupatch\Text;
-use TresBienTech\Drupatch\Write\ConfigRewriter;
 use TresBienTech\Drupatch\Write\Copied;
 use TresBienTech\Drupatch\Write\Declarations;
 use TresBienTech\Drupatch\Write\PatchFiles;
@@ -36,7 +33,6 @@ use TresBienTech\Drupatch\Write\WorkingTree;
 /**
  * Turns a drupal.org issue into a patch this site applies: copies the merge request's diff in, declares it, and calls the patch manager.
  *
- * @phpstan-import-type CopiedRow from Vendoring
  * @phpstan-import-type Candidate from Ranking
  *
  * @phpstan-type Chosen array{request: MergeRequest, issue: string, title: string, candidates: list<Candidate>, chosen: int}
@@ -81,17 +77,13 @@ class AddCommand extends PatchCommand
 
         // The verdict prints first, because the manager's own commands write
         // their progress straight to the terminal.
-        foreach (AddReport::lines($result) as $line) {
-            $output->writeln($line);
-        }
+        $output->writeln(Report::print(Report::add($result)));
         if ('' !== $result['error'] || $dryRun || !$result['declared']) {
             return $result['exit'];
         }
 
         $applied = ManagerCommands::run(ManagerCommands::APPLY, $input->isInteractive(), $output);
-        foreach (ManagerCommands::stopped($applied) as $line) {
-            $output->writeln($line);
-        }
+        $output->writeln(Report::print(Report::unfinished($applied)));
 
         return '' === $applied['error'] ? $result['exit'] : Plan::ACTION_NEEDED;
     }
@@ -101,66 +93,70 @@ class AddCommand extends PatchCommand
      */
     private function add(string $reference, bool $dryRun, bool $force, string $wanted, ?bool $dropTests): array
     {
-        $composer = $this->requireComposer();
-        $io = $this->getIO();
-        $root = Site::rootDirectory();
-        $manager = Manager::fromComposer($composer);
+        $site = $this->site();
+        $root = $site->root;
         // A pasted URL carries what the page put in the address bar: drupal.org's
         // #new anchor, GitLab's ?tab=. Neither names a different issue.
         $named = MergeRequest::of($url = (string) \strtok($reference, '#?'))
             ?? MergeRequest::of($url.'.diff')
             ?? IssueReference::of($url);
         if (null === $named) {
-            return self::stopped(Text::t('@reference names no drupal.org issue and no merge request on @host', ['@reference' => $reference, '@host' => MergeRequest::HOST]));
+            return self::stopped(Text::t('@reference points at no drupal.org issue and no merge request on @host', ['@reference' => $reference, '@host' => MergeRequest::HOST]));
         }
+        $manager = $site->manager;
         if (!$manager->isTwo()) {
             return self::stopped(self::NEEDS_TWO);
         }
 
         // The reference names its project, so a site that does not install it
         // is told before any host is asked anything.
-        $package = 'drupal/'.$named->project;
-        $site = Site::atWorkingDirectory($composer, $io, $manager);
-        if (!isset($site->installed[$package])) {
+        $package = IssueReference::packageOf($named->project);
+        if ('' === $site->installs($package)) {
             return self::stopped(Text::t('this site does not install @package, so there is nothing to patch', ['@package' => $package]));
+        }
+        // What leaves the site is the checkable subset (ADR 0003). A fork or a
+        // path repository keeps the drupal name and has no release behind it.
+        if (!$site->canJudge($package)) {
+            return self::stopped(Text::t('this site installs @package from outside drupal.org, so the service cannot judge a patch on it', ['@package' => $package]));
         }
         // Git is asked before any host or the service, so a refusal leaves
         // the site as it found it.
-        $patchesFile = $manager->patchesFile($composer->getPackage()->getExtra());
-        $file = '' === $patchesFile ? PatchConfig::COMPOSER_JSON : $patchesFile;
+        $file = Declarations::documentFor($site->extra, $manager);
         $tree = $this->tree($force);
         $declarations = Declarations::checked($root, [$file], $dryRun ? null : $tree);
 
-        $text = $this->patchText($root);
-        $found = $this->choose($named, $wanted, new IssueResolver($text), $site->installed[$package]);
+        $text = $site->text();
+        $found = $this->choose($named, $wanted, new IssueResolver($text), $site->installs($package));
         if (\is_string($found)) {
             return self::stopped($found);
         }
 
         $title = Text::t('@issue: @title', ['@issue' => $found['issue'], '@title' => $found['title']]);
-        $copy = (new Vendoring($root, $text, Plugin::patchDirectory($composer->getPackage()->getExtra()), $manager, $tree))
-            ->run([['package' => $package, 'title' => $title, 'source' => $found['request']->url.'.diff', 'provenance' => []]], Scope::whole(), $dryRun);
+        // The declaration names the document the entry lands in. It opens a
+        // package in the expanded shape, the one that holds its provenance.
+        $copy = (new Vendoring($root, $text, $site->patchDirectory(), $manager, $tree))
+            ->run([new Declaration($package, $title, $found['request']->url.'.diff', $file, true, [])], Scope::whole(), $dryRun);
         if ([] !== $copy->refused) {
             return self::stopped($copy->refused[0]['reason'], $found['issue'], $title, $package);
         }
         if ([] !== $copy->moved) {
             return self::stopped(Text::t('@path already holds this merge request at older commits; run `@pin --refresh` to take the new ones', ['@path' => $copy->moved[0]['path'], '@pin' => Report::PIN]), $found['issue'], $title, $package);
         }
-        $copied = [...$copy->vendored, ...$copy->kept][0];
+        $copied = $copy->declarations[0];
         $plan = $this->judge($site, $text, $found['request'], $copied, $dropTests);
         if (\is_string($plan)) {
             return self::stopped($plan, $found['issue'], $title, $package);
         }
         $settled = $this->settle($plan, $root, $copy, $dryRun, $tree);
         if ($settled['declared'] && !$dryRun) {
-            $this->declare($declarations, $copied, $settled['wrote'], $file);
+            $this->declare($declarations, $copied, $settled['wrote']);
         }
 
         return [
             'issue' => $found['issue'],
             'title' => $title,
             'package' => $package,
-            'path' => $copied['path'],
+            'path' => $copied->source,
             'candidates' => $found['candidates'],
             'chosen' => $found['chosen'],
             'error' => '',
@@ -177,9 +173,8 @@ class AddCommand extends PatchCommand
      */
     private function settle(Plan $plan, string $root, Copied $copy, bool $dryRun, ?WorkingTree $tree): array
     {
-        $copied = [...$copy->vendored, ...$copy->kept][0];
         // The plan is the service's answer, and an answer can hold no row.
-        $row = $plan->patches[0] ?? null;
+        $row = $plan->rows()[0] ?? null;
         if (null === $row) {
             return self::settled('unknown', 'the service judged nothing', '', [], false, Plan::ACTION_NEEDED);
         }
@@ -191,10 +186,15 @@ class AddCommand extends PatchCommand
                 @\unlink($root.\DIRECTORY_SEPARATOR.$path);
             }
 
-            return self::settled($row->verdict, $row->reason(), '', [], false, $exit);
+            return self::settled($row->verdict, Report::reason($row), '', [], false, $exit);
+        }
+        // 2.x applies with git apply alone, so a strict refusal declared as
+        // copied applies nothing, and no re-roll came to declare in its place.
+        if (null === $row->reroll && PatchRow::REFUSED_BY_TWO === $row->failureMode()) {
+            return self::settled($row->verdict, Text::t('@mode; @why', ['@mode' => $row->failureMode(), '@why' => PatchFiles::whyNoReroll($row)]), '', [], false, $exit);
         }
         if (null === $row->reroll || $dryRun) {
-            return self::settled($row->verdict, $row->reason(), $copied['path'], [], true, $exit);
+            return self::settled($row->verdict, Report::reason($row), $copy->declarations[0]->source, [], true, $exit);
         }
 
         return $this->reroll($plan, $root, $copy, $tree, $row, $exit);
@@ -228,7 +228,7 @@ class AddCommand extends PatchCommand
 
         // A patch config never names a conflict file: it holds regions
         // nobody has decided.
-        return self::settled($row->verdict, $row->reason(), $file['path'], $open, 'clean' === $file['status'], $exit);
+        return self::settled($row->verdict, Report::reason($row), $file['path'], $open, 'clean' === $file['status'], $exit);
     }
 
     /**
@@ -254,7 +254,7 @@ class AddCommand extends PatchCommand
     {
         if ($named instanceof MergeRequest) {
             return '' !== $wanted && $wanted !== $named->iid
-                ? Text::t('the argument names merge request @iid, and --mr names @wanted', ['@iid' => $named->iid, '@wanted' => $wanted])
+                ? Text::t('the argument gives merge request @iid, and --mr gives @wanted', ['@iid' => $named->iid, '@wanted' => $wanted])
                 : $this->confirm($named, $resolver);
         }
         if ('' !== $wanted) {
@@ -288,12 +288,10 @@ class AddCommand extends PatchCommand
 
     /**
      * What the service says about the copied patch against the release this site installs.
-     *
-     * @param CopiedRow $copied
      */
-    private function judge(Site $site, PatchText $text, MergeRequest $request, array $copied, ?bool $dropTests): Plan|string
+    private function judge(Site $site, PatchText $text, MergeRequest $request, Declaration $copied, ?bool $dropTests): Plan|string
     {
-        $record = $copied['provenance'];
+        $record = $copied->provenance;
         // A copy the run lifted from an old header may name no commits, and
         // the compare endpoint then answers with something that is no diff.
         $compare = $request->compare($record['base'] ?? '', $record['head'] ?? '');
@@ -301,39 +299,23 @@ class AddCommand extends PatchCommand
         if ('' !== $read['reason']) {
             return $read['reason'];
         }
-        $config = new PatchConfig(
-            [['package' => $copied['package'], 'title' => $copied['title'], 'source' => $copied['path'], 'file' => PatchConfig::COMPOSER_JSON, 'shape' => PatchConfig::EXPANDED, 'provenance' => $record]],
-            [$copied['path'] => $read['files'][$compare] ?? ''],
-            [],
-            [],
-            [],
-        );
 
         // A re-roll is asked for, so a patch that no longer fits is offered
-        // as one rather than reported and left.
+        // as one rather than reported and left. The request carries the
+        // package's own patches, so this one is judged behind them. The run
+        // reads its own patch alone, under the site's patch manager.
         return Client::fromComposer($this->requireComposer(), $this->getIO())
-            ->plan($site->composerJson, $site->composerLock, $config, reroll: true, dropTests: $dropTests);
+            ->plan($site->requestFor($copied, $read['files'][$compare] ?? ''), $site->manager, new Scope([], [$copied->source]), reroll: true, dropTests: $dropTests);
     }
 
     /**
-     * Writes the declaration where this site already keeps its patches. An add run never moves a layout.
+     * Writes the declaration where this site already keeps its patches.
      *
-     * @param CopiedRow $copied
-     * @param string    $wrote  the file the declaration names, which is the re-roll when the run wrote one
-     * @param string    $file   where this site's manager reads declarations: composer.json or the patches file
+     * @param string $wrote the file the declaration names, which is the re-roll when the run wrote one
      */
-    private function declare(Declarations $declarations, array $copied, string $wrote, string $file): void
+    private function declare(Declarations $declarations, Declaration $copied, string $wrote): void
     {
-        $change = ['action' => ConfigRewriter::ADDED, 'package' => $copied['package'], 'title' => $copied['title'], 'path' => $wrote, 'provenance' => $copied['provenance']];
-        // The declaration says where the entry belongs, which is how the
-        // rewrite picks the file to write.
-        $declarations->write([$change], [[
-            'package' => $copied['package'],
-            'title' => $copied['title'],
-            'source' => $copied['source'],
-            'file' => $file,
-            'shape' => PatchConfig::EXPANDED,
-        ]]);
+        $declarations->write([['action' => Declarations::ADDED, 'package' => $copied->package, 'title' => $copied->title, 'path' => $wrote, 'provenance' => $copied->provenance]], [$copied]);
     }
 
     /**

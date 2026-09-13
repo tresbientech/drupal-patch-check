@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Command;
 
 use Composer\Console\Application;
+use Composer\Factory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 use TresBienTech\Drupatch\Command\CheckCommand;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Read\Site;
+use TresBienTech\Drupatch\Tests\StubHost;
 
 /**
  * A site set up the way 2.x of the patch manager recommends: the
@@ -92,6 +95,73 @@ class TwoLineSiteTest extends TestCase
         $row = ((array) \json_decode($tester->getDisplay(), true))['plan']['patches'][0]['result'] ?? [];
         self::assertSame('context drifted, your patch manager still applies it', $row['strict_refused'] ?? null);
         self::assertArrayNotHasKey('failure_mode', $row);
+    }
+
+    private const MR = 'https://git.drupalcode.org/project/webform/-/merge_requests/940.patch';
+
+    /**
+     * A check run on a 2.x site declaring one merge request URL, whose text the stub host answers.
+     *
+     * @param array<string, string> $input
+     */
+    private function checkRequest(array $input): CommandTester
+    {
+        $this->site = (new SiteFixture())->declares('3521733: bfcache', self::MR)->withManager('2.0.0');
+        $this->server = new PlanServer(['target_core' => '', 'counts' => [], 'rows' => [], 'plan' => [
+            'counts' => ['conflicts' => 1],
+            'patches' => [['package' => 'drupal/webform', 'project' => 'webform', 'version' => '6.2.9', 'source' => '', 'verdict' => 'conflicts']],
+        ]]);
+
+        $command = new class([self::MR => [200, "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"]]) extends CheckCommand {
+            /**
+             * @param array<string, array{int, string}> $hosts
+             */
+            public function __construct(private readonly array $hosts)
+            {
+                parent::__construct();
+            }
+
+            protected function site(): Site
+            {
+                return Site::at($this->requireComposer(), $this->getIO(), Factory::getComposerFile(), StubHost::fetch($this->hosts));
+            }
+        };
+        $command->setComposer($this->site->enter($this->server->endpoint));
+        $command->setApplication(new Application());
+
+        $tester = new CommandTester($command);
+        $tester->execute($input, ['capture_stderr_separately' => true]);
+
+        return $tester;
+    }
+
+    // 2.x locks a hash per patch and refuses bytes that moved, so the check
+    // prints no warning about a merge request URL.
+    public function testACheckPrintsNoWarningAboutAMergeRequestURL(): void
+    {
+        $tester = $this->checkRequest([]);
+
+        self::assertStringContainsString('patches: 1 conflicts', $tester->getDisplay());
+        self::assertStringNotContainsString('1 patch is declared as a merge request URL', $tester->getDisplay());
+    }
+
+    // The red line under the row says what the warning says, so 2.x drops it too.
+    public function testTheRowCarriesNoLineAboutAMergeRequestURL(): void
+    {
+        $tester = $this->checkRequest([]);
+
+        self::assertStringContainsString('3521733: bfcache', $tester->getDisplay());
+        self::assertStringNotContainsString('declared as a merge request URL', $tester->getDisplay());
+    }
+
+    // A job reading the JSON still gets the list.
+    public function testTheJsonKeepsTheUnpinnedListAndPrintsNoWarning(): void
+    {
+        $tester = $this->checkRequest(['--format' => 'json']);
+
+        $summary = (array) (((array) \json_decode($tester->getDisplay(), true))['summary'] ?? []);
+        self::assertSame([['package' => 'drupal/webform', 'title' => '3521733: bfcache', 'source' => self::MR]], $summary['unpinned'] ?? null);
+        self::assertStringNotContainsString('1 patch is declared as a merge request URL', $tester->getErrorOutput());
     }
 
     /**

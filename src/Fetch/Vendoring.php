@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Fetch;
 
 use TresBienTech\Drupatch\Manager;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Source\Commit;
 use TresBienTech\Drupatch\Source\Header;
@@ -12,6 +13,7 @@ use TresBienTech\Drupatch\Source\MergeRequest;
 use TresBienTech\Drupatch\Source\Provenance;
 use TresBienTech\Drupatch\Source\UrlPatch;
 use TresBienTech\Drupatch\Write\Copied;
+use TresBienTech\Drupatch\Write\PatchFiles;
 use TresBienTech\Drupatch\Write\SiteFile;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
@@ -47,8 +49,8 @@ class Vendoring
     /**
      * Copies every declaration in scope that names a URL.
      *
-     * @param list<array{package: string, title: string, source: string, provenance: array<string, string>}> $declarations
-     * @param bool                                                                                           $refresh      take the new bytes of a request that moved since the site copied it
+     * @param list<Declaration> $declarations
+     * @param bool              $refresh      take the new bytes of a request that moved since the site copied it
      */
     public function run(array $declarations, Scope $scope, bool $dryRun, bool $refresh = false): Copied
     {
@@ -58,14 +60,21 @@ class Vendoring
         $refused = [];
         foreach ($declarations as $declaration) {
             $upstream = self::upstreamOf($declaration, $refresh);
-            if (null === $upstream || !$scope->has($declaration['package'], $declaration['source'])) {
+            if (null === $upstream || !$scope->has($declaration->package, $declaration->source)) {
                 continue;
             }
-            $path = $upstream->file($this->directory);
+            // A copy the site declares by path is refreshed at that path,
+            // whatever folder a new copy would get. The path is the site's
+            // own text, so it is checked before anything is written there.
+            $path = UrlPatch::isUrl($declaration->source) ? $upstream->file($this->directory) : PatchFiles::inside($declaration->source);
+            if (null === $path) {
+                $refused[] = ['package' => $declaration->package, 'title' => $declaration->title, 'source' => $declaration->source, 'reason' => PatchFiles::OUTSIDE_ROOT, 'lifts' => ''];
+                continue;
+            }
             $held = \is_file($this->root.\DIRECTORY_SEPARATOR.$path);
             // A commit pins its own bytes, so a copy of one is done. A merge
             // request is asked about, because somebody may have pushed to it.
-            if ($held && (!$upstream instanceof MergeRequest || !$this->hasMoved($upstream, $path, $declaration['provenance']))) {
+            if ($held && (!$upstream instanceof MergeRequest || !$this->hasMoved($upstream, $path, $declaration->provenance))) {
                 $kept[] = self::row($declaration, $path, $this->lift($path, $dryRun));
                 continue;
             }
@@ -87,7 +96,7 @@ class Vendoring
                 $vendored[] = self::row($declaration, $path, $provenance);
                 continue;
             }
-            $refused[] = ['package' => $declaration['package'], 'title' => $declaration['title'], 'source' => $declaration['source'], 'reason' => $reason, 'lifts' => $guarded ? '--force' : ''];
+            $refused[] = ['package' => $declaration->package, 'title' => $declaration->title, 'source' => $declaration->source, 'reason' => $reason, 'lifts' => $guarded ? '--force' : ''];
         }
 
         return Copied::after($declarations, $vendored, $kept, $moved, $refused);
@@ -97,22 +106,20 @@ class Vendoring
      * Where one declaration's bytes come from: the source, when it names a merge request, a commit or a URL.
      *
      * A copy the site already holds names a file, so the source says nothing
-     * about where its bytes came from. The record its declaration carries
+     * about where its bytes came from. The provenance its declaration carries
      * does, and a refresh run reads it to reach the merge request again. A
      * commit pins its own bytes and drupal.org does not rewrite an uploaded
      * file, so a merge request is the only source worth asking about twice.
-     *
-     * @param array{package: string, title: string, source: string, provenance: array<string, string>} $declaration
      */
-    private static function upstreamOf(array $declaration, bool $refresh): MergeRequest|Commit|UrlPatch|null
+    private static function upstreamOf(Declaration $declaration, bool $refresh): MergeRequest|Commit|UrlPatch|null
     {
-        $found = MergeRequest::of($declaration['source'])
-            ?? Commit::of($declaration['source'])
-            ?? UrlPatch::of($declaration['source'], $declaration['package']);
+        $found = MergeRequest::of($declaration->source)
+            ?? Commit::of($declaration->source)
+            ?? UrlPatch::of($declaration->source, $declaration->package);
         if (null !== $found || !$refresh) {
             return $found;
         }
-        $recorded = $declaration['provenance']['mr'] ?? '';
+        $recorded = $declaration->provenance['mr'] ?? '';
 
         return '' === $recorded ? null : MergeRequest::of($recorded.'.diff');
     }
@@ -120,17 +127,16 @@ class Vendoring
     /**
      * One declaration with what the run found for it.
      *
-     * @param array{package: string, title: string, source: string, provenance: array<string, string>} $declaration
-     * @param array<string, string>                                                                    $provenance  what the run recorded about the copy, which replaces what the declaration held
+     * @param array<string, string> $provenance what the run recorded about the copy, which replaces what the declaration held
      *
      * @return CopiedRow
      */
-    private static function row(array $declaration, string $path, array $provenance): array
+    private static function row(Declaration $declaration, string $path, array $provenance): array
     {
         return [
-            'package' => $declaration['package'],
-            'title' => $declaration['title'],
-            'source' => $declaration['source'],
+            'package' => $declaration->package,
+            'title' => $declaration->title,
+            'source' => $declaration->source,
             'path' => $path,
             'provenance' => $provenance,
         ];
@@ -153,7 +159,7 @@ class Vendoring
     }
 
     /**
-     * The record of a copy the run is keeping. An old `# drupatch` line is moved onto the declaration and cut from the file, so a repository heals on first use; on 1.x the line stays, because a compact declaration holds no `extra`.
+     * The provenance of a copy the run is keeping. An old `# drupatch` line is moved onto the declaration and cut from the file, so a repository heals on first use; on 1.x the line stays, because a compact declaration holds no `extra`.
      *
      * @return array<string, string>
      */
@@ -198,7 +204,7 @@ class Vendoring
         // request whose branch is gone holds none.
         return \is_string($base) && \is_string($head)
             ? ['base' => $base, 'head' => $head]
-            : 'the merge request names no commits yet';
+            : 'the merge request has no commits yet';
     }
 
     /**
@@ -217,7 +223,7 @@ class Vendoring
     private function fromRequest(MergeRequest $request, string $path, bool $dryRun): array
     {
         // The commits are read first, so the diff is asked for between two of
-        // them and the record describes the bytes the file holds.
+        // them and the provenance describes the bytes the file holds.
         $commits = $this->commitsOf($request);
         if (\is_string($commits)) {
             return [$commits, []];

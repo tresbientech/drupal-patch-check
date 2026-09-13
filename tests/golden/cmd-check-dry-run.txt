@@ -1,0 +1,21 @@
+--- stdout
+{
+    "composer_json": "{\"require\":{\"drupal/webform\":\"^6.2\"}}",
+    "composer_lock": "{\"packages\":[{\"name\":\"drupal/webform\",\"version\":\"6.2.9\",\"type\":\"drupal-module\"}]}",
+    "client": "drupal-patch-check/dev-main",
+    "patches": true,
+    "patch_config": [
+        {
+            "package": "drupal/webform",
+            "patch": "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"
+        }
+    ],
+    "target_core": "",
+    "reroll": false,
+    "candidates": {},
+    "installed_core": {}
+}
+--- stderr
+
+--- exit
+0

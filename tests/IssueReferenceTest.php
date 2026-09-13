@@ -25,6 +25,30 @@ class IssueReferenceTest extends TestCase
         self::assertSame('3521733', $queue->number);
     }
 
+    // Core's issues and merge requests live under the project drupal, and
+    // composer installs core as drupal/core. Every other project keeps its name.
+    public function testCoreIsTheOneProjectWhosePackageIsNamedApart(): void
+    {
+        self::assertSame('drupal/core', IssueReference::packageOf('drupal'));
+        self::assertSame('drupal/webform', IssueReference::packageOf('webform'));
+        self::assertSame('webform', IssueReference::projectOf('drupal/webform'));
+    }
+
+    // Every package core ships belongs to core's project.
+    public function testEveryCorePackageBelongsToTheProjectDrupal(): void
+    {
+        foreach (['drupal/core', 'drupal/core-recommended', 'drupal/core-composer-scaffold', 'drupal/core-dev', 'drupal/core-project-message'] as $package) {
+            self::assertSame('drupal', IssueReference::projectOf($package), $package);
+        }
+    }
+
+    // A copy's folder is named after the package, so core's folder is core.
+    public function testACopyFolderIsThePackageNameAfterTheVendor(): void
+    {
+        self::assertSame('core', IssueReference::folderOf('drupal/core'));
+        self::assertSame('webform', IssueReference::folderOf('drupal/webform'));
+    }
+
     public function testATrailingSlashAndSurroundingSpaceAreIgnored(): void
     {
         $found = IssueReference::of('  https://www.drupal.org/project/webform/issues/3521733/  ');

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TresBienTech\Drupatch\Read;
+namespace TresBienTech\Drupatch\Fetch;
 
 use Composer\Composer;
 use Composer\Package\PackageInterface;

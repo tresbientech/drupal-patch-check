@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Write;
 
 use RuntimeException;
-use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\Scope;
+use TresBienTech\Drupatch\Source\UrlPatch;
 use TresBienTech\Drupatch\Text;
 
 /**
@@ -23,7 +24,7 @@ class Decisions
     /**
      * Regions decided on disk, keyed by the patch's position in the site's declarations, each in the shape the service reads.
      *
-     * @param list<array{package: string, title: string, source: string}> $patches
+     * @param list<Declaration> $patches
      *
      * @return array<int, list<array{file: string, region: int, text?: string, delete?: bool}>>
      */
@@ -31,10 +32,10 @@ class Decisions
     {
         $out = [];
         foreach ($patches as $i => $patch) {
-            if (!$scope->has($patch['package'], $patch['source'])) {
+            if (!$scope->has($patch->package, $patch->source)) {
                 continue;
             }
-            $path = self::conflictFile($patch['source']);
+            $path = self::conflictFile($patch->source);
             if (null === $path) {
                 continue;
             }
@@ -54,7 +55,7 @@ class Decisions
     /**
      * Regions decided in a document, keyed like onDisk(). The document is one object holding a `decisions` list; each entry names a patch by its declared source, a file, a region index, and either a `choice` of `release` or `patch` or the `text` to put there.
      *
-     * @param list<array{package: string, title: string, source: string}> $patches
+     * @param list<Declaration> $patches
      *
      * @throws RuntimeException on a source the site does not declare in scope, or an entry the service would refuse
      *
@@ -68,8 +69,8 @@ class Decisions
         }
         $bySource = [];
         foreach ($patches as $i => $patch) {
-            if ($scope->has($patch['package'], $patch['source'])) {
-                $bySource[$patch['source']] = $i;
+            if ($scope->has($patch->package, $patch->source)) {
+                $bySource[$patch->source] = $i;
             }
         }
         $out = [];
@@ -77,7 +78,7 @@ class Decisions
             $entry = \is_array($entry) ? $entry : [];
             $source = $entry['source'] ?? null;
             if (!\is_string($source) || !isset($bySource[$source])) {
-                throw new RuntimeException(Text::t('decision @n names @source, which is not a patch declared in scope; the site declares @declared', ['@n' => $n + 1, '@source' => \is_string($source) ? $source : 'no source', '@declared' => [] === $bySource ? 'none' : \implode(', ', \array_keys($bySource))]));
+                throw new RuntimeException(Text::t('decision @n gives @source, which is not a patch declared in scope; the site declares @declared', ['@n' => $n + 1, '@source' => \is_string($source) ? $source : 'no source', '@declared' => [] === $bySource ? 'none' : \implode(', ', \array_keys($bySource))]));
             }
             $file = $entry['file'] ?? null;
             $region = $entry['region'] ?? null;
@@ -231,7 +232,7 @@ class Decisions
     {
         // A patch declared as a URL receives no re-roll, so it has no
         // conflict file until a pin run copies it into the site.
-        if (PatchConfig::isUrl($source)) {
+        if (UrlPatch::isUrl($source)) {
             return null;
         }
         $inside = PatchFiles::inside($source);

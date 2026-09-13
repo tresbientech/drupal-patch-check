@@ -7,9 +7,10 @@ namespace TresBienTech\Drupatch\Tests\PatchConfig;
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Fetch\PatchText;
 use TresBienTech\Drupatch\Manager;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\PatchConfig;
 
-final class ReaderTest extends TestCase
+class ReaderTest extends TestCase
 {
     private string $root;
 
@@ -97,7 +98,7 @@ final class ReaderTest extends TestCase
 
         $resolution = $this->read($extra);
 
-        self::assertSame([['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patches/local.patch', 'file' => 'composer.json', 'shape' => 'compact', 'provenance' => []]], $resolution->patches);
+        self::assertEquals([new Declaration('drupal/webform', 'Fix the alter hook', 'patches/local.patch', 'composer.json', false, [])], $resolution->patches);
         self::assertSame(['patches/local.patch' => "diff --git a/x b/x\n"], $resolution->files);
         self::assertSame([], $resolution->notes);
         self::assertSame([], $resolution->unsent);
@@ -358,7 +359,7 @@ final class ReaderTest extends TestCase
 
         $resolution = $this->read($extra, manager: '2.0.0');
 
-        self::assertSame([['package' => 'drupal/webform', 'title' => 'Fix the alter hook', 'source' => 'patches/local.patch', 'file' => 'composer.json', 'shape' => 'expanded', 'provenance' => []]], $resolution->patches);
+        self::assertEquals([new Declaration('drupal/webform', 'Fix the alter hook', 'patches/local.patch', 'composer.json', true, [])], $resolution->patches);
         self::assertSame(['patches/local.patch' => "diff --git a/x b/x\n"], $resolution->files);
     }
 
@@ -381,7 +382,7 @@ final class ReaderTest extends TestCase
 
         $resolution = $this->read(['composer-patches' => ['patches-file' => 'patches.json']], manager: '2.0.0');
 
-        self::assertSame([['package' => 'drupal/webform', 'title' => 'From the file', 'source' => 'patches/local.patch', 'file' => 'patches.json', 'shape' => 'compact', 'provenance' => []]], $resolution->patches);
+        self::assertEquals([new Declaration('drupal/webform', 'From the file', 'patches/local.patch', 'patches.json', false, [])], $resolution->patches);
     }
 
     public function testReadsBothPlacesWhenTheSiteUsesBoth(): void
@@ -397,7 +398,7 @@ final class ReaderTest extends TestCase
         $resolution = $this->read($extra, manager: '2.0.0');
 
         self::assertSame(['From composer.json', 'From the file'], \array_column($resolution->patches, 'title'));
-        self::assertSame(['composer.json', 'patches.json'], \array_column($resolution->patches, 'file'));
+        self::assertSame(['composer.json', 'patches.json'], \array_column($resolution->patches, 'document'));
     }
 
     // The manager reads composer.json first and refuses a patch whose URL
@@ -486,7 +487,7 @@ final class ReaderTest extends TestCase
             ['description' => 'Fix', 'url' => 'patches/local.patch', 'extra' => ['drupatch' => $record, 'provenance' => 'ours']],
         ]]];
 
-        self::assertSame($record, $this->read($extra, manager: '2.0.0')->patches[0]['provenance']);
+        self::assertSame($record, $this->read($extra, manager: '2.0.0')->patches[0]->provenance);
     }
 
     // The compact map has nowhere to put a record, so an entry in it holds
@@ -495,6 +496,6 @@ final class ReaderTest extends TestCase
     {
         $extra = ['patches' => ['drupal/webform' => ['Fix' => 'patches/local.patch']]];
 
-        self::assertSame([], $this->read($extra, manager: '2.0.0')->patches[0]['provenance']);
+        self::assertSame([], $this->read($extra, manager: '2.0.0')->patches[0]->provenance);
     }
 }

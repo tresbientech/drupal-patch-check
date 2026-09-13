@@ -7,7 +7,7 @@ namespace TresBienTech\Drupatch\Tests\Write;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
-use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Tests\Scratch;
 use TresBienTech\Drupatch\Write\Declarations;
 use TresBienTech\Drupatch\Write\WorkingTree;
@@ -59,12 +59,9 @@ class DeclarationsTest extends TestCase
         return ['action' => 'repointed', 'package' => 'drupal/webform', 'title' => $title, 'path' => $path, 'provenance' => []];
     }
 
-    /**
-     * @return array{package: string, title: string, source: string, file: string, shape: string}
-     */
-    private static function declared(string $title, string $source, string $file): array
+    private static function declared(string $title, string $source, string $file): Declaration
     {
-        return ['package' => 'drupal/webform', 'title' => $title, 'source' => $source, 'file' => $file, 'shape' => 'compact'];
+        return new Declaration('drupal/webform', $title, $source, $file, false, []);
     }
 
     /**
@@ -77,11 +74,11 @@ class DeclarationsTest extends TestCase
 
     public function testACleanDocumentPassesAndIsRewritten(): void
     {
-        $declarations = Declarations::checked($this->root, [PatchConfig::COMPOSER_JSON], new WorkingTree(self::git([PatchConfig::COMPOSER_JSON => [0, '']])));
+        $declarations = Declarations::checked($this->root, [Declaration::COMPOSER_JSON], new WorkingTree(self::git([Declaration::COMPOSER_JSON => [0, '']])));
 
-        $written = $declarations->write([self::repoint('Fix', 'patch/webform/mr940.diff')], [self::declared('Fix', 'patches/fix.patch', PatchConfig::COMPOSER_JSON)]);
+        $written = $declarations->write([self::repoint('Fix', 'patch/webform/mr940.diff')], [self::declared('Fix', 'patches/fix.patch', Declaration::COMPOSER_JSON)]);
 
-        self::assertSame([PatchConfig::COMPOSER_JSON], $written);
+        self::assertSame([Declaration::COMPOSER_JSON], $written);
         self::assertSame(['Fix' => 'patch/webform/mr940.diff'], $this->read('composer.json')['extra']['patches']['drupal/webform'] ?? null);
     }
 
@@ -91,8 +88,8 @@ class DeclarationsTest extends TestCase
     {
         $this->expectNotToPerformAssertions();
 
-        Declarations::checked($this->root, [PatchConfig::COMPOSER_JSON], new WorkingTree(self::git([
-            PatchConfig::COMPOSER_JSON => [0, ' M composer.json'],
+        Declarations::checked($this->root, [Declaration::COMPOSER_JSON], new WorkingTree(self::git([
+            Declaration::COMPOSER_JSON => [0, ' M composer.json'],
             self::COMMITTED => [0, self::composerJson(['Fix' => 'patches/fix.patch'], '^6.1')],
         ])));
     }
@@ -102,8 +99,8 @@ class DeclarationsTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('composer.json has uncommitted changes to its patches; commit them or pass --force');
 
-        Declarations::checked($this->root, [PatchConfig::COMPOSER_JSON], new WorkingTree(self::git([
-            PatchConfig::COMPOSER_JSON => [0, ' M composer.json'],
+        Declarations::checked($this->root, [Declaration::COMPOSER_JSON], new WorkingTree(self::git([
+            Declaration::COMPOSER_JSON => [0, ' M composer.json'],
             self::COMMITTED => [0, self::composerJson(['Fix' => 'patches/other.patch'])],
         ])));
     }
@@ -115,7 +112,7 @@ class DeclarationsTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('composer.json: '.WorkingTree::NOT_A_CHECKOUT.'; pass --force');
 
-        Declarations::checked($this->root, [PatchConfig::COMPOSER_JSON], new WorkingTree(self::git([PatchConfig::COMPOSER_JSON => [128, '']])));
+        Declarations::checked($this->root, [Declaration::COMPOSER_JSON], new WorkingTree(self::git([Declaration::COMPOSER_JSON => [128, '']])));
     }
 
     public function testARepositoryWithNoCommitRefuses(): void
@@ -123,8 +120,8 @@ class DeclarationsTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('composer.json has uncommitted changes to its patches; commit them or pass --force');
 
-        Declarations::checked($this->root, [PatchConfig::COMPOSER_JSON], new WorkingTree(self::git([
-            PatchConfig::COMPOSER_JSON => [0, '?? composer.json'],
+        Declarations::checked($this->root, [Declaration::COMPOSER_JSON], new WorkingTree(self::git([
+            Declaration::COMPOSER_JSON => [0, '?? composer.json'],
             self::COMMITTED => [128, ''],
         ])));
     }
@@ -133,14 +130,14 @@ class DeclarationsTest extends TestCase
     // commit, and a second question would refuse the run's own work.
     public function testGitIsAskedOnceWhateverTheRunWritesAfter(): void
     {
-        $git = self::git([PatchConfig::COMPOSER_JSON => [0, '']]);
-        $declarations = Declarations::checked($this->root, [PatchConfig::COMPOSER_JSON], new WorkingTree($git));
-        $declared = [self::declared('Fix', 'patches/fix.patch', PatchConfig::COMPOSER_JSON)];
+        $git = self::git([Declaration::COMPOSER_JSON => [0, '']]);
+        $declarations = Declarations::checked($this->root, [Declaration::COMPOSER_JSON], new WorkingTree($git));
+        $declared = [self::declared('Fix', 'patches/fix.patch', Declaration::COMPOSER_JSON)];
 
         $declarations->write([self::repoint('Fix', 'patch/webform/mr940.diff')], $declared);
         $declarations->write([['action' => 'dropped', 'package' => 'drupal/webform', 'title' => 'Fix', 'path' => '', 'provenance' => []]], $declared);
 
-        self::assertSame([PatchConfig::COMPOSER_JSON], $git->asked);
+        self::assertSame([Declaration::COMPOSER_JSON], $git->asked);
         self::assertArrayNotHasKey('drupal/webform', (array) ($this->read('composer.json')['extra']['patches'] ?? []));
     }
 
@@ -148,14 +145,14 @@ class DeclarationsTest extends TestCase
     {
         \file_put_contents($this->root.'/patches.json', (string) \json_encode(['patches' => ['drupal/webform' => [['description' => 'Other', 'url' => 'patches/other.patch']]]], \JSON_PRETTY_PRINT));
         $declared = [
-            self::declared('Fix', 'patches/fix.patch', PatchConfig::COMPOSER_JSON),
-            ['package' => 'drupal/webform', 'title' => 'Other', 'source' => 'patches/other.patch', 'file' => 'patches.json', 'shape' => 'expanded'],
+            self::declared('Fix', 'patches/fix.patch', Declaration::COMPOSER_JSON),
+            new Declaration('drupal/webform', 'Other', 'patches/other.patch', 'patches.json', true, []),
         ];
 
-        $written = Declarations::checked($this->root, [PatchConfig::COMPOSER_JSON, 'patches.json'], null)
+        $written = Declarations::checked($this->root, [Declaration::COMPOSER_JSON, 'patches.json'], null)
             ->write([self::repoint('Other', 'patch/webform/other.diff'), self::repoint('Fix', 'patch/webform/fix.diff')], $declared);
 
-        self::assertSame([PatchConfig::COMPOSER_JSON, 'patches.json'], $written);
+        self::assertSame([Declaration::COMPOSER_JSON, 'patches.json'], $written);
         self::assertSame(['Fix' => 'patch/webform/fix.diff'], $this->read('composer.json')['extra']['patches']['drupal/webform'] ?? null);
         self::assertSame([['description' => 'Other', 'url' => 'patch/webform/other.diff']], $this->read('patches.json')['patches']['drupal/webform'] ?? null);
     }
@@ -165,8 +162,8 @@ class DeclarationsTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('patches.json: '.WorkingTree::UNTRACKED.'; commit it or pass --force');
 
-        Declarations::refuseReplacing($this->root, [PatchConfig::COMPOSER_JSON, 'patches.json'], new WorkingTree(self::git([
-            PatchConfig::COMPOSER_JSON => [0, ''],
+        Declarations::refuseReplacing($this->root, [Declaration::COMPOSER_JSON, 'patches.json'], new WorkingTree(self::git([
+            Declaration::COMPOSER_JSON => [0, ''],
             'patches.json' => [0, '?? patches.json'],
         ])));
     }
@@ -178,7 +175,7 @@ class DeclarationsTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('composer.json: '.WorkingTree::UNCOMMITTED.'; commit it or pass --force');
 
-        Declarations::refuseReplacing($this->root, [PatchConfig::COMPOSER_JSON], new WorkingTree(self::git([PatchConfig::COMPOSER_JSON => [0, ' M composer.json']])));
+        Declarations::refuseReplacing($this->root, [Declaration::COMPOSER_JSON], new WorkingTree(self::git([Declaration::COMPOSER_JSON => [0, ' M composer.json']])));
     }
 
     public function testAChangeNamingNoEntryLeavesTheDocumentAsItWas(): void
@@ -186,8 +183,8 @@ class DeclarationsTest extends TestCase
         $before = (string) \file_get_contents($this->root.'/composer.json');
 
         try {
-            Declarations::checked($this->root, [PatchConfig::COMPOSER_JSON], null)
-                ->write([self::repoint('Gone', 'patch/gone.diff')], [self::declared('Fix', 'patches/fix.patch', PatchConfig::COMPOSER_JSON)]);
+            Declarations::checked($this->root, [Declaration::COMPOSER_JSON], null)
+                ->write([self::repoint('Gone', 'patch/gone.diff')], [self::declared('Fix', 'patches/fix.patch', Declaration::COMPOSER_JSON)]);
             self::fail('a change naming no entry was written');
         } catch (RuntimeException $e) {
             self::assertStringContainsString('drupal/webform is titled Gone', $e->getMessage());

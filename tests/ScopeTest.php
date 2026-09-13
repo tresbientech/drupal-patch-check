@@ -35,6 +35,22 @@ class ScopeTest extends TestCase
         self::assertSame('cohesion', Scope::key('acquia/cohesion'));
     }
 
+    // Core's project is drupal and its package is drupal/core, so the project
+    // name selects drupal/core and no other core package.
+    public function testCoresProjectNameSelectsCore(): void
+    {
+        foreach (['drupal', 'drupal/core', 'core', 'Drupal/Core'] as $named) {
+            $scope = new Scope([$named], []);
+
+            self::assertTrue($scope->hasPackage('drupal/core'), $named);
+            self::assertFalse($scope->hasPackage('drupal/core-composer-scaffold'), $named);
+            self::assertFalse($scope->hasPackage('drupal/webform'), $named);
+        }
+        self::assertTrue((new Scope(['drupal/core-dev'], []))->hasPackage('drupal/core-dev'));
+        self::assertFalse((new Scope(['drupal/core-dev'], []))->hasPackage('drupal/core'));
+        self::assertFalse((new Scope(['webform'], []))->hasPackage('drupal/core'));
+    }
+
     public function testAPackageSelectsEveryPatchItDeclares(): void
     {
         $scope = new Scope(['webform'], []);

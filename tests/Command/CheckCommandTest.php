@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Tests\Command;
 
+use Composer\Console\Application;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Exception\InvalidOptionException;
+use Symfony\Component\Console\Tester\CommandTester;
 use TresBienTech\Drupatch\Command\CheckCommand;
 use TresBienTech\Drupatch\Command\RerollCommand;
-use TresBienTech\Drupatch\Render\HookReport;
+use TresBienTech\Drupatch\Render\Report;
 
-final class CheckCommandTest extends TestCase
+class CheckCommandTest extends TestCase
 {
     public function testTheNameSaysWhatItDoesAndTheOldSpellingStillReaches(): void
     {
@@ -21,7 +24,7 @@ final class CheckCommandTest extends TestCase
 
     public function testTheHookPointsAtTheCommandThatExists(): void
     {
-        self::assertSame('composer '.(new CheckCommand())->getName(), HookReport::COMMAND);
+        self::assertSame('composer '.(new CheckCommand())->getName(), Report::COMMAND);
     }
 
     public function testTheCheckTakesTheSharedOptionsAndNothingThatWrites(): void
@@ -46,6 +49,18 @@ final class CheckCommandTest extends TestCase
         foreach (['write', 'fix', 'resolve', 'strict', 'json'] as $option) {
             self::assertFalse($definition->hasOption($option), $option.' came back');
         }
+    }
+
+    // The console refuses --write before the run reads the site.
+    public function testARemovedOptionGetsTheConsolesOwnRefusal(): void
+    {
+        $this->expectException(InvalidOptionException::class);
+        $this->expectExceptionMessage('The "--write" option does not exist.');
+
+        $command = new RerollCommand();
+        $command->setApplication(new Application());
+
+        (new CommandTester($command))->execute(['--write' => true]);
     }
 
     // A reviewer approving the plugin for CI reads the request rather

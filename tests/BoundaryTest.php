@@ -18,7 +18,7 @@ class BoundaryTest extends TestCase
     private const SERVICE = ['DRUPATCH_ENDPOINT', 'api.tresbien.tech/v1/'];
 
     /** What only a class opening a connection may name. */
-    private const CONNECTING = ['HttpDownloader'];
+    private const CONNECTING = ['HttpDownloader', 'RepositorySet', 'getRepositoryManager'];
 
     public function testOnlyTheServiceNamespaceNamesTheEndpoint(): void
     {

@@ -114,7 +114,7 @@ class IssueResolver
         $project = $answer['source_project_id'] ?? null;
         $title = $answer['title'] ?? '';
         if (!\is_int($project)) {
-            return 'the merge request names no source project, so the issue behind it cannot be read';
+            return 'the merge request gives no source project, so the issue behind it cannot be read';
         }
         $fork = $this->text->askJson(MergeRequest::projectApi($project));
         if (\is_string($fork)) {

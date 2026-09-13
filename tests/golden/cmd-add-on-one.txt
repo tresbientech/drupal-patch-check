@@ -1,0 +1,7 @@
+--- stdout
+
+  this site runs cweagans/composer-patches 1.x, which has no patches-relock; run `composer drupatch:upgrade-patch-manager` first
+--- stderr
+
+--- exit
+1

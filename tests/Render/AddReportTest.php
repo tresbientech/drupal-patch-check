@@ -6,9 +6,9 @@ namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Render\AddReport;
+use TresBienTech\Drupatch\Render\Report;
 
-#[CoversClass(AddReport::class)]
+#[CoversClass(Report::class)]
 class AddReportTest extends TestCase
 {
     /**
@@ -49,14 +49,14 @@ class AddReportTest extends TestCase
             '  verdict  applies',
             '',
             '  declared 3521733: Fix the back/forward cache',
-        ], AddReport::lines(self::outcome()));
+        ], Report::print(Report::add(self::outcome())));
     }
 
     // The manager's own commands write straight to the terminal, so the
     // verdict block is printed before they run.
     public function testTheVerdictComesBeforeTheDeclaration(): void
     {
-        $lines = AddReport::lines(self::outcome());
+        $lines = Report::print(Report::add(self::outcome()));
         $verdict = \array_search('  verdict  applies', $lines, true);
         $declared = \array_search('  declared 3521733: Fix the back/forward cache', $lines, true);
 
@@ -67,14 +67,14 @@ class AddReportTest extends TestCase
 
     public function testAVerdictWithAReasonCarriesIt(): void
     {
-        $lines = AddReport::lines(self::outcome(['verdict' => 'unknown', 'reason' => 'no release for 6.2.9']));
+        $lines = Report::print(Report::add(self::outcome(['verdict' => 'unknown', 'reason' => 'no release for 6.2.9'])));
 
         self::assertContains('  verdict  unknown, no release for 6.2.9', $lines);
     }
 
     public function testADryRunStopsAfterTheVerdict(): void
     {
-        $lines = AddReport::lines(self::outcome(['dryRun' => true]));
+        $lines = Report::print(Report::add(self::outcome(['dryRun' => true])));
 
         self::assertSame('  nothing written (--dry-run)', \end($lines));
         self::assertNotContains('  declared 3521733: Fix the back/forward cache', $lines);
@@ -84,7 +84,7 @@ class AddReportTest extends TestCase
     {
         self::assertSame(
             ['', '  <error>this site does not install drupal/token, so there is nothing to patch</error>'],
-            AddReport::lines(self::outcome(['error' => 'this site does not install drupal/token, so there is nothing to patch']))
+            Report::print(Report::add(self::outcome(['error' => 'this site does not install drupal/token, so there is nothing to patch'])))
         );
     }
 
@@ -107,13 +107,12 @@ class AddReportTest extends TestCase
             '',
             '  [0] !940    6.2.x     2026-09-09  Fix the cache',
             '  [1] !912    6.x       2026-08-02  The same fix on the dev branch  (draft)',
-            '',
-        ], AddReport::candidates(self::ordered(), '3521733'));
+        ], Report::print(Report::candidates(self::ordered(), '3521733')));
     }
 
     public function testASingleCandidateIsCountedInTheSingular(): void
     {
-        $lines = AddReport::candidates([self::ordered()[0]], '3521733');
+        $lines = Report::print(Report::candidates([self::ordered()[0]], '3521733'));
 
         self::assertContains('  1 merge request on issue 3521733', $lines);
     }
@@ -121,14 +120,14 @@ class AddReportTest extends TestCase
     // A run that chose from a list says which one it took.
     public function testARunThatChoseSaysWhichItTook(): void
     {
-        $lines = AddReport::lines(self::outcome(['candidates' => self::ordered(), 'chosen' => 1]));
+        $lines = Report::print(Report::add(self::outcome(['candidates' => self::ordered(), 'chosen' => 1])));
 
         self::assertContains('  took !912    6.x       2026-08-02  The same fix on the dev branch  (draft)', $lines);
     }
 
     public function testARunWithNoListSaysNothingAboutOne(): void
     {
-        foreach (AddReport::lines(self::outcome()) as $line) {
+        foreach (Report::print(Report::add(self::outcome())) as $line) {
             self::assertStringNotContainsString('took !', $line);
         }
     }
@@ -136,15 +135,15 @@ class AddReportTest extends TestCase
     // The release carries the change, so the copy is a file nobody applies.
     public function testAMergedVerdictSaysNothingWasDeclared(): void
     {
-        $lines = AddReport::lines(self::outcome(['verdict' => 'merged', 'wrote' => '', 'declared' => false, 'exit' => 0]));
+        $lines = Report::print(Report::add(self::outcome(['verdict' => 'merged', 'wrote' => '', 'declared' => false, 'exit' => 0])));
 
-        self::assertContains('  the release already carries this change, so nothing was declared', $lines);
+        self::assertContains('  the release already has this change, so nothing was declared', $lines);
         self::assertNotContains('  declared 3521733: Fix the back/forward cache', $lines);
     }
 
     public function testARerollWrittenOverTheCopyIsNotNamedTwice(): void
     {
-        $lines = AddReport::lines(self::outcome(['verdict' => 'conflicts']));
+        $lines = Report::print(Report::add(self::outcome(['verdict' => 'conflicts'])));
 
         foreach ($lines as $line) {
             self::assertStringNotContainsString('re-roll', $line);
@@ -154,13 +153,13 @@ class AddReportTest extends TestCase
     // A conflict file sits beside the copy, so the run names it.
     public function testAConflictFileIsNamedWithItsOpenRegions(): void
     {
-        $lines = AddReport::lines(self::outcome([
+        $lines = Report::print(Report::add(self::outcome([
             'verdict' => 'conflicts',
             'wrote' => 'patch/webform/mr940.conflict.patch',
             'regions' => ['src/Form.php region 0', 'src/Form.php region 1'],
             'declared' => false,
             'exit' => 1,
-        ]));
+        ])));
 
         self::assertContains('  re-roll  patch/webform/mr940.conflict.patch', $lines);
         self::assertContains('           src/Form.php region 0', $lines);
@@ -169,13 +168,13 @@ class AddReportTest extends TestCase
 
     public function testARunThatCouldNotWriteSaysWhy(): void
     {
-        $lines = AddReport::lines(self::outcome([
+        $lines = Report::print(Report::add(self::outcome([
             'verdict' => 'conflicts',
             'reason' => 'it has uncommitted changes',
             'wrote' => '',
             'declared' => false,
             'exit' => 1,
-        ]));
+        ])));
 
         self::assertContains('  nothing was declared: it has uncommitted changes', $lines);
     }

@@ -9,23 +9,31 @@ use Composer\IO\IOInterface;
 use RuntimeException;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
-use TresBienTech\Drupatch\Manager;
+use TresBienTech\Drupatch\Fetch\Candidates;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Render\Coverage;
+use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Service\Client;
 use TresBienTech\Drupatch\Text;
 
 /**
- * One run's site and the call it makes: the site as read, the releases composer would install for the target, and the plan narrowed to the packages asked for.
+ * One run over the site its command read, and the call it makes: the releases composer would install for the target, and the plan narrowed to the packages asked for.
+ *
+ * @phpstan-type Coverage array{checked: int, skipped: list<array{package: string, title: string, reason: string}>, unsent: list<array{package: string, title: string, source: string, reason: string}>, versions: array<string, string>}
  */
 class Run
 {
     /** The word a run uses to ask for the newest core its constraint allows. */
     private const TARGET_LATEST = 'latest';
 
-    public readonly Site $site;
+    /** The site as the service may be told it, read once for this run. */
+    public readonly Request $request;
 
-    public readonly Coverage $coverage;
+    /**
+     * What the run judged, narrowed to its scope: the patches it asks about, the ones it never sent, the ones it sent without their text, and the release each package installs.
+     *
+     * @var Coverage
+     */
+    public readonly array $coverage;
 
     /** The core the plan is about; `latest` becomes a version when composer can name one. */
     public readonly string $target;
@@ -33,15 +41,11 @@ class Run
     /** @var array<string, string> */
     private readonly array $candidates;
 
-    /** @var array<string, string> */
-    private readonly array $declared;
-
-    private readonly Manager $manager;
-
     /**
      * @throws RuntimeException when --patch names a source the site does not declare
      */
     public function __construct(
+        public readonly Site $site,
         private readonly Composer $composer,
         private readonly IOInterface $io,
         OutputInterface $notes,
@@ -50,24 +54,29 @@ class Run
         /** Whether a re-roll leaves test files out, null for the service's default. */
         public readonly ?bool $dropTests = null,
     ) {
-        $this->manager = Manager::fromComposer($composer);
-        $this->site = Site::atWorkingDirectory($composer, $io, $this->manager);
-        foreach ($this->site->patches->notes as $note) {
-            $notes->writeln('<comment>'.Text::t('drupatch: @message', ['@message' => $note]).'</comment>');
+        $this->request = $site->request();
+        foreach ($this->request->patches->notes as $note) {
+            $notes->writeln(Report::message($note, 'comment'));
         }
-        $declared = \array_column($this->site->patches->patches, 'source');
+        $declared = \array_column($this->request->patches->patches, 'source');
         $unknown = $scope->unknownSources($declared);
         if ([] !== $unknown) {
             throw new RuntimeException(Text::t('no patch is declared from @named; this site declares @declared', ['@named' => \implode(', ', $unknown), '@declared' => [] === $declared ? 'none' : \implode(', ', $declared)]));
         }
-        $this->coverage = Coverage::of($this->site, $scope);
+        $config = $this->request->patches;
+        $this->coverage = [
+            'checked' => \count(\array_filter($config->patches, static fn (Declaration $patch): bool => $scope->has($patch->package, $patch->source))),
+            // A package outside the scope is not the run's business. A patch
+            // sent without its text is noted under its own package, and the
+            // transport check reads them all.
+            'skipped' => \array_values(\array_filter($config->skipped, static fn (array $entry): bool => $scope->hasPackage($entry['package']))),
+            'unsent' => $config->unsent,
+            'versions' => $this->request->installed,
+        ];
         // A bare run judges what the lock installs, so there is no
         // candidate to resolve and no repository to ask.
         $this->candidates = '' === $target ? [] : $this->resolve($target, $notes);
         $this->target = $target;
-        // What the site has on disk says what it supports, whatever the
-        // service's copy of the release data knows.
-        $this->declared = Candidates::declaredCore($composer, $this->site->checkable);
     }
 
     /**
@@ -79,11 +88,11 @@ class Run
      */
     public function body(bool $reroll, array $decided): array
     {
-        return Client::body($this->site->composerJson, $this->site->composerLock, $this->site->patches, $this->target, $reroll, $this->candidates, $this->declared, $decided, $this->dropTests);
+        return Client::body($this->request, $this->target, $reroll, $this->candidates, $decided, $this->dropTests);
     }
 
     /**
-     * Asks the service and narrows the answer to the packages the run named.
+     * Asks the service, and reads the answer under the site's patch manager and through the packages the run named.
      *
      * @param array<int, list<array<string, mixed>>> $decided regions decided, by patch position
      *
@@ -91,22 +100,17 @@ class Run
      */
     public function plan(bool $reroll, array $decided): Plan
     {
-        $plan = Client::fromComposer($this->composer, $this->io)
-            ->plan($this->site->composerJson, $this->site->composerLock, $this->site->patches, $this->target, $reroll, $this->candidates, $this->declared, $decided, $this->dropTests)
-            ->forManager($this->manager);
         // The whole site is sent because the server needs the whole lock;
-        // the narrowing happens here, so everything after it is about the
-        // packages that were asked for.
-        if ($this->scope->isWhole()) {
-            return $plan;
-        }
-        $declared = $plan->packages();
-        $narrowed = $plan->only($this->scope);
-        if (!$narrowed->hasPatches()) {
+        // the plan reads its rows through the scope, so everything after
+        // this is about the packages that were asked for.
+        $plan = Client::fromComposer($this->composer, $this->io)
+            ->plan($this->request, $this->site->manager, $this->scope, $this->target, $reroll, $this->candidates, $decided, $this->dropTests);
+        if (!$this->scope->isWhole() && !$plan->hasPatches()) {
+            $declared = $plan->packages();
             throw new RuntimeException(Text::t('no patch is declared for @named; this site declares patches for @declared', ['@named' => \implode(', ', $this->scope->packages), '@declared' => [] === $declared ? 'nothing' : \implode(', ', $declared)]));
         }
 
-        return $narrowed;
+        return $plan;
     }
 
     /**
@@ -121,12 +125,12 @@ class Run
             $resolver = Candidates::forSite($this->composer);
             $out = $this->resolveCandidates($resolver, $target);
         } catch (Throwable $e) {
-            $notes->writeln('<comment>'.Text::t('drupatch: composer could not say which releases the target installs: @why', ['@why' => $e->getMessage()]).'</comment>');
+            $notes->writeln(Report::message(Text::t('composer could not say which releases the target installs: @why', ['@why' => $e->getMessage()]), 'comment'));
             $out = [];
         }
         if (null !== $resolver) {
             foreach ($resolver->notes() as $note) {
-                $notes->writeln('<comment>'.Text::t('drupatch: @message', ['@message' => $note]).'</comment>');
+                $notes->writeln(Report::message($note, 'comment'));
             }
         }
 
@@ -143,7 +147,7 @@ class Run
         // constraint is compared against the word and refuses, and the run
         // silently falls back to the service's own release table.
         if (self::TARGET_LATEST === $target) {
-            $resolved = $resolver->coreTarget($this->site->constraints);
+            $resolved = $resolver->coreTarget($this->request->constraints);
             if ('' === $resolved) {
                 // The site requires no core package. The service falls
                 // back to the installed core and says so; nothing here can
@@ -153,9 +157,9 @@ class Run
             $target = $resolved;
         }
         $wanted = [];
-        $constraints = $this->site->constraints;
-        foreach ($this->site->patches->patches as $patch) {
-            $package = $patch['package'];
+        $constraints = $this->request->constraints;
+        foreach ($this->request->patches->patches as $patch) {
+            $package = $patch->package;
             $wanted[$package] = $constraints[$package] ?? '';
         }
         if ([] === $wanted) {

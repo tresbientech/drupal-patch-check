@@ -11,13 +11,10 @@ use Throwable;
 use TresBienTech\Drupatch\Fetch\Vendoring;
 use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Plugin;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\PatchConfig;
-use TresBienTech\Drupatch\Read\Site;
-use TresBienTech\Drupatch\Render\PinReport;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Source\MergeRequest;
-use TresBienTech\Drupatch\Text;
 use TresBienTech\Drupatch\Write\Declarations;
 
 /**
@@ -50,19 +47,17 @@ class PinCommand extends PatchCommand
         [$format, $notes] = $printing;
 
         try {
-            $composer = $this->requireComposer();
-            $root = Site::rootDirectory();
-            $extra = $composer->getPackage()->getExtra();
-            $manager = Manager::fromComposer($composer);
-            $declared = PatchConfig::declared($extra, $root, $manager);
+            $site = $this->site();
+            $root = $site->root;
+            $declared = PatchConfig::declared($site->extra, $root, $site->manager);
             $force = true === $input->getOption('force');
             $tree = $this->tree($force);
             // Git is asked before the copy, so a refusal leaves no copy behind.
             $declarations = Declarations::checked($root, Declarations::documentsIn($declared, self::scope($input)), $dryRun ? null : $tree);
-            $copied = (new Vendoring($root, $this->patchText($root), Plugin::patchDirectory($extra), $manager, $tree))
+            $copied = (new Vendoring($root, $site->text(), $site->patchDirectory(), $site->manager, $tree))
                 ->run($declared, self::scope($input), $dryRun, true === $input->getOption('refresh'));
         } catch (Throwable $e) {
-            $notes->writeln('<error>'.Text::t('drupatch: @message', ['@message' => $e->getMessage()]).'</error>');
+            $notes->writeln(Report::message($e->getMessage(), 'error'));
 
             return Plan::FAILED;
         }
@@ -70,7 +65,7 @@ class PinCommand extends PatchCommand
         $result = ['vendored' => $copied->vendored, 'kept' => $copied->kept, 'moved' => $copied->moved, 'refused' => $copied->refused];
         $changes = $copied->changes();
         $rewriteError = '';
-        $rewritten = [PatchConfig::COMPOSER_JSON];
+        $rewritten = [Declaration::COMPOSER_JSON];
         if (!$dryRun && [] !== $changes) {
             try {
                 $rewritten = $declarations->write($changes, $declared);
@@ -79,9 +74,9 @@ class PinCommand extends PatchCommand
             }
         }
 
-        $this->print($output, $format, $result, '' === $rewriteError ? $changes : [], \implode(', ', $rewritten), self::unpinned($result, !$dryRun && '' === $rewriteError));
+        $this->print($output, $format, $result, '' === $rewriteError ? $changes : [], \implode(', ', $rewritten), self::unpinned($result, !$dryRun && '' === $rewriteError), $site->manager);
         if ('' !== $rewriteError) {
-            $notes->writeln('<error>'.Text::t('drupatch: @message', ['@message' => $rewriteError]).'</error>');
+            $notes->writeln(Report::message($rewriteError, 'error'));
 
             return Plan::FAILED;
         }
@@ -99,26 +94,22 @@ class PinCommand extends PatchCommand
     {
         $rows = $repointed ? $result['refused'] : [...$result['vendored'], ...$result['kept'], ...$result['moved'], ...$result['refused']];
 
-        return \count(MergeRequest::among($rows));
+        return \count(MergeRequest::among(\array_column($rows, 'source')));
     }
 
     /**
      * @param array{vendored: list<CopiedRow>, kept: list<CopiedRow>, moved: list<CopiedRow>, refused: list<RefusedRow>}   $result
      * @param list<array{action: string, package: string, title: string, path: string, provenance: array<string, string>}> $changes
      */
-    private function print(OutputInterface $output, string $format, array $result, array $changes, string $declaration, int $unpinned): void
+    private function print(OutputInterface $output, string $format, array $result, array $changes, string $declaration, int $unpinned, Manager $manager): void
     {
         if ('table' !== $format) {
             $output->writeln((string) \json_encode($result + ['rewritten' => \count($changes)], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES));
             $notes = self::notes($output, true);
-            foreach (Report::unpinnedWarning($unpinned) as $line) {
-                $notes->writeln($line);
-            }
+            $notes->writeln(Report::print(Report::unpinnedWarning($manager, $unpinned)));
 
             return;
         }
-        foreach (PinReport::lines($result, $declaration, \count($changes), $unpinned) as $line) {
-            $output->writeln($line);
-        }
+        $output->writeln(Report::print(Report::pin($result, $declaration, \count($changes), $unpinned, $manager)));
     }
 }

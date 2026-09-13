@@ -64,4 +64,16 @@ class CommitTest extends TestCase
         self::assertNotNull($commit);
         self::assertSame('patch/website_feedback/commit-0207b39d318f.diff', $commit->file('patch'));
     }
+
+    // Core's commits live under the project drupal or an issue fork of it, and
+    // a copy of either goes in the folder of its package, core.
+    public function testACoreCommitIsCopiedIntoTheCoreFolder(): void
+    {
+        foreach (['project/drupal', 'issue/drupal-3519447'] as $namespace) {
+            $commit = Commit::of('https://git.drupalcode.org/'.$namespace.'/-/commit/'.self::SHA.'.diff');
+
+            self::assertNotNull($commit, $namespace);
+            self::assertSame('patch/core/commit-0207b39d318f.diff', $commit->file('patch'), $namespace);
+        }
+    }
 }

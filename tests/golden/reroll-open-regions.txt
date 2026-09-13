@@ -1,0 +1,15 @@
+<info>Drupal Patch Check</info>: 2 patches for a move to core 11.4.5
+
+  patches: 2 conflicts left
+
+  re-rolled with conflicts:
+    patches/webform/a.conflict.patch  (2 regions to decide)
+      src/Entity/Webform.php region 0
+      src/Entity/Webform.php region 1
+
+  not re-rolled:
+    it has uncommitted changes
+      patches/webform/b.patch  drupal/webform: Fix b
+
+  Next:  composer drupatch:reroll           sends the regions you decide in the conflict file
+         composer drupatch:reroll --force   replaces the file this run would not overwrite

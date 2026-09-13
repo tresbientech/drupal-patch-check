@@ -13,9 +13,13 @@ use OutOfBoundsException;
 use RuntimeException;
 use Throwable;
 use TresBienTech\Drupatch\Fetch\PatchText;
+use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Read\Request;
+use TresBienTech\Drupatch\Read\Scope;
+use TresBienTech\Drupatch\Source\IssueReference;
 use TresBienTech\Drupatch\Source\MergeRequest;
+use TresBienTech\Drupatch\Source\UrlPatch;
 use TresBienTech\Drupatch\Text;
 
 /**
@@ -40,19 +44,11 @@ class Client
     /** The repository that serves drupal.org releases. */
     private const DRUPAL_NOTIFICATION = 'https://packages.drupal.org/8/downloads';
 
+    /** The provenance keys a request always carries. `url` joins them only on drupal.org's hosts, since a URL elsewhere can point at a private host. */
+    private const PROVENANCE_SENT = ['mr', 'commit', 'base'];
+
     /** The composer type drupal.org gives a sub-module. */
     private const METAPACKAGE = 'metapackage';
-
-    /**
-     * Core's packages, which are published to Packagist rather than to packages.drupal.org.
-     */
-    private const CORE_PACKAGES = [
-        'drupal/core',
-        'drupal/core-recommended',
-        'drupal/core-composer-scaffold',
-        'drupal/core-dev',
-        'drupal/core-project-message',
-    ];
 
     public function __construct(
         private readonly HttpDownloader $downloader,
@@ -97,12 +93,13 @@ class Client
     /**
      * The two composer documents as the service receives them: the keys it reads, narrowed to what it can judge, and every package the lock names.
      *
+     * @param array<mixed> $composerJson the site's composer.json, decoded once per run
+     *
      * @return array{json: string, lock: string, packages: array<string, string>, locked: array<string, string>}
      */
-    public static function filter(string $composerJson, string $composerLock): array
+    public static function filter(array $composerJson, string $composerLock): array
     {
         $lock = self::decode($composerLock);
-        $json = self::decode($composerJson);
 
         $packages = [];
         $locked = [];
@@ -133,7 +130,7 @@ class Client
         }
 
         return [
-            'json' => self::encode(self::filterJson($json, $packages)),
+            'json' => self::encode(self::filterJson($composerJson, $packages)),
             'lock' => self::encode($slim),
             'packages' => $packages,
             'locked' => $locked,
@@ -141,16 +138,17 @@ class Client
     }
 
     /**
+     * @param Manager|null                           $manager     the patch manager the answer is read under, null to read it as the service sent it
+     * @param Scope                                  $scope       what the run acts on, which the plan reads its rows through
      * @param array<string, string>                  $candidates  composer name to the release composer would install
-     * @param array<string, string>                  $declared    composer name to the core requirement its installed release declares
      * @param array<int, list<array<string, mixed>>> $resolutions regions a person decided, by patch position
      * @param bool|null                              $dropTests   whether a re-roll leaves test files out, null for the service's default
      *
      * @throws RuntimeException when the call or the answer failed
      */
-    public function plan(string $composerJson, string $composerLock, PatchConfig $patches, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = [], ?bool $dropTests = null): Plan
+    public function plan(Request $request, ?Manager $manager, Scope $scope, string $targetCore = '', bool $reroll = false, array $candidates = [], array $resolutions = [], ?bool $dropTests = null): Plan
     {
-        $body = \json_encode(self::body($composerJson, $composerLock, $patches, $targetCore, $reroll, $candidates, $declared, $resolutions, $dropTests), \JSON_THROW_ON_ERROR);
+        $body = \json_encode(self::body($request, $targetCore, $reroll, $candidates, $resolutions, $dropTests), \JSON_THROW_ON_ERROR);
 
         try {
             $response = $this->downloader->get($this->endpoint, [
@@ -174,28 +172,28 @@ class Client
             throw new RuntimeException('the service answered with something that is not JSON');
         }
 
-        return Plan::fromArray($decoded, $patches->patches);
+        return Plan::fromArray($decoded, $request->patches->patches, $manager, $scope);
     }
 
     /**
      * Everything the request carries, in one place, so `--dry-run` shows the body rather than a description of it.
      *
      * @param array<string, string>                  $candidates
-     * @param array<string, string>                  $declared
      * @param array<int, list<array<string, mixed>>> $resolutions regions a person decided, by patch position
      * @param bool|null                              $dropTests   whether a re-roll leaves test files out, null for the service's default
      *
      * @return array<string, mixed>
      */
-    public static function body(string $composerJson, string $composerLock, PatchConfig $patches, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = [], ?bool $dropTests = null): array
+    public static function body(Request $request, string $targetCore = '', bool $reroll = false, array $candidates = [], array $resolutions = [], ?bool $dropTests = null): array
     {
+        $patches = $request->patches;
         $config = [];
         foreach ($patches->patches as $i => $patch) {
-            $source = $patch['source'];
+            $source = $patch->source;
             // A path names a client, a ticket and a project, and the service
             // reads a package, a version and a patch text. So the entry holds
             // its own text and nothing the site wrote.
-            $entry = ['package' => $patch['package']];
+            $entry = ['package' => $patch->package];
             if (isset($patches->files[$source])) {
                 $entry['patch'] = $patches->files[$source];
             }
@@ -205,14 +203,19 @@ class Client
             }
             // A merge request names nothing of the site, and the service
             // reads it to say whether the release already holds the change.
-            $request = MergeRequest::of($source);
-            if (null !== $request) {
-                $entry['upstream'] = $request->url;
+            $upstream = MergeRequest::of($source);
+            if (null !== $upstream) {
+                $entry['upstream'] = $upstream->url;
             }
             // Where a vendored patch's bytes came from, which is how the
             // service reaches the merge request behind a local file.
-            if ([] !== $patch['provenance']) {
-                $entry['provenance'] = $patch['provenance'];
+            $sent = \array_flip(self::PROVENANCE_SENT);
+            if (UrlPatch::isDrupalOrg($patch->provenance['url'] ?? '')) {
+                $sent['url'] = true;
+            }
+            $record = \array_intersect_key($patch->provenance, $sent);
+            if ([] !== $record) {
+                $entry['provenance'] = $record;
             }
             if ([] !== ($resolutions[$i] ?? [])) {
                 $entry['resolutions'] = $resolutions[$i];
@@ -221,8 +224,8 @@ class Client
         }
 
         return [
-            'composer_json' => $composerJson,
-            'composer_lock' => $composerLock,
+            'composer_json' => $request->composerJson,
+            'composer_lock' => $request->composerLock,
             'client' => self::agent(),
             'patches' => true,
             'patch_config' => $config,
@@ -235,7 +238,7 @@ class Client
             // What each installed release says it needs of core, read from
             // the site's own vendor directory. The service's copy of the
             // release data can be months behind; this cannot.
-            'installed_core' => (object) $declared,
+            'installed_core' => (object) $request->declaredCore,
             // Sent only when the run named a flag, so the service's own
             // rule decides otherwise.
         ] + (null === $dropTests ? [] : ['drop_tests' => $dropTests]);
@@ -287,7 +290,7 @@ class Client
      */
     private static function isCheckable(string $name, array $entry): bool
     {
-        return \in_array($name, self::CORE_PACKAGES, true)
+        return \in_array($name, IssueReference::CORE_PACKAGES, true)
             || self::DRUPAL_NOTIFICATION === ($entry['notification-url'] ?? null);
     }
 

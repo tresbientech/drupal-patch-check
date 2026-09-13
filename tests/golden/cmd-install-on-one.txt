@@ -1,0 +1,4 @@
+
+  1 patch is declared as a merge request URL. Anyone with a drupal.org
+  account can push to a merge request, so what composer applies here can
+  change between two installs. Run: composer drupatch:pin

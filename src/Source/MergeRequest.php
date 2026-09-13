@@ -45,22 +45,15 @@ class MergeRequest
     }
 
     /**
-     * The declarations naming a merge request, in the order the site wrote them. Reads the sources alone, so a caller with no plan and no service answer can ask.
+     * The declared sources naming a merge request, in the order the site wrote them. Reads the sources alone, so a caller with no plan and no service answer can ask.
      *
-     * @param list<array{source: string}> $declarations each carrying the source the site declared
+     * @param list<string> $sources
      *
-     * @return list<array{source: string}>
+     * @return list<string>
      */
-    public static function among(array $declarations): array
+    public static function among(array $sources): array
     {
-        $out = [];
-        foreach ($declarations as $declaration) {
-            if (null !== self::of($declaration['source'])) {
-                $out[] = $declaration;
-            }
-        }
-
-        return $out;
+        return \array_values(\array_filter($sources, static fn (string $source): bool => null !== self::of($source)));
     }
 
     /**
@@ -99,10 +92,10 @@ class MergeRequest
     }
 
     /**
-     * Where the site keeps its copy, under the directory it names for patches.
+     * Where the site keeps its copy: under the directory it names for patches, in the folder of the package the project installs as.
      */
     public function file(string $directory): string
     {
-        return $directory.'/'.$this->project.'/mr'.$this->iid.'.diff';
+        return $directory.'/'.IssueReference::folderOf(IssueReference::packageOf($this->project)).'/mr'.$this->iid.'.diff';
     }
 }

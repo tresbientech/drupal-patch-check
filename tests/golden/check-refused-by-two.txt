@@ -1,0 +1,7 @@
+<info>Drupal Patch Check</info>: 1 patch for a move to core 11.4.5
+
+  drupal/webform 6.2.9   1 refused by 2.x
+     #1 <error>!</error> applies   Fix the alter hook                                                   alter.patch
+                    <fg=cyan>your patch manager refuses it; `composer drupatch:reroll` writes a version it applies</>
+
+  patches: 1 refused by 2.x

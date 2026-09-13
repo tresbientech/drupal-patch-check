@@ -1,0 +1,13 @@
+<info>Drupal Patch Check</info>: 2 patches for a move to core 11.4.5
+
+  drupal/webform 6.2.9   1 conflicts, 1 applies
+     #1 <error>!</error> conflicts Fix the alter hook                                                  alter.patch
+                    <fg=cyan>webform.module:165: patch failed</>
+                    <fg=cyan>src/Entity/Webform.php:42: patch failed</>
+                    <fg=cyan>already in the release: webform.module:6</>
+                    <fg=cyan>run composer drupatch:reroll to see if the release has the rest</>
+     #2 · applies   Second thoughts                                                     second.patch
+
+  patches: 1 conflicts, 1 applies
+
+  Next:  composer drupatch:reroll   writes the re-roll

@@ -6,7 +6,7 @@ namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Render\HookReport;
+use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Tests\PlanFactory;
 
 class HookReportTest extends TestCase
@@ -35,7 +35,7 @@ class HookReportTest extends TestCase
             'patches' => [$this->row(), $this->row(['title' => 'another'])],
         ]);
 
-        self::assertSame([], HookReport::lines($plan));
+        self::assertSame([], Report::print(Report::hook($plan)));
     }
 
     /**
@@ -54,10 +54,10 @@ class HookReportTest extends TestCase
 
     public function testAnApplyingPatchWithAFlaggedCoreReferenceIsMentioned(): void
     {
-        $lines = HookReport::lines($this->applyingWithCoreReferences([
+        $lines = Report::print(Report::hook($this->applyingWithCoreReferences([
             ['symbol' => '\\Drupal\\workspaces\\WorkspaceListBuilder', 'kind' => 'moved', 'change_record' => 3500000,
                 'issue' => '\\Drupal\\workspaces\\WorkspaceListBuilder was removed in 11.4.0; \\Drupal\\workspaces_ui\\WorkspaceListBuilder carries the name now'],
-        ]));
+        ])));
 
         self::assertStringContainsString('1 with core references to check', $lines[0]);
         self::assertStringContainsString('applies', $lines[1]);
@@ -72,7 +72,7 @@ class HookReportTest extends TestCase
             $flagged[] = ['symbol' => '\\Drupal\\Core\\Gone'.$n, 'kind' => 'removed', 'issue' => '\\Drupal\\Core\\Gone'.$n.' was removed in 11.0.0'];
         }
 
-        $lines = HookReport::lines($this->applyingWithCoreReferences($flagged));
+        $lines = Report::print(Report::hook($this->applyingWithCoreReferences($flagged)));
 
         self::assertStringContainsString('core removed: \\Drupal\\Core\\Gone1 was removed in 11.0.0 (+2 more)', $lines[2]);
         self::assertStringNotContainsString('Gone2', \implode("\n", $lines));
@@ -82,12 +82,12 @@ class HookReportTest extends TestCase
     {
         $plan = $this->applyingWithCoreReferences([], ['deprecated' => [['fqn' => '\\Drupal\\Core\\OldThing', 'deprecated_in' => '11.2.0', 'removal_in' => '12.0.0']]]);
 
-        self::assertSame([], HookReport::lines($plan));
+        self::assertSame([], Report::print(Report::hook($plan)));
     }
 
     public function testTheFirstLineIsWhatIsLeftToDecide(): void
     {
-        $first = HookReport::lines($this->plan())[0];
+        $first = Report::print(Report::hook($this->plan()))[0];
 
         self::assertStringContainsString('1 conflicts', $first);
         self::assertStringContainsString('1 merged', $first);
@@ -96,14 +96,14 @@ class HookReportTest extends TestCase
 
     public function testTheHeadlineCountsEachVerdictAndReadsWhole(): void
     {
-        $first = HookReport::lines($this->planFrom([
+        $first = Report::print(Report::hook($this->planFrom([
             'counts' => ['merged' => 2, 'unknown' => 1],
             'patches' => [
                 $this->row(['verdict' => 'merged', 'title' => 'a']),
                 $this->row(['verdict' => 'merged', 'title' => 'b']),
                 $this->row(['verdict' => 'unknown', 'title' => 'c']),
             ],
-        ]))[0];
+        ])))[0];
 
         self::assertSame('<info>Drupal Patch Check</info>: 1 unknown, 2 merged after this update', $first);
     }
@@ -112,13 +112,13 @@ class HookReportTest extends TestCase
     {
         self::assertContains(
             '  run `composer drupatch:check` for the detail, or `--target <version>` before a core upgrade',
-            HookReport::lines($this->plan())
+            Report::print(Report::hook($this->plan()))
         );
     }
 
     public function testTheFooterIsTheLastThingPrinted(): void
     {
-        $lines = HookReport::lines($this->plan());
+        $lines = Report::print(Report::hook($this->plan()));
 
         self::assertStringContainsString('drupatch:check', $lines[\count($lines) - 2]);
         self::assertStringContainsString('drupatch:reroll', $lines[\count($lines) - 1]);
@@ -129,7 +129,7 @@ class HookReportTest extends TestCase
         $plan = $this->planFrom(['counts' => ['unknown' => 1], 'patches' => [
             $this->row(['verdict' => 'unknown']),
         ]]);
-        $lines = HookReport::lines($plan);
+        $lines = Report::print(Report::hook($plan));
 
         self::assertSame(
             '  run `composer drupatch:check` for the detail, or `--target <version>` before a core upgrade',
@@ -145,26 +145,26 @@ class HookReportTest extends TestCase
         for ($i = 0; $i < 25; ++$i) {
             $rows[] = $this->row(['verdict' => 'merged', 'title' => 'Fix '.$i]);
         }
-        $lines = HookReport::lines($this->planFrom(['counts' => ['merged' => 25], 'patches' => $rows]));
+        $lines = Report::print(Report::hook($this->planFrom(['counts' => ['merged' => 25], 'patches' => $rows])));
 
-        self::assertContains('  …', $lines);
+        self::assertContains('  +5 more patches', $lines);
         self::assertStringContainsString('Fix 19', \implode("\n", $lines));
         self::assertStringNotContainsString('Fix 20', \implode("\n", $lines), 'the list stops at twenty');
     }
 
     public function testAVerdictThisPluginDoesNotKnowStillCounts(): void
     {
-        $first = HookReport::lines($this->planFrom([
+        $first = Report::print(Report::hook($this->planFrom([
             'counts' => ['quarantined' => 1],
             'patches' => [$this->row(['verdict' => 'quarantined'])],
-        ]))[0];
+        ])))[0];
 
         self::assertStringContainsString('1 quarantined', $first);
     }
 
     public function testListsOnlyThePatchesNeedingAttention(): void
     {
-        $lines = \implode("\n", HookReport::lines($this->plan()));
+        $lines = \implode("\n", Report::print(Report::hook($this->plan())));
 
         self::assertStringContainsString('Fix a', $lines);
         self::assertStringContainsString('Menu cache', $lines);
@@ -185,7 +185,7 @@ class HookReportTest extends TestCase
             'note' => 'the lock does not install drupal/domain, so there is no release to judge this patch against',
         ])]]);
 
-        $lines = HookReport::lines($plan);
+        $lines = Report::print(Report::hook($plan));
 
         self::assertStringContainsString('unknown', $lines[1]);
         self::assertStringContainsString('the lock does not install drupal/domain', $lines[2]);
@@ -199,7 +199,7 @@ class HookReportTest extends TestCase
             'title' => 'Cache tag on token replacement',
         ])]]);
 
-        $lines = HookReport::lines($plan);
+        $lines = Report::print(Report::hook($plan));
 
         self::assertStringContainsString('merged', $lines[1]);
         self::assertStringStartsWith('  run `', $lines[2]);
@@ -208,7 +208,7 @@ class HookReportTest extends TestCase
     public function testEveryRowOpensWithTheSameMarkAsTheReport(): void
     {
         $rows = \array_values(\array_filter(
-            HookReport::lines($this->plan()),
+            Report::print(Report::hook($this->plan())),
             static fn (string $line): bool => 1 === \preg_match('/^  (<\\w+>)?[!?·✓*]/u', $line),
         ));
 
@@ -219,7 +219,7 @@ class HookReportTest extends TestCase
 
     public function testPointsAtTheCommandThatShowsMore(): void
     {
-        self::assertStringContainsString('composer drupatch:check', \implode("\n", HookReport::lines($this->plan())));
+        self::assertStringContainsString('composer drupatch:check', \implode("\n", Report::print(Report::hook($this->plan()))));
     }
 
     // The hint prints the `--target <version>` placeholder, so a site
@@ -227,7 +227,7 @@ class HookReportTest extends TestCase
     public function testTheTargetHintNamesNoVersion(): void
     {
         $hint = \implode("\n", \array_filter(
-            HookReport::lines($this->plan()),
+            Report::print(Report::hook($this->plan())),
             static fn (string $line): bool => \str_contains($line, '--target'),
         ));
 
@@ -243,7 +243,7 @@ class HookReportTest extends TestCase
             'patches' => [$this->row(['verdict' => 'unknown'])],
         ]);
 
-        $lines = HookReport::lines($plan);
+        $lines = Report::print(Report::hook($plan));
 
         self::assertSame('  <comment>! 9 core patch(es) were not judged: 11.4 does not name a core release.</comment>', $lines[1], 'the warning goes under the headline, marked and whole');
     }
@@ -252,31 +252,31 @@ class HookReportTest extends TestCase
     // about it.
     public function testTheHookSaysNothingAboutALooselyAppliedPatch(): void
     {
-        $lines = HookReport::lines($this->planFrom([
+        $lines = Report::print(Report::hook($this->planFrom([
             'counts' => ['applies' => 1],
             'patches' => [$this->row([
                 'verdict' => 'applies',
                 'result' => ['strict_refused' => 'the patch carries the packaging block as context'],
             ])],
-        ]));
+        ])));
 
         self::assertSame([], $lines);
     }
 
     public function testABlockedPackageIsNotNamed(): void
     {
-        self::assertStringNotContainsString('drupal/domain', \implode("\n", HookReport::lines($this->plan())));
+        self::assertStringNotContainsString('drupal/domain', \implode("\n", Report::print(Report::hook($this->plan()))));
     }
 
     // Composer refused to move the package during the update the hook is
     // reporting on, so it has already been said.
     public function testABlockedPackageAloneSaysNothing(): void
     {
-        self::assertSame([], HookReport::lines($this->planFrom([
+        self::assertSame([], Report::print(Report::hook($this->planFrom([
             'counts' => ['applies' => 1],
             'no_release' => ['drupal/domain'],
             'patches' => [$this->row()],
-        ])));
+        ]))));
     }
 
     // Composer applied every patch during the update it is reporting on,
@@ -285,23 +285,23 @@ class HookReportTest extends TestCase
     // changed.
     public function testAWarningAloneSaysNothing(): void
     {
-        self::assertSame([], HookReport::lines($this->planFrom([
+        self::assertSame([], Report::print(Report::hook($this->planFrom([
             'counts' => ['applies' => 1],
             'no_release' => ['drupal/webform'],
             'warnings' => ['drupal/webform 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.'],
             'patches' => [$this->row()],
-        ])));
+        ]))));
     }
 
     // With a row to carry, the warning is the caveat on it.
     public function testAWarningPrintsBesideARowThatNeedsADecision(): void
     {
-        $lines = HookReport::lines($this->planFrom([
+        $lines = Report::print(Report::hook($this->planFrom([
             'counts' => ['merged' => 1],
             'no_release' => ['drupal/webform'],
             'warnings' => ['drupal/webform 6.3.2 supports 11.4.5; the site requires ^6.2. Widen it to ^6.3.'],
             'patches' => [$this->row(['verdict' => 'merged'])],
-        ]));
+        ])));
 
         self::assertStringContainsString('1 merged after this update', $lines[0]);
         self::assertStringContainsString('Widen it to ^6.3.', $lines[1]);
@@ -311,31 +311,31 @@ class HookReportTest extends TestCase
     // nothing here to caveat.
     public function testAWarningAboutAPackageWithNoPatchesIsNeverPrinted(): void
     {
-        $lines = HookReport::lines($this->planFrom([
+        $lines = Report::print(Report::hook($this->planFrom([
             'counts' => ['merged' => 1],
             'no_release' => ['drupal/select2'],
             'warnings' => ['drupal/select2 2.0.0 supports 11.4.5; the site requires 2.x-dev@dev. Widen it to ^2.0.'],
             'patches' => [$this->row(['verdict' => 'merged'])],
-        ]));
+        ])));
 
         self::assertStringNotContainsString('drupal/select2', \implode("\n", $lines));
     }
 
     public function testSaysNothingWhenTheSiteDeclaresNoPatches(): void
     {
-        self::assertSame([], HookReport::lines($this->planFrom(['patches' => []])));
+        self::assertSame([], Report::print(Report::hook($this->planFrom(['patches' => []]))));
     }
 
     // Composer already applied this patch, so the hook is the first place
     // a reader learns the file it left will not compile.
     public function testAPatchThatBrokeAFileLeadsTheHookAndSaysWhichFile(): void
     {
-        $lines = HookReport::lines($this->planFrom(['patches' => [
+        $lines = Report::print(Report::hook($this->planFrom(['patches' => [
             $this->row(['title' => 'Fix a', 'result' => [
                 'failure_mode' => 'broken syntax',
                 'syntax_errors' => ['src/A.php: unexpected } on line 4'],
             ]]),
-        ]]));
+        ]])));
 
         self::assertStringContainsString('1 broken syntax', $lines[0]);
         self::assertStringContainsString('<error>!</error> applies  ', $lines[1], 'the mark says work, the column keeps the verdict');

@@ -6,12 +6,14 @@ namespace TresBienTech\Drupatch\Tests\Command;
 
 use Closure;
 use Composer\Console\Application;
+use Composer\Factory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use Symfony\Component\Console\Tester\CommandTester;
 use TresBienTech\Drupatch\Command\PinCommand;
-use TresBienTech\Drupatch\Fetch\PatchText;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Read\Site;
 use TresBienTech\Drupatch\Tests\StubHost;
 use TresBienTech\Drupatch\Write\WorkingTree;
 
@@ -60,9 +62,9 @@ class PinCommandTest extends TestCase
                 parent::__construct();
             }
 
-            protected function patchText(string $root): PatchText
+            protected function site(): Site
             {
-                return new PatchText($root, StubHost::fetch($this->hosts), '');
+                return Site::at($this->requireComposer(), $this->getIO(), Factory::getComposerFile(), StubHost::fetch($this->hosts));
             }
         };
         $command->setComposer($composer);
@@ -111,6 +113,18 @@ class PinCommandTest extends TestCase
         self::assertFalse($this->site?->has('patch/webform/mr940.diff'), 'nothing was copied');
     }
 
+    // Pin reads the site the way every other command does, so a site with
+    // no lock is told what is missing rather than acting on half an answer.
+    public function testASiteWithNoLockIsToldWhatIsMissing(): void
+    {
+        $tester = $this->drive([], edit: static function (SiteFixture $site): void {
+            \unlink($site->root.'/composer.lock');
+        });
+
+        self::assertSame(Plan::FAILED, $tester->getStatusCode());
+        self::assertStringContainsString('composer.lock is not readable; run composer update first', $tester->getDisplay());
+    }
+
     public function testASiteGitCannotReadIsRefusedLikeTheOtherWrites(): void
     {
         $tester = $this->drive([], vendored: false, hosts: self::drupalcode(), inGit: false);
@@ -137,7 +151,7 @@ class PinCommandTest extends TestCase
         $display = $tester->getDisplay();
         self::assertStringContainsString('already in the site:', $display);
         self::assertStringContainsString('      patch/webform/mr940.diff', $display);
-        self::assertStringContainsString('composer.json: 1 declaration now names a file in the site', $display);
+        self::assertStringContainsString('composer.json: 1 declaration now points at a file in the site', $display);
     }
 
     // 2.x keeps the record on the definition, so the line older releases
@@ -195,12 +209,63 @@ class PinCommandTest extends TestCase
         self::assertStringContainsString('1 patch is declared as a merge request URL', $tester->getDisplay());
     }
 
+    // 2.x locks a hash per patch and refuses bytes that moved, so a site on
+    // it hears no warning about the requests it still declares.
+    public function testOnTwoARunLeavingARequestDeclaredPrintsNoWarning(): void
+    {
+        $tester = $this->drive(['--dry-run' => true], manager: '2.0.0');
+
+        self::assertStringContainsString('patch/webform/mr940.diff', $tester->getDisplay());
+        self::assertStringNotContainsString('1 patch is declared as a merge request URL', $tester->getDisplay());
+    }
+
+    public function testOnTwoTheJsonRunPrintsNoWarningEither(): void
+    {
+        $tester = $this->drive(['--dry-run' => true, '--format' => 'json'], manager: '2.0.0');
+
+        self::assertIsArray(\json_decode($tester->getDisplay(), true, 512, \JSON_THROW_ON_ERROR));
+        self::assertStringNotContainsString('1 patch is declared as a merge request URL', $tester->getErrorOutput());
+    }
+
     public function testTheWarningGoesToStderrWhenStdoutCarriesTheDocument(): void
     {
         $tester = $this->drive(['--dry-run' => true, '--format' => 'json']);
 
         self::assertIsArray(\json_decode($tester->getDisplay(), true, 512, \JSON_THROW_ON_ERROR));
         self::assertStringContainsString('1 patch is declared as a merge request URL', $tester->getErrorOutput());
+    }
+
+    // A refusal reason is printed in the JSON document word for word.
+    public function testTheJsonKeepsEachRefusalReasonAsWritten(): void
+    {
+        $this->site = (new SiteFixture())
+            ->declares('3521733: bfcache', self::MR)
+            ->declares('3521734: menu', 'https://git.drupalcode.org/project/webform/-/merge_requests/941.patch')
+            ->declares('3521735: alter', 'https://www.drupal.org/files/issues/alter.patch');
+        $composer = $this->site->enter('http://127.0.0.1:1');
+
+        $command = new class extends PinCommand {
+            protected function site(): Site
+            {
+                return Site::at($this->requireComposer(), $this->getIO(), Factory::getComposerFile(), static function (string $url): array {
+                    if ('https://git.drupalcode.org/api/v4/projects/project%2Fwebform/merge_requests/940' === $url) {
+                        return ['status' => 200, 'body' => '{"sha":"bbb"}'];
+                    }
+                    throw new RuntimeException('connection refused');
+                });
+            }
+        };
+        $command->setComposer($composer);
+        $command->setApplication(new Application());
+        $tester = new CommandTester($command);
+        $tester->execute(['--format' => 'json', '--force' => true], ['capture_stderr_separately' => true]);
+
+        $out = (array) \json_decode($tester->getDisplay(), true);
+        self::assertSame([
+            'the merge request has no commits yet',
+            'it could not be fetched: connection refused',
+            'it could not be fetched: connection refused',
+        ], \array_column($out['refused'], 'reason'));
     }
 
     public function testTheJsonSaysWhatItDid(): void

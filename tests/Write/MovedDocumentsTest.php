@@ -6,19 +6,35 @@ namespace TresBienTech\Drupatch\Tests\Write;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use TresBienTech\Drupatch\Write\Upgrade;
+use TresBienTech\Drupatch\Read\Declaration;
+use TresBienTech\Drupatch\Tests\Scratch;
+use TresBienTech\Drupatch\Write\Declarations;
 
-#[CoversClass(Upgrade::class)]
-class UpgradeTest extends TestCase
+/**
+ * The two documents a manager upgrade writes: the patches file the site moves into, and the composer.json that points at it.
+ */
+#[CoversClass(Declarations::class)]
+class MovedDocumentsTest extends TestCase
 {
+    private string $root;
+
+    protected function setUp(): void
+    {
+        $this->root = \sys_get_temp_dir().'/drupatch-moved-'.\bin2hex(\random_bytes(6));
+        \mkdir($this->root);
+    }
+
+    protected function tearDown(): void
+    {
+        Scratch::remove($this->root);
+    }
+
     /**
      * @param array<string, string> $provenance
-     *
-     * @return array{package: string, title: string, source: string, provenance: array<string, string>}
      */
-    private static function declared(string $package, string $title, string $source, array $provenance = []): array
+    private static function declared(string $package, string $title, string $source, array $provenance = []): Declaration
     {
-        return ['package' => $package, 'title' => $title, 'source' => $source, 'provenance' => $provenance];
+        return new Declaration($package, $title, $source, 'composer.json', false, $provenance);
     }
 
     /**
@@ -29,9 +45,22 @@ class UpgradeTest extends TestCase
         return (array) \json_decode($json, true, 512, \JSON_THROW_ON_ERROR);
     }
 
+    /**
+     * The patches file a move over these declarations writes.
+     *
+     * @param list<Declaration>  $declarations
+     * @param array<string, int> $depths
+     */
+    private function patchesFile(array $declarations, array $depths): string
+    {
+        Declarations::writeMove($this->root, 'patches.json', $declarations, $depths, "{}\n");
+
+        return (string) \file_get_contents($this->root.'/patches.json');
+    }
+
     public function testEveryDeclarationMovesIntoTheFileInTheExpandedShape(): void
     {
-        $file = Upgrade::patchesFile([
+        $file = $this->patchesFile([
             self::declared('drupal/webform', 'Fix a', 'patches/a.patch'),
             self::declared('drupal/webform', 'Fix b', 'patches/b.patch'),
             self::declared('drupal/core', 'Menu cache', 'patches/c.patch'),
@@ -53,10 +82,10 @@ class UpgradeTest extends TestCase
     // not pick carries it.
     public function testOnlyThePatchesThatNeedADepthCarryOne(): void
     {
-        $file = Upgrade::patchesFile([
+        $file = $this->patchesFile([
             self::declared('drupal/core', 'Menu cache', 'patches/c.patch'),
             self::declared('drupal/webform', 'Fix a', 'patches/a.patch'),
-        ], ["drupal/core\0Menu cache" => 0]);
+        ], [Declaration::keyOf('drupal/core', 'Menu cache') => 0]);
 
         $patches = self::decode($file)['patches'];
         self::assertSame(0, $patches['drupal/core'][0]['depth']);
@@ -67,8 +96,9 @@ class UpgradeTest extends TestCase
     {
         $record = ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'head' => 'bbb'];
 
-        $file = Upgrade::patchesFile([self::declared('drupal/webform', 'Fix a', 'patch/webform/mr940.diff', $record)], []);
+        $file = $this->patchesFile([self::declared('drupal/webform', 'Fix a', 'patch/webform/mr940.diff', $record)], [Declaration::keyOf('drupal/webform', 'Fix a') => 0]);
 
+        self::assertSame(['description', 'url', 'depth', 'extra'], \array_keys(self::decode($file)['patches']['drupal/webform'][0]), 'the depth sits beside the source, the record last');
         self::assertSame(['drupatch' => $record], self::decode($file)['patches']['drupal/webform'][0]['extra']);
     }
 
@@ -103,11 +133,19 @@ class UpgradeTest extends TestCase
         }
         JSON;
 
+    /**
+     * The site's composer.json after the move, as text.
+     */
+    private function moved(): string
+    {
+        \file_put_contents($this->root.'/composer.json', self::SITE);
+
+        return Declarations::movedComposerJson($this->root, self::decode(self::SITE)['extra'], 'patches.json');
+    }
+
     public function testTheDeclarationsLeaveComposerJsonAndTheKeyPointsAtTheFile(): void
     {
-        $extra = self::decode(self::SITE)['extra'];
-
-        $updated = self::decode(Upgrade::intoComposerJson(self::SITE, $extra, 'patches.json'));
+        $updated = self::decode($this->moved());
 
         self::assertArrayNotHasKey('patches', $updated['extra']);
         self::assertSame('patches.json', $updated['extra']['composer-patches']['patches-file']);
@@ -115,9 +153,7 @@ class UpgradeTest extends TestCase
 
     public function testARenamedSettingKeepsItsValueUnderTheNewName(): void
     {
-        $extra = self::decode(self::SITE)['extra'];
-
-        $updated = self::decode(Upgrade::intoComposerJson(self::SITE, $extra, 'patches.json'));
+        $updated = self::decode($this->moved());
 
         self::assertArrayNotHasKey('patches-ignore', $updated['extra']);
         self::assertSame(
@@ -128,9 +164,7 @@ class UpgradeTest extends TestCase
 
     public function testADroppedKeyIsGoneAndAKeyThatIsNoneOfOursStays(): void
     {
-        $extra = self::decode(self::SITE)['extra'];
-
-        $updated = self::decode(Upgrade::intoComposerJson(self::SITE, $extra, 'patches.json'));
+        $updated = self::decode($this->moved());
 
         self::assertArrayNotHasKey('enable-patching', $updated['extra']);
         self::assertSame(['locations' => ['web-root' => 'web/']], $updated['extra']['drupal-scaffold']);
@@ -138,9 +172,7 @@ class UpgradeTest extends TestCase
 
     public function testTheRequirementIsRaisedAndEveryOtherKeyStays(): void
     {
-        $extra = self::decode(self::SITE)['extra'];
-
-        $text = Upgrade::intoComposerJson(self::SITE, $extra, 'patches.json');
+        $text = $this->moved();
         $updated = self::decode($text);
 
         self::assertSame('^2', $updated['require']['cweagans/composer-patches']);

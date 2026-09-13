@@ -8,16 +8,21 @@ use RuntimeException;
 use TresBienTech\Drupatch\Fetch\PatchText;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Plan\Reroll;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Source\Header;
 use TresBienTech\Drupatch\Source\Provenance;
+use TresBienTech\Drupatch\Source\UrlPatch;
 use TresBienTech\Drupatch\Text;
 
 /**
  * Writes the re-rolled diffs a plan carries.
  *
- * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Render\Outcomes
+ * @phpstan-type WrittenRow array{path: string, provenance: array<string, string>, status: string, package: string, title: string, verified: bool, unioned: list<array{file: string, line: int}>, regions: int, open: list<array{file: string, region: int}>, removed: list<string>, dropped: list<string>, from: string}
+ * @phpstan-type Refused array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}
+ *
+ * @phpstan-import-type Conflict from Reroll
  */
 class PatchFiles
 {
@@ -57,20 +62,21 @@ class PatchFiles
      * Writes one file per re-rolled patch and reports what happened.
      *
      * @return array{written: list<WrittenRow>,
-     *               refused: list<array{package: string, title: string, path: string, reason: string, lifts: string, shipped: bool}>}
+     *               refused: list<Refused>}
      */
     public function write(Plan $plan): array
     {
         $written = [];
         $refused = [];
-        foreach ($plan->patches as $row) {
-            if (null === $row->reroll) {
+        foreach ($plan->rows() as $row) {
+            $reroll = $row->reroll;
+            if (null === $reroll) {
                 continue;
             }
-            $declaration = $row->declaredIn($this->copied->declarations);
-            $declaredSource = $declaration['source'] ?? null;
-            $fromUrl = null !== $declaredSource && PatchConfig::isUrl($declaredSource);
-            $body = self::body($row);
+            $declaration = Declaration::find($this->copied->declarations, $row->key());
+            $declaredSource = $declaration?->source;
+            $fromUrl = null !== $declaredSource && UrlPatch::isUrl($declaredSource);
+            $body = self::body($reroll);
             if (null === $body) {
                 // A patch the release already carries has nothing to send
                 // upstream; only a re-roll that produced nothing does.
@@ -83,7 +89,7 @@ class PatchFiles
             }
             // A merge that produced code the service cannot parse is not
             // a patch to hand anybody, whatever the site declared.
-            $broken = $row->rerollSyntaxErrors();
+            $broken = $reroll->syntaxErrors;
             if ([] !== $broken) {
                 $refused[] = self::refusal($row, $declaredSource ?? $row->source, Text::t(self::UNPARSEABLE, ['@file' => $broken[0]]));
                 continue;
@@ -101,13 +107,13 @@ class PatchFiles
                 $refused[] = self::refusal($row, $declaredSource, self::OUTSIDE_ROOT);
                 continue;
             }
-            $path = $row->rerollIsClean() ? $source : self::conflictPath($source);
+            $path = $reroll->isClean() ? $source : self::conflictPath($source);
             // A copied patch's declaration says where its bytes came from. The
-            // re-roll changes the bytes, so the record names the release they
-            // were merged against. A repository still carrying the old
+            // re-roll changes the bytes, so the provenance names the release
+            // they were merged against. A repository still carrying the old
             // `# drupatch` line is read from that.
-            $recorded = [] !== $declaration['provenance'] ? $declaration['provenance'] : Provenance::of(Header::read($this->held($source)));
-            $provenance = $row->rerollIsClean() && [] !== $recorded
+            $recorded = [] !== $declaration->provenance ? $declaration->provenance : Provenance::of(Header::read($this->held($source)));
+            $provenance = $reroll->isClean() && [] !== $recorded
                 ? Provenance::of(['rerolled' => $row->version] + $recorded)
                 : [];
             if (!$this->holds($path, $body)) {
@@ -117,22 +123,22 @@ class PatchFiles
                     continue;
                 }
                 $this->put($path, $body);
-                if ($row->rerollIsClean()) {
+                if ($reroll->isClean()) {
                     $this->removeStale(self::conflictPath($source));
                 }
             }
             $written[] = [
                 'path' => $path,
                 'provenance' => $provenance,
-                'status' => (string) ($row->reroll['status'] ?? ''),
+                'status' => $reroll->status,
                 'package' => $row->package,
                 'title' => $row->title,
-                'verified' => true === ($row->reroll['verified'] ?? null),
-                'unioned' => $row->unioned(),
-                'regions' => $row->openRegions(),
-                'open' => $row->openRegionList(),
-                'removed' => $row->removedFiles(),
-                'dropped' => $row->droppedTests(),
+                'verified' => $reroll->verified,
+                'unioned' => $reroll->unioned,
+                'regions' => \count($reroll->open),
+                'open' => $reroll->open,
+                'removed' => $reroll->removed,
+                'dropped' => $reroll->droppedTests,
                 'from' => $provenance['mr'] ?? '',
             ];
         }
@@ -156,8 +162,8 @@ class PatchFiles
      */
     public static function whyNoReroll(PatchRow $row): string
     {
-        foreach (['error', 'note'] as $key) {
-            if ('' !== ($said = (string) ($row->reroll[$key] ?? ''))) {
+        foreach ([$row->reroll->error ?? '', $row->reroll->note ?? ''] as $said) {
+            if ('' !== $said) {
                 return $said;
             }
         }
@@ -234,17 +240,16 @@ class PatchFiles
     /**
      * The file's text: the diff for a clean merge, and for a conflicted one the diff that did merge followed by every region left open.
      */
-    private static function body(PatchRow $row): ?string
+    private static function body(Reroll $reroll): ?string
     {
-        if ($row->rerollIsClean()) {
-            return (string) ($row->reroll['patch'] ?? '');
+        if ($reroll->isClean()) {
+            return $reroll->patch;
         }
-        if ('conflicts' !== ($row->reroll['status'] ?? '')) {
+        if (PatchRow::CONFLICTS !== $reroll->status) {
             return null;
         }
-        $patch = (string) ($row->reroll['patch'] ?? '');
-        $parts = '' === $patch ? [] : [$patch];
-        foreach ((array) ($row->reroll['conflicts'] ?? []) as $conflict) {
+        $parts = '' === $reroll->patch ? [] : [$reroll->patch];
+        foreach ($reroll->conflicts as $conflict) {
             $parts[] = self::conflictText($conflict);
         }
 
@@ -254,27 +259,26 @@ class PatchFiles
     /**
      * One conflicted file as merge markers, so the regions can be worked through in an editor.
      *
-     * @param array<string, mixed> $conflict
+     * @param Conflict $conflict
      */
     private static function conflictText(array $conflict): string
     {
-        $file = (string) ($conflict['file'] ?? '');
-        if (true === ($conflict['removed'] ?? null)) {
-            return self::removedText($conflict, $file);
+        $file = $conflict['file'];
+        if ($conflict['removed']) {
+            return self::removedText($conflict);
         }
         $lines = [
-            Text::t('# drupatch: @regions unresolved region(s) in @file', ['@regions' => (int) ($conflict['regions'] ?? 0), '@file' => $file]),
+            Text::t('# drupatch: @regions unresolved region(s) in @file', ['@regions' => $conflict['regions'], '@file' => $file]),
             '# drupatch: keep the region and end lines; replace the text between them.',
             Text::t('# drupatch: then run @command', ['@command' => Report::REROLL]),
         ];
-        foreach ((array) ($conflict['hunks'] ?? []) as $index => $hunk) {
-            $releaseLine = (int) ($hunk['release_line'] ?? 0);
-            $at = $releaseLine > 0 ? $releaseLine : (int) ($hunk['line'] ?? 0);
+        foreach ($conflict['hunks'] as $index => $hunk) {
+            $at = $hunk['release_line'] > 0 ? $hunk['release_line'] : $hunk['line'];
             $lines[] = self::REGION_OPEN.$index.' '.$file;
             $lines[] = '<<<<<<< release '.$file.':'.$at;
-            $lines[] = \rtrim((string) ($hunk['release'] ?? ''), "\n");
+            $lines[] = \rtrim($hunk['release'], "\n");
             $lines[] = '=======';
-            $lines[] = \rtrim((string) ($hunk['patch'] ?? ''), "\n");
+            $lines[] = \rtrim($hunk['patch'], "\n");
             $lines[] = '>>>>>>> patch';
             $lines[] = self::REGION_CLOSE.$index.' '.$file;
         }
@@ -285,16 +289,16 @@ class PatchFiles
     /**
      * One file the release removed: what the patch did to it, and no region, because nothing here can be decided.
      *
-     * @param array<string, mixed> $conflict
+     * @param Conflict $conflict
      */
-    private static function removedText(array $conflict, string $file): string
+    private static function removedText(array $conflict): string
     {
         $lines = [
-            Text::t('# drupatch: @file is not in the release, so there is nothing to merge into.', ['@file' => $file]),
+            Text::t('# drupatch: @file is not in the release, so there is nothing to merge into.', ['@file' => $conflict['file']]),
             '# drupatch: the hunks below are the patch as it was. Drop it, or aim it at where the code moved.',
         ];
-        foreach ((array) ($conflict['hunks'] ?? []) as $hunk) {
-            $lines[] = \rtrim((string) (((array) $hunk)['patch'] ?? ''), "\n");
+        foreach ($conflict['hunks'] as $hunk) {
+            $lines[] = \rtrim($hunk['patch'], "\n");
         }
 
         return \implode("\n", $lines)."\n";

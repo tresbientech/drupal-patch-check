@@ -1,0 +1,6 @@
+--- stdout
+drupatch: 127.0.0.1 answered 502 (the request was too large), patches not checked
+--- stderr
+
+--- exit
+2

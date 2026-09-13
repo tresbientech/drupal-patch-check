@@ -1,0 +1,12 @@
+--- stdout
+Drupal Patch Check: 1 patch against the releases this site installs
+
+  drupal/webform 6.2.9   1 applies
+     #1 · applies   Fix the alter hook                                                     fix.patch
+                    the patch carries the packaging block as context
+
+  patches: 1 applies
+--- stderr
+
+--- exit
+0

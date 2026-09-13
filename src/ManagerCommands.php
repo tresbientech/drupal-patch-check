@@ -11,6 +11,7 @@ use Symfony\Component\Console\Output\StreamOutput;
 use Symfony\Component\Process\PhpExecutableFinder;
 use Symfony\Component\Process\Process;
 use Throwable;
+use TresBienTech\Drupatch\Render\Report;
 
 /**
  * The patch manager's own commands, which are the only thing that applies a patch.
@@ -58,7 +59,7 @@ class ManagerCommands
         $ran = [];
         foreach ($commands as $at => $command) {
             $line = self::line($command);
-            $output->writeln('  '.Text::t('-> composer @command', ['@command' => $line]));
+            $output->writeln(Report::running($line));
             $error = self::one([...$composer, ...$command, ...$console], $line, $interactive, $output);
             if ('' !== $error) {
                 return ['ran' => $ran, 'error' => $error, 'left' => \array_map(self::line(...), \array_slice($commands, $at))];
@@ -67,23 +68,6 @@ class ManagerCommands
         }
 
         return ['ran' => $ran, 'error' => '', 'left' => []];
-    }
-
-    /**
-     * Why a run stopped and what a person runs to finish; nothing for a run that finished.
-     *
-     * @param Ran $ran
-     *
-     * @return list<string>
-     */
-    public static function stopped(array $ran): array
-    {
-        if ('' === $ran['error']) {
-            return [];
-        }
-        $left = \array_map(static fn (string $command): string => '`composer '.$command.'`', $ran['left']);
-
-        return ['  <error>'.$ran['error'].'</error>', '  '.Text::t('run @commands to finish', ['@commands' => \implode(' then ', $left)])];
     }
 
     /**

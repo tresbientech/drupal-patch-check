@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Command;
 
-use Composer\Composer;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -14,18 +13,17 @@ use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\ManagerCommands;
 use TresBienTech\Drupatch\Plan\PatchRow;
 use TresBienTech\Drupatch\Plan\Plan;
-use TresBienTech\Drupatch\Plugin;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\PatchConfig;
 use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Read\Site;
-use TresBienTech\Drupatch\Render\UpgradeReport;
+use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Service\Client;
 use TresBienTech\Drupatch\Settings;
 use TresBienTech\Drupatch\Text;
 use TresBienTech\Drupatch\Write\Declarations;
 use TresBienTech\Drupatch\Write\Move;
 use TresBienTech\Drupatch\Write\PatchFiles;
-use TresBienTech\Drupatch\Write\Upgrade;
 
 /**
  * Moves a site from 1.x of the patch manager to 2.x.
@@ -36,9 +34,8 @@ use TresBienTech\Drupatch\Write\Upgrade;
  * asks the service both questions in one call.
  *
  * @phpstan-import-type Moved from Move
- * @phpstan-import-type Declaration from Move
  *
- * @phpstan-type Ready array{composer: Composer, manager: Manager, site: Site, extra: array<string, mixed>, file: string, declared: list<Declaration>}
+ * @phpstan-type Ready array{site: Site, file: string}
  * @phpstan-type Wrote array{vendored: int, rerolled: int, forcible: int, files: list<string>, open: list<array{path: string, regions: int}>, refused: list<array{title: string, reason: string, lifts: string}>}
  * @phpstan-type Outcome array{outcome: 'clean'|'open'|'none'|'shipped', regions: int, why: string}
  * @phpstan-type Refusal array{package: string, number: int, outcome: 'clean'|'open'|'none'|'shipped', regions: int, why: string}
@@ -76,7 +73,7 @@ class UpgradeCommand extends PatchCommand
             $ready = $this->prepare();
             $move = match (true) {
                 \is_string($ready) => self::stopped($ready),
-                Settings::moved($ready['extra']) => self::resumed($ready, $dryRun),
+                Settings::moved($ready['site']->extra) => self::resumed($ready, $dryRun),
                 $dryRun => self::move($ready, $this->ask($ready, $dropTests), null),
                 default => $this->perform($ready, true === $input->getOption('vendor'), true === $input->getOption('force'), $dropTests),
             };
@@ -84,9 +81,7 @@ class UpgradeCommand extends PatchCommand
             $move = self::stopped($e->getMessage());
         }
 
-        foreach (UpgradeReport::lines($move) as $line) {
-            $output->writeln($line);
-        }
+        $output->writeln(Report::print(Report::upgrade($move)));
         if ('' !== $move['error']) {
             return Plan::ACTION_NEEDED;
         }
@@ -100,9 +95,7 @@ class UpgradeCommand extends PatchCommand
         }
 
         $ran = ManagerCommands::run(ManagerCommands::MOVE, $input->isInteractive(), $output);
-        foreach ('' === $ran['error'] ? UpgradeReport::moved() : ManagerCommands::stopped($ran) as $line) {
-            $output->writeln($line);
-        }
+        $output->writeln(Report::print('' === $ran['error'] ? Report::moved() : Report::unfinished($ran)));
 
         return '' === $ran['error'] ? Plan::CLEAN : Plan::ACTION_NEEDED;
     }
@@ -125,17 +118,17 @@ class UpgradeCommand extends PatchCommand
     {
         $root = $ready['site']->root;
         $tree = $this->tree($force);
-        Declarations::refuseReplacing($root, [PatchConfig::COMPOSER_JSON, $ready['file']], $tree);
+        Declarations::refuseReplacing($root, [Declaration::COMPOSER_JSON, $ready['file']], $tree);
         // Built before the first write, so an edit composer refuses stops
         // the run with nothing on disk.
-        $composerJson = Upgrade::composerJsonFor($root, $ready['extra'], $ready['file']);
+        $composerJson = Declarations::movedComposerJson($root, $ready['site']->extra, $ready['file']);
         $plan = $this->ask($ready, $dropTests);
-        $composer = $ready['composer'];
-        $vendoring = new Vendoring($root, $this->patchText($root), Plugin::patchDirectory($ready['extra']), $ready['manager'], $tree);
+        $site = $ready['site'];
+        $vendoring = new Vendoring($root, $site->text(), $site->patchDirectory(), $site->manager, $tree);
         $moved = (new Move($root, $vendoring, $tree))
-            ->run($plan, $ready['declared'], $vendorAll ? Scope::whole() : self::copying($plan));
+            ->run($plan, PatchConfig::declared($site->extra, $root, $site->manager), $vendorAll ? Scope::whole() : self::copying($plan));
         $files = self::landed($moved, $plan)
-            ? Upgrade::writeTo($root, $ready['file'], $moved['declarations'], self::measured($plan), $composerJson)
+            ? Declarations::writeMove($root, $ready['file'], $moved['declarations'], self::measured($plan), $composerJson)
             : [];
 
         $refused = self::why([...$moved['refused'], ...$moved['unwritten']]);
@@ -183,25 +176,18 @@ class UpgradeCommand extends PatchCommand
      */
     private function prepare(): array|string
     {
-        $composer = $this->requireComposer();
-        $manager = Manager::fromComposer($composer);
-        $extra = $composer->getPackage()->getExtra();
-        if ($manager->isTwo()) {
+        $site = $this->site();
+        if ($site->manager->isTwo()) {
             return self::ALREADY;
         }
-        if (!$manager->isOne()) {
+        if (!$site->manager->isOne()) {
             return self::NO_MANAGER;
         }
-        $named = $manager->patchesFile($extra);
-        $site = Site::atWorkingDirectory($composer, $this->getIO(), $manager);
+        $named = $site->manager->patchesFile($site->extra);
 
         return [
-            'composer' => $composer,
-            'manager' => $manager,
             'site' => $site,
-            'extra' => $extra,
             'file' => '' === $named ? self::PATCHES_FILE : $named,
-            'declared' => PatchConfig::declared($extra, $site->root, $manager),
         ];
     }
 
@@ -218,8 +204,8 @@ class UpgradeCommand extends PatchCommand
     {
         $site = $ready['site'];
 
-        return Client::fromComposer($ready['composer'], $this->getIO())
-            ->plan($site->composerJson, $site->composerLock, $site->patches, '', true, dropTests: $dropTests);
+        return Client::fromComposer($this->requireComposer(), $this->getIO())
+            ->plan($site->request(), $site->manager, Scope::whole(), '', true, dropTests: $dropTests);
     }
 
     /**
@@ -231,16 +217,16 @@ class UpgradeCommand extends PatchCommand
     private static function move(array $ready, Plan $plan, ?array $wrote): array
     {
         return [
-            'from' => $ready['manager']->version,
+            'from' => $ready['site']->manager->version,
             'refused' => self::refused($plan),
             'depths' => self::depths($plan),
             'file' => $ready['file'],
-            'renamed' => Settings::renamed($ready['extra']),
-            'dropped' => Settings::dropped($ready['extra']),
+            'renamed' => Settings::renamed($ready['site']->extra),
+            'dropped' => Settings::dropped($ready['site']->extra),
             'wrote' => $wrote,
             'error' => '',
             'resumed' => false,
-            'unchecked' => \count($ready['declared']) - self::judged($plan),
+            'unchecked' => \count(PatchConfig::declared($ready['site']->extra, $ready['site']->root, $ready['site']->manager)) - self::judged($plan),
         ];
     }
 
@@ -250,7 +236,7 @@ class UpgradeCommand extends PatchCommand
     private static function judged(Plan $plan): int
     {
         $count = 0;
-        foreach ($plan->patches as $row) {
+        foreach ($plan->rows() as $row) {
             if (PatchRow::UNKNOWN !== $row->verdict) {
                 ++$count;
             }
@@ -269,7 +255,7 @@ class UpgradeCommand extends PatchCommand
     private static function resumed(array $ready, bool $dryRun): array
     {
         return [
-            'from' => $ready['manager']->version,
+            'from' => $ready['site']->manager->version,
             'refused' => [],
             'depths' => [],
             'file' => $ready['file'],
@@ -291,7 +277,7 @@ class UpgradeCommand extends PatchCommand
     private static function copying(Plan $plan): Scope
     {
         $out = [];
-        foreach ($plan->patches as $row) {
+        foreach ($plan->rows() as $row) {
             if (null !== $row->reroll) {
                 $out[] = $row->source;
             }
@@ -308,7 +294,7 @@ class UpgradeCommand extends PatchCommand
     private static function measured(Plan $plan): array
     {
         $out = [];
-        foreach ($plan->patches as $row) {
+        foreach ($plan->rows() as $row) {
             $depth = Settings::depthFor($row->package, $row->appliesAt);
             if (null !== $depth) {
                 $out[$row->key()] = $depth;
@@ -388,12 +374,14 @@ class UpgradeCommand extends PatchCommand
      */
     private static function outcome(PatchRow $row): array
     {
-        $broken = $row->rerollSyntaxErrors();
+        $reroll = $row->reroll;
+        $broken = $reroll->syntaxErrors ?? [];
+        $regions = \count($reroll->open ?? []);
 
         return match (true) {
             $row->isMerged() => ['outcome' => 'shipped', 'regions' => 0, 'why' => ''],
-            $row->rerollIsClean() && [] === $broken => ['outcome' => 'clean', 'regions' => 0, 'why' => ''],
-            $row->openRegions() > 0 => ['outcome' => 'open', 'regions' => $row->openRegions(), 'why' => ''],
+            true === $reroll?->isClean() && [] === $broken => ['outcome' => 'clean', 'regions' => 0, 'why' => ''],
+            $regions > 0 => ['outcome' => 'open', 'regions' => $regions, 'why' => ''],
             [] !== $broken => ['outcome' => 'none', 'regions' => 0, 'why' => Text::t(PatchFiles::UNPARSEABLE, ['@file' => $broken[0]])],
             default => ['outcome' => 'none', 'regions' => 0, 'why' => PatchFiles::whyNoReroll($row)],
         };

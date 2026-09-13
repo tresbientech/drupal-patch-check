@@ -9,8 +9,8 @@ use Composer\Composer;
 use Composer\IO\IOInterface;
 use Composer\Util\HttpDownloader;
 use Throwable;
-use TresBienTech\Drupatch\Read\PatchConfig;
 use TresBienTech\Drupatch\Source\MergeRequest;
+use TresBienTech\Drupatch\Source\UrlPatch;
 use TresBienTech\Drupatch\Text;
 
 /**
@@ -82,7 +82,7 @@ class PatchText
      */
     public function read(string $source): array
     {
-        return PatchConfig::isUrl($source) ? $this->fromHost($source) : $this->fromDisk($source);
+        return UrlPatch::isUrl($source) ? $this->fromHost($source) : $this->fromDisk($source);
     }
 
     /**
@@ -95,7 +95,7 @@ class PatchText
         try {
             $answer = ($this->fetch)($url);
         } catch (Throwable $e) {
-            return Text::t('it could not be reached: @why', ['@why' => $e->getMessage()]);
+            return Text::t('it could not be fetched: @why', ['@why' => $e->getMessage()]);
         }
         if (200 !== $answer['status']) {
             return Text::t('the host answered @status', ['@status' => $answer['status']]);
@@ -202,7 +202,7 @@ class PatchText
         try {
             $answer = ($this->fetch)($url);
         } catch (Throwable $e) {
-            return self::refused(Text::t('it could not be reached: @why', ['@why' => $e->getMessage()]));
+            return self::refused(Text::t('it could not be fetched: @why', ['@why' => $e->getMessage()]));
         }
         if (200 !== $answer['status']) {
             return self::refused(Text::t('the host answered @status', ['@status' => $answer['status']]));

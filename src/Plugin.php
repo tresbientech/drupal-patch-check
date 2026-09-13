@@ -8,7 +8,6 @@ use Composer\Cache;
 use Composer\Composer;
 use Composer\DependencyResolver\Operation\InstallOperation;
 use Composer\EventDispatcher\EventSubscriberInterface;
-use Composer\Factory;
 use Composer\Installer\PackageEvent;
 use Composer\Installer\PackageEvents;
 use Composer\IO\IOInterface;
@@ -17,15 +16,12 @@ use Composer\Plugin\Capable;
 use Composer\Plugin\PluginInterface;
 use Composer\Script\Event;
 use Composer\Script\ScriptEvents;
-use RuntimeException;
 use Throwable;
 use TresBienTech\Drupatch\Command\CommandProvider;
 use TresBienTech\Drupatch\Fetch\PatchText;
-use TresBienTech\Drupatch\Fetch\Vendoring;
-use TresBienTech\Drupatch\Read\Candidates;
 use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Read\Site;
-use TresBienTech\Drupatch\Render\HookReport;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Service\Client;
 use TresBienTech\Drupatch\Source\MergeRequest;
@@ -36,18 +32,6 @@ use TresBienTech\Drupatch\Source\MergeRequest;
 class Plugin implements PluginInterface, EventSubscriberInterface, Capable
 {
     public const EXTRA = 'drupal-patch-check';
-
-    private const NOTICE = [
-        'Drupal Patch Check is installed. It sends your patch data to api.tresbien.tech.',
-        'Review what is sent by running '.Report::COMMAND.' --dry-run.',
-    ];
-
-    /** What a site on 1.x of the patch manager is told once. */
-    private const MOVE = [
-        'This site runs cweagans/composer-patches 1.x. 2.x is the line to be on.',
-        'It applies with git apply alone and locks a hash per patch.',
-        'See what moving costs: composer '.Manager::UPGRADE.' --dry-run',
-    ];
 
     private Composer $composer;
 
@@ -98,26 +82,6 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     }
 
     /**
-     * Reads the directory a copied patch goes to, or the default when the site names none.
-     *
-     * @param array<mixed> $extra the root package's extra
-     *
-     * @throws RuntimeException when the key is set to anything but a non-empty string
-     */
-    public static function patchDirectory(array $extra): string
-    {
-        if (!isset($extra[self::EXTRA]['patch-directory'])) {
-            return Vendoring::DIRECTORY;
-        }
-        $directory = $extra[self::EXTRA]['patch-directory'];
-        if (!\is_string($directory) || '' === \trim($directory)) {
-            throw new RuntimeException('extra.'.self::EXTRA.'.patch-directory is where a copied patch is written; it has to be a directory under the site root');
-        }
-
-        return \trim($directory);
-    }
-
-    /**
      * Prints the disclosure when composer installs this plugin, and nothing else.
      */
     public function onPackageInstall(PackageEvent $event): void
@@ -133,22 +97,11 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     }
 
     /**
-     * What a site on 1.x is told once, empty for a site already on 2.x or with no patch manager.
-     *
-     * @return list<string>
-     */
-    public static function movePrompt(Manager $manager): array
-    {
-        return $manager->isOne() ? self::MOVE : [];
-    }
-
-    /**
      * The move prompt, which no setting turns off: the hook key says what a site wants printed after an update, and says nothing about which patch manager it runs.
      */
     private function printMove(): void
     {
-        $lines = self::movePrompt(Manager::fromComposer($this->composer));
-        $this->once('move', \array_map(static fn (string $line): string => '<comment>'.$line.'</comment>', $lines));
+        $this->once('move', Report::print(Report::movePrompt(Manager::fromComposer($this->composer))));
     }
 
     /**
@@ -159,7 +112,7 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
         if (isset($this->composer->getPackage()->getExtra()[self::EXTRA]['hook'])) {
             return;
         }
-        $this->once('notice', \array_map(static fn (string $line): string => '<info>'.$line.'</info>', self::NOTICE));
+        $this->once('notice', Report::print(Report::notice()));
     }
 
     /**
@@ -174,13 +127,11 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
             return;
         }
         $cache = $this->noticeCache();
-        $marker = $key.'.'.\sha1(self::rootPath());
+        $marker = $key.'.'.\sha1(Site::rootDirectory());
         if (null !== $cache && false !== $cache->read($marker)) {
             return;
         }
-        foreach ($lines as $line) {
-            $this->io->write($line);
-        }
+        $this->io->write($lines);
         $cache?->write($marker, '');
     }
 
@@ -195,17 +146,6 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     }
 
     /**
-     * The site the marker is keyed by, read from composer's own path rather than the file.
-     */
-    private static function rootPath(): string
-    {
-        $path = Factory::getComposerFile();
-        $real = \realpath($path);
-
-        return \dirname(false === $real ? $path : $real);
-    }
-
-    /**
      * An install downloads every declared patch afresh, so it says what the site declares. The verdict report is the update's.
      */
     public function onPostInstall(Event $event): void
@@ -214,19 +154,14 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
     }
 
     /**
-     * What a site on 1.x is told, whatever it configured: a declaration anyone with a drupal.org account can push to. 2.x records a hash per patch and refuses bytes that moved, so it earns no warning.
+     * What a site is told, whatever it configured: a declaration anyone with a drupal.org account can push to.
      *
      * @param array<string, mixed> $extra the root package's extra
      */
     private function warnUnpinned(array $extra, Manager $manager): void
     {
-        if ($manager->isTwo()) {
-            return;
-        }
         $root = Site::rootDirectory();
-        foreach (Report::unpinnedWarning(\count(MergeRequest::among(PatchConfig::declared($extra, $root, $manager)))) as $line) {
-            $this->io->write($line);
-        }
+        $this->io->write(Report::print(Report::unpinnedWarning($manager, \count(MergeRequest::among(\array_column(PatchConfig::declared($extra, $root, $manager), 'source'))))));
     }
 
     public function onPostUpdate(Event $event): void
@@ -238,20 +173,20 @@ class Plugin implements PluginInterface, EventSubscriberInterface, Capable
             if (!self::hookEnabled($extra)) {
                 return;
             }
-            $site = Site::atWorkingDirectory($this->composer, $this->io, $manager);
-            foreach ($site->patches->notes as $note) {
-                $this->io->write('<comment>'.Text::t('drupatch: @message', ['@message' => $note]).'</comment>');
+            $request = Site::read($this->composer, $this->io)->request();
+            foreach ($request->patches->notes as $note) {
+                $this->io->write(Report::message($note, 'comment'));
             }
-            if ($site->patches->isEmpty()) {
+            if ($request->patches->isEmpty()) {
                 return;
             }
             $client = Client::fromComposer($this->composer, $this->io);
-            $plan = $client->plan($site->composerJson, $site->composerLock, $site->patches, '', false, [], Candidates::declaredCore($this->composer, $site->checkable));
-            foreach (HookReport::lines($plan) as $line) {
-                $this->io->write($line);
-            }
+            // The hook prints every verdict as the service sent it, whichever
+            // patch manager the site runs.
+            $plan = $client->plan($request, null, Scope::whole());
+            $this->io->write(Report::print(Report::hook($plan)));
         } catch (Throwable $e) {
-            $this->io->write('<comment>'.Text::t('drupatch: @message', ['@message' => $e->getMessage()]).'</comment>');
+            $this->io->write(Report::message($e->getMessage(), 'comment'));
         }
     }
 }

@@ -1,0 +1,33 @@
+--- stdout
+Drupal Patch Check: 1 patch against the releases this site installs
+
+  patches: 1 now applies
+
+  re-rolled:
+    patches/webform/fix.patch  (verified against the release)
+
+  composer.json is unchanged: nothing to delete, and every re-roll was saved over the old file
+--- stderr
+
+--- exit
+1
+--- composer.json
+{
+    "name": "site\/site",
+    "require": {
+        "drupal\/webform": "^6.2",
+        "cweagans\/composer-patches": "^1"
+    },
+    "extra": {
+        "patches": {
+            "drupal\/webform": {
+                "3521733: Fix the alter hook": "patches\/webform\/fix.patch"
+            }
+        }
+    },
+    "config": {
+        "secure-http": false
+    }
+}
+--- patches/webform/fix.patch
+new diff

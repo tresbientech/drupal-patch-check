@@ -47,10 +47,10 @@ class Commit
     }
 
     /**
-     * Where the site keeps its copy, named by the commit it holds.
+     * Where the site keeps its copy: in the folder of the package the project installs as, named by the commit it holds.
      */
     public function file(string $directory): string
     {
-        return $directory.'/'.$this->project.'/commit-'.\substr($this->sha, 0, self::SHORT).'.diff';
+        return $directory.'/'.IssueReference::folderOf(IssueReference::packageOf($this->project)).'/commit-'.\substr($this->sha, 0, self::SHORT).'.diff';
     }
 }

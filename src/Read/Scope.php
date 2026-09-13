@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Read;
 
+use TresBienTech\Drupatch\Source\IssueReference;
+
 /**
  * The packages and the patches a run acts on, from --package and --patch. Empty lists mean the whole site.
  */
@@ -81,13 +83,15 @@ class Scope
     }
 
     /**
-     * A package named the way --package accepts it: either spelling of drupal/webform, in any case, reduces to the same key.
+     * The package short name a name --package accepts reduces to, in any case: `webform` for drupal/webform and webform, `core` for drupal/core, core and core's project drupal.
      */
     public static function key(string $package): string
     {
         $name = \strtolower(\trim($package));
         $slash = \strrpos($name, '/');
 
-        return false === $slash ? $name : \substr($name, $slash + 1);
+        // The name after the vendor is read as a project, so the project
+        // drupal keys to core, and drupal/core-dev stays its own package.
+        return IssueReference::folderOf(IssueReference::packageOf(false === $slash ? $name : \substr($name, $slash + 1)));
     }
 }

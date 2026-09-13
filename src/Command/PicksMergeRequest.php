@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Command;
 
 use TresBienTech\Drupatch\Fetch\IssueResolver;
-use TresBienTech\Drupatch\Render\AddReport;
+use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Source\IssueReference;
 use TresBienTech\Drupatch\Source\MergeRequest;
 use TresBienTech\Drupatch\Source\Ranking;
@@ -54,10 +54,8 @@ trait PicksMergeRequest
             if (!$this->getIO()->isInteractive()) {
                 return Text::t('issue @issue has @count merge requests; name one with --mr', ['@issue' => $issue->number, '@count' => \count($ordered)]);
             }
-            foreach (AddReport::candidates($ordered, $issue->number) as $line) {
-                $this->getIO()->write($line);
-            }
-            $picked = $this->getIO()->select(AddReport::QUESTION, \array_column($ordered, 'iid'), (string) $at);
+            $this->getIO()->write(Report::print(Report::candidates($ordered, $issue->number)));
+            $picked = $this->getIO()->select(Report::question(), \array_column($ordered, 'iid'), (string) $at);
             $at = \is_string($picked) ? (int) $picked : $at;
         }
         // The iid is the host's, and a request with none cannot be named.

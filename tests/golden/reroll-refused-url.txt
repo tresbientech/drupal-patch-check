@@ -1,0 +1,9 @@
+<info>Drupal Patch Check</info>: 1 patch for a move to core 11.4.5
+
+  patches: 1 conflicts left
+
+  not re-rolled:
+    it is declared as a URL, so there is no file to replace; run `composer drupatch:pin` to copy it into the site
+      https://example.test/a.patch  drupal/webform: Fix a
+
+  Next:  composer drupatch:pin   copies the patch declared as a URL into the site

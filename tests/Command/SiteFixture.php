@@ -15,14 +15,15 @@ use TresBienTech\Drupatch\Tests\Scratch;
  * an installed package the service can judge, and whatever patch and
  * conflict files a case needs.
  *
- * Composer reads the working directory and the COMPOSER variable, so the
- * fixture moves both and puts them back.
+ * Composer reads the COMPOSER variable, which the fixture sets and puts
+ * back. The working directory is left alone: the site is named instead.
  */
-final class SiteFixture
+class SiteFixture
 {
-    public readonly string $root;
+    /** The drupal/core release the site has installed, empty for none. */
+    private string $core = '';
 
-    private string $cwd = '';
+    public readonly string $root;
 
     private string|false $composerEnv = false;
 
@@ -57,6 +58,12 @@ final class SiteFixture
 
     /** Whether the declarations are written as a list of objects. */
     private bool $expanded = false;
+
+    /** Whether drupal/webform is locked from a fork rather than from drupal.org. */
+    private bool $forked = false;
+
+    /** The core requirement the installed webform release declares, empty for none. */
+    private string $declaredCore = '';
 
     public function __construct()
     {
@@ -94,6 +101,30 @@ final class SiteFixture
     public function withManager(string $version): self
     {
         $this->manager = $version;
+
+        return $this;
+    }
+
+    /** Locks drupal/webform from a fork, which carries the drupal name and no drupal.org notification URL. */
+    public function installsFromAFork(): self
+    {
+        $this->forked = true;
+
+        return $this;
+    }
+
+    /** Locks and installs drupal/core from Packagist, which is where composer takes core from. */
+    public function installsCore(string $version): self
+    {
+        $this->core = $version;
+
+        return $this;
+    }
+
+    /** Declares a core requirement on the installed webform release, which the vendor directory holds. */
+    public function declaresCore(string $constraint): self
+    {
+        $this->declaredCore = $constraint;
 
         return $this;
     }
@@ -175,7 +206,7 @@ final class SiteFixture
         return (string) \file_get_contents($this->root.'/'.$path);
     }
 
-    /** Writes the two composer files and enters the site. */
+    /** Writes the two composer files and names the site for this run. */
     public function enter(string $endpoint): Composer
     {
         $extra = $this->extra;
@@ -198,13 +229,16 @@ final class SiteFixture
             // The plan server in the tests is plain HTTP on loopback.
             'config' => ['secure-http' => false],
         ], \JSON_PRETTY_PRINT));
-        $locked = [[
-            'name' => 'drupal/webform',
-            'version' => '6.2.9',
-            'type' => 'drupal-module',
-            'notification-url' => 'https://packages.drupal.org/8/downloads',
-        ]];
-        $installed = [['name' => 'drupal/webform', 'version' => '6.2.9', 'version_normalized' => '6.2.9.0', 'type' => 'drupal-module']];
+        $locked = [$this->forked
+            ? ['name' => 'drupal/webform', 'version' => '6.2.9', 'type' => 'drupal-module', 'source' => ['type' => 'git', 'url' => 'https://github.com/acme/webform.git', 'reference' => 'f0e1d2c']]
+            : ['name' => 'drupal/webform', 'version' => '6.2.9', 'type' => 'drupal-module', 'notification-url' => 'https://packages.drupal.org/8/downloads'],
+        ];
+        $installed = [['name' => 'drupal/webform', 'version' => '6.2.9', 'version_normalized' => '6.2.9.0', 'type' => 'drupal-module']
+            + ('' === $this->declaredCore ? [] : ['require' => ['drupal/core' => $this->declaredCore]])];
+        if ('' !== $this->core) {
+            $locked[] = ['name' => 'drupal/core', 'version' => $this->core, 'type' => 'drupal-core', 'notification-url' => 'https://packagist.org/downloads/'];
+            $installed[] = ['name' => 'drupal/core', 'version' => $this->core, 'version_normalized' => $this->core.'.0', 'type' => 'drupal-core'];
+        }
         if ('' !== $this->manager) {
             $locked[] = ['name' => Manager::PACKAGE, 'version' => $this->manager, 'type' => 'composer-plugin'];
             $installed[] = ['name' => Manager::PACKAGE, 'version' => $this->manager, 'version_normalized' => \ltrim($this->manager, 'v').'.0', 'type' => 'composer-plugin'];
@@ -217,6 +251,11 @@ final class SiteFixture
             'packages' => $installed,
             'dev' => false,
         ]));
+        // Composer drops an installed package whose directory is gone, so the
+        // vendor directory holds one per lock entry.
+        foreach ($installed as $package) {
+            \mkdir($this->root.'/vendor/'.$package['name'], 0o777, true);
+        }
 
         $this->commit();
         foreach ($this->changed as [$path, $body]) {
@@ -225,14 +264,14 @@ final class SiteFixture
         foreach ($this->edited as $path) {
             \file_put_contents($this->root.'/'.$path, "\n", \FILE_APPEND);
         }
-        $this->cwd = (string) \getcwd();
         $this->composerEnv = \getenv('COMPOSER');
         $this->endpointEnv = \getenv('DRUPATCH_ENDPOINT');
-        \chdir($this->root);
         \putenv('COMPOSER='.$this->root.'/composer.json');
         \putenv('DRUPATCH_ENDPOINT='.$endpoint);
 
-        return Factory::create(new NullIO(), $this->root.'/composer.json', true);
+        // Composer reads the vendor directory from the working directory it
+        // is given, so the site is named rather than entered.
+        return (new Factory())->createComposer(new NullIO(), $this->root.'/composer.json', true, $this->root);
     }
 
     /**
@@ -274,9 +313,6 @@ final class SiteFixture
 
     public function leave(): void
     {
-        if ('' !== $this->cwd) {
-            \chdir($this->cwd);
-        }
         if (false === $this->composerEnv) {
             \putenv('COMPOSER');
         } else {

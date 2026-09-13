@@ -1,0 +1,19 @@
+--- stdout
+
+  cweagans/composer-patches 1.7.3 -> ^2
+
+  the move stops no patch from applying
+
+  layout:
+    extra.patches            -> patches.json
+                                extra.composer-patches.patches-file
+
+  nothing written (--dry-run)
+  a real run finishes with:
+    composer update cweagans/composer-patches --with-dependencies
+    composer patches-relock
+    composer patches-repatch
+--- stderr
+
+--- exit
+0

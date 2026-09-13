@@ -5,14 +5,13 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Write;
 
 use TresBienTech\Drupatch\Fetch\Vendoring;
+use TresBienTech\Drupatch\Read\Declaration;
 
 /**
  * What a copy step left in the site, and the declarations as they stand once it has.
  *
  * @phpstan-import-type CopiedRow from Vendoring
  * @phpstan-import-type RefusedRow from Vendoring
- *
- * @phpstan-type Declaration array{package: string, title: string, source: string, provenance: array<string, string>}
  */
 class Copied
 {
@@ -43,16 +42,18 @@ class Copied
      */
     public static function after(array $declarations, array $vendored, array $kept, array $moved, array $refused): self
     {
+        $copies = [];
         foreach ([...$vendored, ...$kept, ...$moved] as $row) {
-            foreach ($declarations as $i => $declaration) {
-                if ($declaration['package'] === $row['package'] && $declaration['title'] === $row['title']) {
-                    $declarations[$i]['source'] = $row['path'];
-                    $declarations[$i]['provenance'] = [] === $row['provenance'] ? $declaration['provenance'] : $row['provenance'];
-                }
-            }
+            $copies[Declaration::keyOf($row['package'], $row['title'])] = $row;
+        }
+        $now = [];
+        foreach ($declarations as $declaration) {
+            $row = $copies[$declaration->key()] ?? null;
+            // A copy that brought no provenance leaves what the declaration held.
+            $now[] = null === $row ? $declaration : $declaration->at($row['path'], [] === $row['provenance'] ? $declaration->provenance : $row['provenance']);
         }
 
-        return new self($vendored, $kept, $moved, $refused, $declarations);
+        return new self($vendored, $kept, $moved, $refused, $now);
     }
 
     /**
@@ -92,7 +93,7 @@ class Copied
      * One repoint per declaration whose bytes are now a file in the site.
      *
      * A copy already declared at its path still gets one when the run lifted
-     * a record onto its declaration.
+     * provenance onto its declaration.
      *
      * @return list<array{action: string, package: string, title: string, path: string, provenance: array<string, string>}>
      */
@@ -101,7 +102,7 @@ class Copied
         $out = [];
         foreach ([...$this->vendored, ...$this->kept, ...$this->moved] as $row) {
             if ($row['source'] !== $row['path'] || [] !== $row['provenance']) {
-                $out[] = ['action' => ConfigRewriter::REPOINTED, 'package' => $row['package'], 'title' => $row['title'], 'path' => $row['path'], 'provenance' => $row['provenance']];
+                $out[] = ['action' => Declarations::REPOINTED, 'package' => $row['package'], 'title' => $row['title'], 'path' => $row['path'], 'provenance' => $row['provenance']];
             }
         }
 

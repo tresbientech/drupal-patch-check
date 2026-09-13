@@ -40,16 +40,16 @@ class MergeRequestTest extends TestCase
 
     // The plugin counts these on every run, with no plan and no answer
     // from the service to read a verdict from.
-    public function testTheDeclarationsNamingARequestAreTheOnesReturned(): void
+    public function testTheSourcesNamingARequestAreTheOnesReturned(): void
     {
-        $declarations = [
-            ['package' => 'drupal/webform', 'title' => 'a', 'source' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940.patch'],
-            ['package' => 'drupal/webform', 'title' => 'b', 'source' => 'https://git.drupalcode.org/project/webform/-/commit/abc.diff'],
-            ['package' => 'drupal/webform', 'title' => 'c', 'source' => 'https://www.drupal.org/files/issues/2026-01-01/webform-3521733-12.patch'],
-            ['package' => 'drupal/webform', 'title' => 'd', 'source' => 'patches/webform/fix.patch'],
+        $sources = [
+            'https://git.drupalcode.org/project/webform/-/merge_requests/940.patch',
+            'https://git.drupalcode.org/project/webform/-/commit/abc.diff',
+            'https://www.drupal.org/files/issues/2026-01-01/webform-3521733-12.patch',
+            'patches/webform/fix.patch',
         ];
 
-        self::assertSame([$declarations[0]], MergeRequest::among($declarations));
+        self::assertSame([$sources[0]], MergeRequest::among($sources));
     }
 
     public function testTheApiAnswersWithoutCredentials(): void
@@ -80,6 +80,16 @@ class MergeRequestTest extends TestCase
         self::assertNotNull($mr);
         self::assertSame('patch/webform/mr940.diff', $mr->file('patch'));
         self::assertSame('patches/webform/mr940.diff', $mr->file('patches'));
+    }
+
+    // Core's merge requests live under the project drupal, and a copy of one
+    // goes in the folder of its package, core.
+    public function testACoreRequestIsCopiedIntoTheCoreFolder(): void
+    {
+        $mr = MergeRequest::of('https://git.drupalcode.org/project/drupal/-/merge_requests/8123.diff');
+
+        self::assertNotNull($mr);
+        self::assertSame('patch/core/mr8123.diff', $mr->file('patch'));
     }
 
     public function testAFileWithNoHeaderHasNone(): void

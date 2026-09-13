@@ -5,14 +5,16 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Plan;
 
 use PHPUnit\Framework\TestCase;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\PatchConfig;
+use TresBienTech\Drupatch\Read\Request;
 use TresBienTech\Drupatch\Service\Client;
 
 /**
  * The body is what `--dry-run` prints, so a case here is a case about
  * what a reviewer will read.
  */
-final class ClientBodyTest extends TestCase
+class ClientBodyTest extends TestCase
 {
     public function testTheBodyCarriesTheDocumentsItWasGiven(): void
     {
@@ -48,7 +50,7 @@ final class ClientBodyTest extends TestCase
     {
         $mr = 'https://git.drupalcode.org/project/webform/-/merge_requests/940';
         $patches = new PatchConfig(
-            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => $mr.'.patch', 'file' => 'composer.json', 'shape' => 'compact', 'provenance' => []]],
+            [new Declaration('drupal/webform', 'Alter hook', $mr.'.patch', 'composer.json', false, [])],
             [$mr.'.patch' => "diff --git a/x b/x\ndeclared\n", $mr.'.diff' => "diff --git a/x b/x\nsquashed\n"],
             [],
             [],
@@ -68,11 +70,11 @@ final class ClientBodyTest extends TestCase
     public function testAPatchWhoseTextWasHeldBackCarriesNone(): void
     {
         $patches = new PatchConfig(
-            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/big.patch', 'file' => 'composer.json', 'shape' => 'compact', 'provenance' => []]],
+            [new Declaration('drupal/webform', 'Alter hook', 'patches/big.patch', 'composer.json', false, [])],
             [],
             [],
             [],
-            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/big.patch', 'reason' => 'above the 16 MB cap', 'file' => 'composer.json', 'shape' => 'compact', 'provenance' => []]],
+            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/big.patch', 'reason' => 'above the 16 MB cap']],
         );
 
         $body = self::body('{}', '{}', $patches);
@@ -148,15 +150,15 @@ final class ClientBodyTest extends TestCase
      */
     private static function body(string $json, string $lock, ?PatchConfig $patches = null, string $targetCore = '', bool $reroll = false, array $candidates = [], array $declared = [], array $resolutions = []): array
     {
-        $patches ??= new PatchConfig([], [], [], [], []);
+        $request = new Request($json, $lock, $patches ?? new PatchConfig([], [], [], [], []), [], [], $declared);
 
-        return Client::body($json, $lock, $patches, $targetCore, $reroll, $candidates, $declared, $resolutions);
+        return Client::body($request, $targetCore, $reroll, $candidates, $resolutions);
     }
 
     private function resolution(): PatchConfig
     {
         return new PatchConfig(
-            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patches/a.patch', 'file' => 'composer.json', 'shape' => 'compact', 'provenance' => []]],
+            [new Declaration('drupal/webform', 'Alter hook', 'patches/a.patch', 'composer.json', false, [])],
             ['patches/a.patch' => "diff --git a/x b/x\n"],
             [],
             [],
@@ -202,24 +204,61 @@ final class ClientBodyTest extends TestCase
 
     // A vendored patch travels under a local path, so the record on its
     // declaration is how the service reaches the merge request behind it.
-    public function testAVendoredPatchSendsItsProvenance(): void
+    public function testAMergeRequestCopySendsTheRequestAndItsBase(): void
     {
-        $record = ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'base' => 'aaa', 'head' => 'bbb'];
-        $patches = new PatchConfig(
-            [['package' => 'drupal/webform', 'title' => 'Alter hook', 'source' => 'patch/webform/mr940.diff', 'file' => 'composer.json', 'shape' => 'expanded', 'provenance' => $record]],
-            ['patch/webform/mr940.diff' => "diff --git a/x b/x\n"],
-            [],
-            [],
-            [],
-        );
+        $sent = ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'base' => 'aaa'];
 
-        $body = self::body('{}', '{}', $patches);
+        $body = self::body('{}', '{}', self::copied('patch/webform/mr940.diff', $sent + ['head' => 'bbb', 'fetched' => '2026-09-10', 'rerolled' => '6.3.1']));
 
         self::assertSame([[
             'package' => 'drupal/webform',
             'patch' => "diff --git a/x b/x\n",
-            'provenance' => $record,
+            'provenance' => $sent,
         ]], $body['patch_config']);
+    }
+
+    // An issue attachment is a public page, and its URL is all a copy of one records.
+    public function testADrupalOrgAttachmentCopySendsItsUrl(): void
+    {
+        $url = 'https://www.drupal.org/files/issues/2024-05-02/3446484-fix-alter-hook.patch';
+
+        $body = self::body('{}', '{}', self::copied('patch/webform/3446484-fix-alter-hook.patch', ['url' => $url, 'fetched' => '2026-09-10']));
+
+        self::assertSame(['url' => $url], $body['patch_config'][0]['provenance']);
+    }
+
+    // The URL a copy was taken from can be a host the site keeps private.
+    public function testAPrivateHostCopySendsNoProvenance(): void
+    {
+        $body = self::body('{}', '{}', self::copied('patch/webform/CUP-1341_preview.patch', ['url' => 'https://files.acme.test/CUP-1341_preview.patch', 'fetched' => '2026-09-10']));
+
+        self::assertSame([['package' => 'drupal/webform', 'patch' => "diff --git a/x b/x\n"]], $body['patch_config']);
+        self::assertStringNotContainsString('acme.test', (string) \json_encode($body));
+    }
+
+    public function testACommitCopySendsTheCommitAlone(): void
+    {
+        $sha = \str_repeat('e0f2', 10);
+
+        $body = self::body('{}', '{}', self::copied('patch/webform/commit-e0f2e0f2e0f2.diff', ['commit' => $sha, 'fetched' => '2026-09-10']));
+
+        self::assertSame(['commit' => $sha], $body['patch_config'][0]['provenance']);
+    }
+
+    /**
+     * One copied patch, declared by its path with the record its copy left.
+     *
+     * @param array<string, string> $record
+     */
+    private static function copied(string $path, array $record): PatchConfig
+    {
+        return new PatchConfig(
+            [new Declaration('drupal/webform', 'Alter hook', $path, 'composer.json', true, $record)],
+            [$path => "diff --git a/x b/x\n"],
+            [],
+            [],
+            [],
+        );
     }
 
     public function testADeclarationWithNoRecordSendsNoProvenanceField(): void

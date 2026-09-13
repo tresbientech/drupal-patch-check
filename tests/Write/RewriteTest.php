@@ -4,15 +4,38 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Tests\Write;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Read\Declaration;
+use TresBienTech\Drupatch\Read\PatchConfig;
 use TresBienTech\Drupatch\Tests\PlanFactory;
-use TresBienTech\Drupatch\Write\ConfigRewriter;
+use TresBienTech\Drupatch\Tests\Scratch;
+use TresBienTech\Drupatch\Write\Declarations;
 
-class ConfigRewriterTest extends TestCase
+/**
+ * What a rewrite decides from a plan, and what each document declares once it is written.
+ */
+#[CoversClass(Declarations::class)]
+#[CoversClass(Declaration::class)]
+class RewriteTest extends TestCase
 {
     use PlanFactory;
+
+    private string $root;
+
+    protected function setUp(): void
+    {
+        $this->root = \sys_get_temp_dir().'/drupatch-rewrite-'.\bin2hex(\random_bytes(6));
+        \mkdir($this->root);
+    }
+
+    protected function tearDown(): void
+    {
+        Scratch::remove($this->root);
+    }
 
     private function plan(): Plan
     {
@@ -45,14 +68,55 @@ class ConfigRewriterTest extends TestCase
     private function changesOn(array $patches): array
     {
         return \array_values(\array_filter(
-            ConfigRewriter::changes($this->plan(), $this->written()),
+            Declarations::changes($this->plan(), $this->written()),
             static fn (array $change): bool => isset($patches[$change['package']]),
         ));
     }
 
+    /**
+     * Rewrites the site's documents the way a run does, over the declarations read from them and any an add run writes.
+     *
+     * @param list<array{action: string, package: string, title: string, path: string, provenance: array<string, string>}> $changes
+     * @param array<string, mixed>                                                                                         $extra   what composer.json's extra says about where declarations live
+     * @param list<Declaration>                                                                                            $adding
+     *
+     * @return list<string> the documents written
+     */
+    private function write(array $changes, array $extra, array $adding = []): array
+    {
+        $declared = PatchConfig::declared($extra, $this->root, Manager::ofVersion('2.0.0'));
+
+        return Declarations::checked($this->root, [], null)->write($changes, [...$declared, ...$adding]);
+    }
+
+    /**
+     * Declares these patches in composer.json, rewrites them, and returns what composer.json declares after.
+     *
+     * @param array<string, mixed>                                                                                         $patches
+     * @param list<array{action: string, package: string, title: string, path: string, provenance: array<string, string>}> $changes
+     * @param list<Declaration>                                                                                            $adding
+     *
+     * @return array<mixed>
+     */
+    private function rewritten(array $patches, array $changes, array $adding = []): array
+    {
+        \file_put_contents($this->root.'/composer.json', (string) \json_encode(['extra' => ['patches' => $patches]], \JSON_PRETTY_PRINT));
+        $this->write($changes, ['patches' => $patches], $adding);
+
+        return (array) ($this->read('composer.json')['extra']['patches'] ?? []);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function read(string $file): array
+    {
+        return (array) \json_decode((string) \file_get_contents($this->root.'/'.$file), true);
+    }
+
     public function testDropsWhatShippedAndRepointsWhatWasRerolled(): void
     {
-        $changes = ConfigRewriter::changes($this->plan(), $this->written());
+        $changes = Declarations::changes($this->plan(), $this->written());
 
         self::assertCount(2, $changes);
         self::assertTrue('dropped' === $changes[0]['action']);
@@ -63,7 +127,7 @@ class ConfigRewriterTest extends TestCase
 
     public function testNeverNamesAConflictFile(): void
     {
-        foreach (ConfigRewriter::changes($this->plan(), $this->written()) as $change) {
+        foreach (Declarations::changes($this->plan(), $this->written()) as $change) {
             self::assertStringNotContainsString('.conflict.', $change['path']);
             self::assertNotSame('drupal/token', $change['package']);
         }
@@ -73,18 +137,16 @@ class ConfigRewriterTest extends TestCase
     {
         $patches = ['drupal/webform' => ['Fix a' => 'patches/a.patch', 'Fix b' => 'patches/b.patch']];
 
-        $applied = ConfigRewriter::apply($patches, $this->changesOn($patches));
-
         self::assertSame([
             'drupal/webform' => ['Fix a' => 'patches/webform-fix-a-1234abcd.patch', 'Fix b' => 'patches/b.patch'],
-        ], $applied);
+        ], $this->rewritten($patches, $this->changesOn($patches)));
     }
 
     public function testDropsAPackageWhoseLastPatchShipped(): void
     {
         $patches = ['drupal/core' => ['Menu cache' => 'https://www.drupal.org/files/issues/c.patch']];
 
-        self::assertSame([], ConfigRewriter::apply($patches, $this->changesOn($patches)));
+        self::assertSame([], $this->rewritten($patches, $this->changesOn($patches)));
     }
 
     public function testLeavesEveryOtherKeyAndTheIndentationAlone(): void
@@ -108,13 +170,11 @@ class ConfigRewriterTest extends TestCase
               }
             }
             JSON;
-        $applied = ConfigRewriter::apply(
-            ['drupal/core' => ['Menu cache' => 'https://www.drupal.org/files/issues/c.patch'], 'drupal/webform' => ['Fix a' => 'patches/a.patch']],
-            ConfigRewriter::changes($this->plan(), $this->written())
-        );
+        \file_put_contents($this->root.'/composer.json', $text);
 
-        $updated = ConfigRewriter::intoComposerJson($text, $applied);
+        $this->write(Declarations::changes($this->plan(), $this->written()), (array) $this->read('composer.json')['extra']);
 
+        $updated = (string) \file_get_contents($this->root.'/composer.json');
         self::assertSame([
             'name' => 'test/site',
             'require' => ['drupal/core' => '^11.4'],
@@ -130,13 +190,13 @@ class ConfigRewriterTest extends TestCase
     {
         $plan = $this->planFrom(['patches' => [$this->row(['verdict' => 'applies'])]]);
 
-        self::assertSame([], ConfigRewriter::changes($plan, []));
+        self::assertSame([], Declarations::changes($plan, []));
     }
 
     public function testARerollThatWasNotWrittenIsNotRepointed(): void
     {
         self::assertSame([], \array_filter(
-            ConfigRewriter::changes($this->plan(), []),
+            Declarations::changes($this->plan(), []),
             static fn (array $change): bool => 'repointed' === $change['action']
         ));
     }
@@ -148,7 +208,7 @@ class ConfigRewriterTest extends TestCase
         ]]);
         $written = [$this->writtenFile('patches/a.patch', 'clean', 'drupal/webform', 'Fix a')];
 
-        self::assertSame([], ConfigRewriter::changes($plan, $written));
+        self::assertSame([], Declarations::changes($plan, $written));
     }
 
     public function testAnAdoptedUrlIsRepointedAtTheFileItWasWrittenTo(): void
@@ -158,7 +218,7 @@ class ConfigRewriterTest extends TestCase
         ]]);
         $written = [$this->writtenFile('patches/webform/a.patch', 'clean', 'drupal/webform', 'Fix a')];
 
-        $changes = ConfigRewriter::changes($plan, $written);
+        $changes = Declarations::changes($plan, $written);
 
         self::assertCount(1, $changes);
         self::assertSame('repointed', $changes[0]['action']);
@@ -174,46 +234,36 @@ class ConfigRewriterTest extends TestCase
             ['description' => 'Menu cache', 'url' => 'https://www.drupal.org/files/issues/c.patch'],
         ]];
 
-        $applied = ConfigRewriter::apply($patches, ConfigRewriter::changes($this->plan(), $this->written()));
-
         self::assertSame(['drupal/webform' => [
             ['description' => 'Fix a', 'url' => 'patches/webform-fix-a-1234abcd.patch', 'sha256' => 'abc'],
             ['description' => 'Fix b', 'url' => 'patches/b.patch'],
-        ]], $applied, 'the entry keeps every key it had, and the dropped package is gone');
+        ]], $this->rewritten($patches, $this->changesOn($patches)), 'the entry keeps every key it had, and the dropped package is gone');
     }
 
     // A dropped entry must not turn the list into a JSON object.
     public function testTheExpandedFormStaysAListWhenAnEntryIsDropped(): void
     {
         $patches = ['drupal/core' => [
-            ['description' => 'Kept', 'url' => 'patches/kept.patch'],
             ['description' => 'Menu cache', 'url' => 'https://www.drupal.org/files/issues/c.patch'],
+            ['description' => 'Kept', 'url' => 'patches/kept.patch'],
         ]];
 
-        $applied = ConfigRewriter::apply($patches, $this->changesOn($patches));
+        $rewritten = $this->rewritten($patches, $this->changesOn($patches));
 
-        self::assertSame([0], \array_keys($applied['drupal/core']));
+        self::assertSame([0], \array_keys((array) $rewritten['drupal/core']));
     }
 
     public function testGroupsEachChangeUnderTheFileThatHeldItsEntry(): void
     {
-        $declarations = [
-            ['package' => 'drupal/core', 'title' => 'Menu cache', 'source' => 'c.patch', 'file' => 'a.json', 'shape' => 'compact'],
-            ['package' => 'drupal/webform', 'title' => 'Fix a', 'source' => 'patches/a.patch', 'file' => 'composer.json', 'shape' => 'compact'],
-        ];
+        \file_put_contents($this->root.'/composer.json', (string) \json_encode(['extra' => ['patches' => ['drupal/webform' => ['Fix a' => 'patches/a.patch']]]]));
+        \file_put_contents($this->root.'/a.json', (string) \json_encode(['patches' => ['drupal/core' => ['Menu cache' => 'https://www.drupal.org/files/issues/c.patch']]]));
+        $extra = ['patches' => ['drupal/webform' => ['Fix a' => 'patches/a.patch']], 'composer-patches' => ['patches-file' => 'a.json']];
 
-        $grouped = ConfigRewriter::byFile(ConfigRewriter::changes($this->plan(), $this->written()), $declarations);
+        $written = $this->write(Declarations::changes($this->plan(), $this->written()), $extra);
 
-        self::assertSame(['composer.json', 'a.json'], \array_keys($grouped), 'composer.json is written first, whatever the patches file is called');
-        self::assertSame(['Fix a'], \array_column($grouped['composer.json'], 'title'));
-        self::assertSame(['Menu cache'], \array_column($grouped['a.json'], 'title'));
-    }
-
-    public function testAChangeNoDeclarationNamesBelongsToComposerJson(): void
-    {
-        $grouped = ConfigRewriter::byFile(ConfigRewriter::changes($this->plan(), $this->written()), []);
-
-        self::assertSame(['composer.json'], \array_keys($grouped));
+        self::assertSame(['composer.json', 'a.json'], $written, 'composer.json is written first, whatever the patches file is called');
+        self::assertSame(['drupal/webform' => ['Fix a' => 'patches/webform-fix-a-1234abcd.patch']], $this->read('composer.json')['extra']['patches'] ?? null);
+        self::assertSame([], $this->read('a.json')['patches'] ?? null);
     }
 
     public function testWritesAPatchesFileKeepingItsOtherKeysAndIndentation(): void
@@ -231,13 +281,11 @@ class ConfigRewriterTest extends TestCase
               "note": "ours"
             }
             JSON;
-        $applied = ConfigRewriter::apply(
-            ['drupal/core' => ['Menu cache' => 'https://www.drupal.org/files/issues/c.patch'], 'drupal/webform' => ['Fix a' => 'patches/a.patch']],
-            ConfigRewriter::changes($this->plan(), $this->written())
-        );
+        \file_put_contents($this->root.'/patches.json', $text);
 
-        $updated = ConfigRewriter::intoPatchesFile($text, $applied);
+        $this->write(Declarations::changes($this->plan(), $this->written()), ['composer-patches' => ['patches-file' => 'patches.json']]);
 
+        $updated = (string) \file_get_contents($this->root.'/patches.json');
         self::assertSame([
             'patches' => ['drupal/webform' => ['Fix a' => 'patches/webform-fix-a-1234abcd.patch']],
             'note' => 'ours',
@@ -256,7 +304,7 @@ class ConfigRewriterTest extends TestCase
         self::assertSame(['drupal/webform' => [
             ['description' => 'Fix a', 'url' => 'patch/webform/mr940.diff', 'extra' => ['drupatch' => $record]],
             ['description' => 'Fix b', 'url' => 'patches/b.patch'],
-        ]], ConfigRewriter::apply($patches, $changes));
+        ]], $this->rewritten($patches, $changes));
     }
 
     public function testAnEntryAlreadyExpandedKeepsItsOtherKeysBesideTheRecord(): void
@@ -267,7 +315,7 @@ class ConfigRewriterTest extends TestCase
 
         self::assertSame(['drupal/webform' => [
             ['description' => 'Fix a', 'url' => 'patch/webform/mr940.diff', 'depth' => 2, 'extra' => ['drupatch' => $record]],
-        ]], ConfigRewriter::apply($patches, $changes));
+        ]], $this->rewritten($patches, $changes));
     }
 
     // A run that records nothing leaves the site in the shape it wrote.
@@ -276,7 +324,63 @@ class ConfigRewriterTest extends TestCase
         $patches = ['drupal/webform' => ['Fix a' => 'patches/a.patch']];
         $changes = [['action' => 'repointed', 'package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patch/webform/mr940.diff', 'provenance' => []]];
 
-        self::assertSame(['drupal/webform' => ['Fix a' => 'patch/webform/mr940.diff']], ConfigRewriter::apply($patches, $changes));
+        self::assertSame(['drupal/webform' => ['Fix a' => 'patch/webform/mr940.diff']], $this->rewritten($patches, $changes));
+    }
+
+    public function testAPackageNoChangeTouchesIsWrittenBackAsItStood(): void
+    {
+        $patches = [
+            'drupal/webform' => ['Fix a' => 'patches/a.patch'],
+            'drupal/pathauto' => ['Fix p' => ' patches/p.patch '],
+            'drupal/token' => ['patches/token-one.patch', 'patches/token-two.patch'],
+        ];
+        $changes = [['action' => 'repointed', 'package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patch/webform/mr940.diff', 'provenance' => []]];
+
+        self::assertSame([
+            'drupal/webform' => ['Fix a' => 'patch/webform/mr940.diff'],
+            'drupal/pathauto' => ['Fix p' => ' patches/p.patch '],
+            'drupal/token' => ['patches/token-one.patch', 'patches/token-two.patch'],
+        ], $this->rewritten($patches, $changes), 'composer.json holds the untouched packages as the site wrote them');
+    }
+
+    public function testASpacedSourceIsTrimmedWhenItsPackageTakesTheExpandedShape(): void
+    {
+        $record = ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'head' => 'bbb'];
+        $patches = ['drupal/webform' => ['Fix a' => 'patches/a.patch', 'Fix b' => '  patches/b.patch ']];
+        $changes = [['action' => 'repointed', 'package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patch/webform/mr940.diff', 'provenance' => $record]];
+
+        self::assertSame(['drupal/webform' => [
+            ['description' => 'Fix a', 'url' => 'patch/webform/mr940.diff', 'extra' => ['drupatch' => $record]],
+            ['description' => 'Fix b', 'url' => 'patches/b.patch'],
+        ]], $this->rewritten($patches, $changes), 'composer.json holds the source trimmed');
+    }
+
+    public function testATouchedMapOfObjectsIsWrittenAsAList(): void
+    {
+        $patches = ['drupal/webform' => [
+            'Fix a' => ['description' => 'Fix a', 'url' => 'patches/a.patch'],
+            'Fix b' => ['description' => 'Fix b', 'url' => 'patches/b.patch'],
+        ]];
+        $changes = [['action' => 'repointed', 'package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patch/webform/mr940.diff', 'provenance' => []]];
+
+        self::assertSame(['drupal/webform' => [
+            ['description' => 'Fix a', 'url' => 'patch/webform/mr940.diff'],
+            ['description' => 'Fix b', 'url' => 'patches/b.patch'],
+        ]], $this->rewritten($patches, $changes), 'composer.json holds the package as a list');
+    }
+
+    public function testAStringUnderAnIntegerKeyInAnExpandedPackageIsKeptAsWritten(): void
+    {
+        $patches = ['drupal/webform' => [
+            ['description' => 'Fix a', 'url' => 'patches/a.patch'],
+            'patches/b.patch',
+        ]];
+        $changes = [['action' => 'repointed', 'package' => 'drupal/webform', 'title' => 'Fix a', 'path' => 'patch/webform/mr940.diff', 'provenance' => []]];
+
+        self::assertSame(['drupal/webform' => [
+            ['description' => 'Fix a', 'url' => 'patch/webform/mr940.diff'],
+            'patches/b.patch',
+        ]], $this->rewritten($patches, $changes), 'composer.json holds the string entry as the site wrote it');
     }
 
     /**
@@ -284,15 +388,23 @@ class ConfigRewriterTest extends TestCase
      *
      * @return list<array{action: string, package: string, title: string, path: string, provenance: array<string, string>}>
      */
-    private static function adding(string $package = 'drupal/webform', string $title = '3521733: bfcache'): array
+    private static function adding(): array
     {
         return [[
-            'action' => ConfigRewriter::ADDED,
-            'package' => $package,
-            'title' => $title,
+            'action' => Declarations::ADDED,
+            'package' => 'drupal/webform',
+            'title' => '3521733: bfcache',
             'path' => 'patch/webform/mr940.diff',
             'provenance' => ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'head' => 'bbb'],
         ]];
+    }
+
+    /**
+     * The declaration an add run hands the rewrite, naming the document it lands in.
+     */
+    private static function added(string $document = 'composer.json'): Declaration
+    {
+        return new Declaration('drupal/webform', '3521733: bfcache', 'patch/webform/mr940.diff', $document, true, ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'head' => 'bbb']);
     }
 
     public function testAnAddedEntryLandsOnAPackageTheSiteAlreadyPatches(): void
@@ -302,25 +414,23 @@ class ConfigRewriterTest extends TestCase
         self::assertSame(['drupal/webform' => [
             ['description' => 'Fix a', 'url' => 'patches/a.patch'],
             ['description' => '3521733: bfcache', 'url' => 'patch/webform/mr940.diff', 'extra' => ['drupatch' => ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'head' => 'bbb']]],
-        ]], ConfigRewriter::apply($patches, self::adding()));
+        ]], $this->rewritten($patches, self::adding(), [self::added()]));
     }
 
     public function testAnAddedEntryOpensAPackageTheSiteDidNotPatch(): void
     {
         $patches = ['drupal/core' => ['Menu cache' => 'patches/c.patch']];
 
-        $applied = ConfigRewriter::apply($patches, self::adding());
-
         self::assertSame(['drupal/core' => ['Menu cache' => 'patches/c.patch'], 'drupal/webform' => [
             ['description' => '3521733: bfcache', 'url' => 'patch/webform/mr940.diff', 'extra' => ['drupatch' => ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'head' => 'bbb']]],
-        ]], $applied);
+        ]], $this->rewritten($patches, self::adding(), [self::added()]));
     }
 
     public function testAnAddedEntryOpensThePatchesOfASiteThatDeclaredNone(): void
     {
         self::assertSame(['drupal/webform' => [
             ['description' => '3521733: bfcache', 'url' => 'patch/webform/mr940.diff', 'extra' => ['drupatch' => ['mr' => 'https://git.drupalcode.org/project/webform/-/merge_requests/940', 'head' => 'bbb']]],
-        ]], ConfigRewriter::apply([], self::adding()));
+        ]], $this->rewritten([], self::adding(), [self::added()]));
     }
 
     // The patch manager applies a package's patches in declaration order, so
@@ -332,37 +442,44 @@ class ConfigRewriterTest extends TestCase
             ['description' => 'Fix b', 'url' => 'patches/b.patch'],
         ]];
 
-        $applied = ConfigRewriter::apply($patches, self::adding());
+        $rewritten = $this->rewritten($patches, self::adding(), [self::added()]);
 
-        self::assertSame(['Fix a', 'Fix b', '3521733: bfcache'], \array_column($applied['drupal/webform'], 'description'));
+        self::assertSame(['Fix a', 'Fix b', '3521733: bfcache'], \array_column((array) $rewritten['drupal/webform'], 'description'));
     }
 
-    public function testAnAddedEntryGroupsUnderTheFileItsDeclarationNames(): void
+    public function testAnAddedEntryLandsInTheDocumentItsDeclarationNames(): void
     {
-        $declarations = [['package' => 'drupal/webform', 'title' => '3521733: bfcache', 'source' => 'patch/webform/mr940.diff', 'file' => 'patches.json', 'shape' => 'expanded']];
+        \file_put_contents($this->root.'/patches.json', '{"patches": {}}');
 
-        self::assertSame(['patches.json'], \array_keys(ConfigRewriter::byFile(self::adding(), $declarations)));
+        self::assertSame(['patches.json'], $this->write(self::adding(), [], [self::added('patches.json')]));
+        self::assertSame('3521733: bfcache', $this->read('patches.json')['patches']['drupal/webform'][0]['description'] ?? null);
     }
 
-    // A change comes from a declaration the run read, so one that matches no
-    // entry is a pairing defect, and a silent skip would hide it.
+    // A change comes from a declaration the run read, so one whose entry the
+    // document no longer holds is a defect, and a silent skip would hide it.
     public function testARepointNamingNoEntryThrows(): void
     {
+        \file_put_contents($this->root.'/composer.json', (string) \json_encode(['extra' => ['patches' => ['drupal/webform' => ['Fix' => 'patches/fix.patch']]]]));
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('no declaration of drupal/webform is titled Gone, so nothing was rewritten');
 
-        ConfigRewriter::apply(['drupal/webform' => ['Fix' => 'patches/fix.patch']], [
-            ['action' => ConfigRewriter::REPOINTED, 'package' => 'drupal/webform', 'title' => 'Gone', 'path' => 'patch/gone.diff', 'provenance' => []],
-        ]);
+        Declarations::checked($this->root, [], null)->write(
+            [['action' => Declarations::REPOINTED, 'package' => 'drupal/webform', 'title' => 'Gone', 'path' => 'patch/gone.diff', 'provenance' => []]],
+            [new Declaration('drupal/webform', 'Gone', 'patches/gone.patch', 'composer.json', false, [])],
+        );
     }
 
     public function testADropNamingNoEntryThrows(): void
     {
+        \file_put_contents($this->root.'/composer.json', (string) \json_encode(['extra' => ['patches' => ['drupal/webform' => ['Fix' => 'patches/fix.patch']]]]));
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('no declaration of drupal/token is titled Fix, so nothing was rewritten');
 
-        ConfigRewriter::apply(['drupal/webform' => ['Fix' => 'patches/fix.patch']], [
-            ['action' => ConfigRewriter::DROPPED, 'package' => 'drupal/token', 'title' => 'Fix', 'path' => '', 'provenance' => []],
-        ]);
+        Declarations::checked($this->root, [], null)->write(
+            [['action' => Declarations::DROPPED, 'package' => 'drupal/token', 'title' => 'Fix', 'path' => '', 'provenance' => []]],
+            [new Declaration('drupal/token', 'Fix', 'patches/fix.patch', 'composer.json', false, [])],
+        );
     }
 }

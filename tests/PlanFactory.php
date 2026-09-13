@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace TresBienTech\Drupatch\Tests;
 
+use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\Plan\Plan;
+use TresBienTech\Drupatch\Read\Scope;
 
 /**
  * Builds plans for tests the way the plugin builds them in production:
@@ -12,14 +14,16 @@ use TresBienTech\Drupatch\Plan\Plan;
  * never assert on a shape the boundary would refuse.
  */
 /**
- * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Render\Outcomes
+ * @phpstan-import-type WrittenRow from \TresBienTech\Drupatch\Write\PatchFiles
  */
 trait PlanFactory
 {
     /**
      * @param array<string, mixed> $overrides
+     * @param Manager|null         $manager   the patch manager the rows are read under, none when null
+     * @param Scope|null           $scope     what the run acts on, the whole site when null
      */
-    private function planFrom(array $overrides = []): Plan
+    private function planFrom(array $overrides = [], ?Manager $manager = null, ?Scope $scope = null): Plan
     {
         $flat = $overrides + [
             'target_core' => '11.4.5',
@@ -28,7 +32,7 @@ trait PlanFactory
             'patches' => [],
         ];
 
-        return Plan::fromArray(self::wire($flat));
+        return Plan::fromArray(self::wire($flat), [], $manager, $scope ?? Scope::whole());
     }
 
     /**

@@ -116,9 +116,4 @@ final class BudgetTest extends TestCase
     {
         self::assertSame(5, \mb_strlen(Report::pad('préf', 5)));
     }
-
-    public function testTheDetailIndentMatchesThePrefix(): void
-    {
-        self::assertSame(Report::PREFIX, \strlen(Report::detailIndent()));
-    }
 }

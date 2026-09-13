@@ -7,7 +7,6 @@ namespace TresBienTech\Drupatch\Read;
 use TresBienTech\Drupatch\Fetch\PatchText;
 use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\Plugin;
-use TresBienTech\Drupatch\Source\Provenance;
 use TresBienTech\Drupatch\Text;
 
 /**
@@ -15,30 +14,15 @@ use TresBienTech\Drupatch\Text;
  */
 class PatchConfig
 {
-    /** The document that holds declarations under `extra.patches`. */
-    public const COMPOSER_JSON = 'composer.json';
-
-    /** A title-keyed map of source strings, the shape 1.x reads and 2.x still accepts. */
-    public const COMPACT = 'compact';
-
-    /** A list of objects carrying `description` and `url`, which 2.x alone reads. */
-    public const EXPANDED = 'expanded';
-
-    /** Where an expanded declaration keeps the patch's title. */
-    public const TITLE_KEY = 'description';
-
-    /** Where an expanded declaration keeps the patch's source. */
-    public const SOURCE_KEY = 'url';
-
     /** Largest number of patch texts sent in one call. */
     private const MAX_PATCH_FILES = 100;
 
     /**
-     * @param list<array{package: string, title: string, source: string, file: string, shape: string, provenance: array<string, string>}> $patches
-     * @param array<string, string>                                                                                                       $files
-     * @param list<string>                                                                                                                $notes
-     * @param list<array{package: string, title: string, reason: string}>                                                                 $skipped one entry per declared patch the run did not judge
-     * @param list<array{package: string, title: string, source: string, reason: string}>                                                 $unsent  one entry per patch whose text did not fit
+     * @param list<Declaration>                                                           $patches
+     * @param array<string, string>                                                       $files
+     * @param list<string>                                                                $notes
+     * @param list<array{package: string, title: string, reason: string}>                 $skipped one entry per declared patch the run did not judge
+     * @param list<array{package: string, title: string, source: string, reason: string}> $unsent  one entry per patch whose text did not fit
      */
     public function __construct(
         public readonly array $patches,
@@ -64,20 +48,15 @@ class PatchConfig
      */
     public static function read(PatchText $text, int $textBudget, array $checkable, array $extra, string $root, Manager $manager): self
     {
-        $notes = [];
-
         $patches = [];
         $files = [];
         $unsent = [];
         $skipped = [];
         $spent = 0;
-        foreach (self::declarations($extra, $root, $manager) as $declaration) {
-            ['package' => $package, 'title' => $title, 'source' => $source] = $declaration;
-            if ('' === $source) {
-                continue;
-            }
-            if (!isset($checkable[$package])) {
-                $skipped[] = ['package' => $package, 'title' => $title, 'reason' => 'not a drupal.org project'];
+        foreach (self::declared($extra, $root, $manager) as $declaration) {
+            $source = $declaration->source;
+            if (!isset($checkable[$declaration->package])) {
+                $skipped[] = ['package' => $declaration->package, 'title' => $declaration->title, 'reason' => 'not a drupal.org project'];
                 continue;
             }
             if (isset($files[$source])) {
@@ -86,19 +65,19 @@ class PatchConfig
             }
             if (\count($files) >= self::MAX_PATCH_FILES) {
                 $patches[] = $declaration;
-                $unsent[] = self::withheld($package, $title, $source, 'more than '.self::MAX_PATCH_FILES.' patch texts');
+                $unsent[] = self::withheld($declaration, 'more than '.self::MAX_PATCH_FILES.' patch texts');
                 continue;
             }
             $read = $text->read($source);
             if ($read['withheld']) {
                 $patches[] = $declaration;
-                $unsent[] = self::withheld($package, $title, $source, $read['reason']);
+                $unsent[] = self::withheld($declaration, $read['reason']);
                 continue;
             }
             if ('' !== $read['reason']) {
                 // 2.x ships `composer patches-doctor`, which reports an
                 // unreachable source itself.
-                $skipped[] = ['package' => $package, 'title' => $title, 'reason' => $manager->isTwo() ? '' : $read['reason']];
+                $skipped[] = ['package' => $declaration->package, 'title' => $declaration->title, 'reason' => $manager->isTwo() ? '' : $read['reason']];
                 continue;
             }
             // What the texts cost once escaped, which is what the request
@@ -109,53 +88,30 @@ class PatchConfig
             }
             $patches[] = $declaration;
             if ($spent + $cost > $textBudget) {
-                $unsent[] = self::withheld($package, $title, $source, 'the request was full; narrow with --package to check it');
+                $unsent[] = self::withheld($declaration, 'the request was full; narrow with --package to check it');
                 continue;
             }
             $spent += $cost;
             $files += $read['files'];
         }
+        $notes = isset($extra[Plugin::EXTRA]['private-paths'])
+            ? [Text::t('extra.@key.private-paths is no longer read: no path of your own leaves the site', ['@key' => Plugin::EXTRA])]
+            : [];
 
-        if (isset($extra[Plugin::EXTRA]['private-paths'])) {
-            $notes[] = Text::t('extra.@key.private-paths is no longer read: no path of your own leaves the site', ['@key' => Plugin::EXTRA]);
-        }
-
-        return new self($patches, $files, \array_values(\array_unique($notes)), $skipped, $unsent);
+        return new self($patches, $files, $notes, $skipped, $unsent);
     }
 
     /**
-     * Every patch the site declares, whatever package it is on. `read()` narrows this to what the service can judge; a pin run acts on all of it.
+     * Every patch the site declares, whatever package it is on, from both places the patch manager reads: `extra.patches` in composer.json, then the file the patches-file key names. `read()` narrows this to what the service can judge; a pin run acts on all of it.
      *
      * @param array<string, mixed> $extra the root package's extra
      *
-     * @return list<array{package: string, title: string, source: string, file: string, shape: string, provenance: array<string, string>}>
+     * @return list<Declaration>
      */
     public static function declared(array $extra, string $root, Manager $manager): array
     {
-        return \array_values(\array_filter(
-            self::declarations($extra, $root, $manager),
-            static fn (array $declaration): bool => '' !== $declaration['source'],
-        ));
-    }
-
-    public static function isUrl(string $source): bool
-    {
-        $s = \strtolower(\trim($source));
-
-        return \str_starts_with($s, 'http://') || \str_starts_with($s, 'https://');
-    }
-
-    /**
-     * Every patch the site declares, from both places the patch manager reads: `extra.patches` in composer.json, and the file the patches-file key names.
-     *
-     * @param array<string, mixed> $extra
-     *
-     * @return list<array{package: string, title: string, source: string, file: string, shape: string, provenance: array<string, string>}>
-     */
-    private static function declarations(array $extra, string $root, Manager $manager): array
-    {
         // A site writes both of these by hand, so anything can be in them.
-        $out = self::fromMap($extra['patches'] ?? null, self::COMPOSER_JSON);
+        $out = self::entries($extra['patches'] ?? null, Declaration::COMPOSER_JSON);
         $file = $manager->patchesFile($extra);
         if ('' === $file) {
             return $out;
@@ -163,32 +119,16 @@ class PatchConfig
         $text = @\file_get_contents($root.\DIRECTORY_SEPARATOR.$file);
         $decoded = false === $text ? null : \json_decode($text, true);
 
-        return [...$out, ...self::unheld($out, self::fromMap(\is_array($decoded) ? ($decoded['patches'] ?? null) : null, $file))];
-    }
-
-    /**
-     * The entries of the second document whose package does not already declare that source.
-     *
-     * The patch manager reads composer.json first and refuses a patch whose
-     * URL a package already holds, so a site naming one patch in both
-     * places applies it once and has to be judged once.
-     *
-     * @param list<array{package: string, title: string, source: string, file: string, shape: string, provenance: array<string, string>}> $held
-     * @param list<array{package: string, title: string, source: string, file: string, shape: string, provenance: array<string, string>}> $adding
-     *
-     * @return list<array{package: string, title: string, source: string, file: string, shape: string, provenance: array<string, string>}>
-     */
-    private static function unheld(array $held, array $adding): array
-    {
-        $seen = [];
-        foreach ($held as $declaration) {
-            $seen[$declaration['package']."\0".$declaration['source']] = true;
+        // The patch manager reads composer.json first and refuses a patch
+        // whose URL its package already holds, so a source declared in both
+        // places applies once and has to be judged once.
+        $held = [];
+        foreach ($out as $declaration) {
+            $held[$declaration->package][$declaration->source] = true;
         }
-        $out = [];
-        foreach ($adding as $declaration) {
-            $key = $declaration['package']."\0".$declaration['source'];
-            if (!isset($seen[$key])) {
-                $seen[$key] = true;
+        foreach (self::entries(\is_array($decoded) ? ($decoded['patches'] ?? null) : null, $file) as $declaration) {
+            if (!isset($held[$declaration->package][$declaration->source])) {
+                $held[$declaration->package][$declaration->source] = true;
                 $out[] = $declaration;
             }
         }
@@ -197,37 +137,42 @@ class PatchConfig
     }
 
     /**
-     * One package-keyed map of declarations, in either shape the patch manager accepts: a title-keyed map of source strings, or a list of objects carrying `description` and `url`.
+     * What the service is told about one patch the site has yet to declare: the patches this config holds for its package, then the new one.
      *
-     * @param string $file where the map was read: composer.json or the patches file
+     * The manager applies the patches a site declares for a package before a
+     * new one, so the service judges the new patch behind them. A patch whose
+     * text did not travel cannot be applied there either.
      *
-     * @return list<array{package: string, title: string, source: string, file: string, shape: string, provenance: array<string, string>}>
+     * @param string $text the new patch as it will travel
      */
-    private static function fromMap(mixed $map, string $file): array
+    public function adding(Declaration $declaration, string $text): self
     {
-        if (!\is_array($map)) {
-            return [];
-        }
-        $out = [];
-        foreach ($map as $package => $entries) {
-            if (!\is_string($package) || !\is_array($entries)) {
-                continue;
+        $before = [];
+        $files = [];
+        foreach ($this->patches as $held) {
+            if ($held->package === $declaration->package && '' !== ($this->files[$held->source] ?? '')) {
+                $before[] = $held;
+                $files[$held->source] = $this->files[$held->source];
             }
-            foreach ($entries as $title => $entry) {
-                [$title, $source] = \is_array($entry)
-                    ? [$entry[self::TITLE_KEY] ?? null, $entry[self::SOURCE_KEY] ?? null]
-                    : [$title, $entry];
-                if (\is_string($title) && \is_string($source)) {
-                    $out[] = [
-                        'package' => $package,
-                        'title' => $title,
-                        'source' => \trim($source),
-                        'file' => $file,
-                        'shape' => \is_array($entry) ? self::EXPANDED : self::COMPACT,
-                        // The compact map holds no `extra`, so an entry
-                        // written in it carries no provenance.
-                        'provenance' => \is_array($entry) ? Provenance::read($entry['extra'] ?? null) : [],
-                    ];
+        }
+        $files[$declaration->source] = $text;
+
+        return new self([...$before, $declaration], $files, [], [], []);
+    }
+
+    /**
+     * The declarations one document's map holds, in the order the site wrote them.
+     *
+     * @return list<Declaration>
+     */
+    private static function entries(mixed $map, string $document): array
+    {
+        $out = [];
+        foreach (\is_array($map) ? $map : [] as $package => $entries) {
+            foreach (\is_string($package) && \is_array($entries) ? $entries : [] as $key => $entry) {
+                $declaration = Declaration::of($package, $key, $entry, $document);
+                if (null !== $declaration && '' !== $declaration->source) {
+                    $out[] = $declaration;
                 }
             }
         }
@@ -240,8 +185,8 @@ class PatchConfig
      *
      * @return array{package: string, title: string, source: string, reason: string}
      */
-    private static function withheld(string $package, string $title, string $source, string $reason): array
+    private static function withheld(Declaration $declaration, string $reason): array
     {
-        return ['package' => $package, 'title' => $title, 'source' => $source, 'reason' => $reason];
+        return ['package' => $declaration->package, 'title' => $declaration->title, 'source' => $declaration->source, 'reason' => $reason];
     }
 }

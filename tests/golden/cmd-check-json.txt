@@ -1,0 +1,60 @@
+--- stdout
+{
+    "target_core": "11.4.5",
+    "core_installed": "11.4.5",
+    "target_is_installed": true,
+    "counts": [],
+    "plan": {
+        "counts": {
+            "conflicts": 1
+        },
+        "patches": [
+            {
+                "package": "drupal/webform",
+                "project": "webform",
+                "version": "6.2.9",
+                "source": "patches/webform/fix.patch",
+                "verdict": "conflicts",
+                "result": {
+                    "hunks_failed": [
+                        {
+                            "file": "webform.module",
+                            "line": 165,
+                            "reason": "patch failed"
+                        }
+                    ]
+                },
+                "title": "Fix the alter hook"
+            }
+        ]
+    },
+    "summary": {
+        "target_core": "11.4.5",
+        "target_is_installed": true,
+        "counts": {
+            "conflicts": 1
+        },
+        "conflicts": [
+            "drupal/webform"
+        ],
+        "unclear": [],
+        "merged": [],
+        "broken": [],
+        "blocked": [],
+        "decided_by": [],
+        "exit_code": 1,
+        "next": [
+            {
+                "command": "composer drupatch:reroll",
+                "flag": "",
+                "effect": "writes the re-roll"
+            }
+        ]
+    },
+    "written": [],
+    "refused": []
+}
+--- stderr
+
+--- exit
+1

@@ -6,6 +6,7 @@ namespace TresBienTech\Drupatch\Tests\Write;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Write\Copied;
 
 /**
@@ -26,12 +27,10 @@ class CopiedTest extends TestCase
 
     /**
      * @param array<string, string> $provenance
-     *
-     * @return array{package: string, title: string, source: string, provenance: array<string, string>}
      */
-    private static function declaration(string $title, string $source, array $provenance = []): array
+    private static function declaration(string $title, string $source, array $provenance = []): Declaration
     {
-        return ['package' => 'drupal/webform', 'title' => $title, 'source' => $source, 'provenance' => $provenance];
+        return new Declaration('drupal/webform', $title, $source, 'composer.json', false, $provenance);
     }
 
     /**

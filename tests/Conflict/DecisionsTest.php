@@ -7,11 +7,12 @@ namespace TresBienTech\Drupatch\Tests\Conflict;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use TresBienTech\Drupatch\Read\Declaration;
 use TresBienTech\Drupatch\Read\Scope;
 use TresBienTech\Drupatch\Write\Decisions;
 
 #[CoversClass(Decisions::class)]
-final class DecisionsTest extends TestCase
+class DecisionsTest extends TestCase
 {
     private string $root = '';
 
@@ -57,7 +58,7 @@ final class DecisionsTest extends TestCase
     public function testAResolvedFileBesideItsPatchIsFound(): void
     {
         $this->put('patches/webform/fix.conflict.patch', self::decided('src/Form.php', 0, '  $decided = TRUE;'));
-        $patches = [['package' => 'drupal/webform', 'title' => 'Fix', 'source' => 'patches/webform/fix.patch']];
+        $patches = [new Declaration('drupal/webform', 'Fix', 'patches/webform/fix.patch', 'composer.json', false, [])];
 
         $got = Decisions::onDisk($this->root, $patches, Scope::whole());
 
@@ -68,7 +69,7 @@ final class DecisionsTest extends TestCase
 
     public function testAPatchWithNoConflictFileYieldsNothing(): void
     {
-        $patches = [['package' => 'drupal/webform', 'title' => 'Fix', 'source' => 'patches/webform/fix.patch']];
+        $patches = [new Declaration('drupal/webform', 'Fix', 'patches/webform/fix.patch', 'composer.json', false, [])];
 
         self::assertSame([], Decisions::onDisk($this->root, $patches, Scope::whole()));
     }
@@ -78,7 +79,7 @@ final class DecisionsTest extends TestCase
     public function testAPatchDeclaredAsAUrlHasNoConflictFile(): void
     {
         $this->put('patch/webform/2821158-12.conflict.patch', self::decided('src/Form.php', 0, 'decided'));
-        $patches = [['package' => 'drupal/webform', 'title' => 'Fix', 'source' => 'https://www.drupal.org/files/issues/2024-01-02/2821158-12.patch']];
+        $patches = [new Declaration('drupal/webform', 'Fix', 'https://www.drupal.org/files/issues/2024-01-02/2821158-12.patch', 'composer.json', false, [])];
 
         self::assertSame([], Decisions::onDisk($this->root, $patches, Scope::whole()));
     }
@@ -86,7 +87,7 @@ final class DecisionsTest extends TestCase
     public function testAFileWithNoDecidedRegionYieldsNothing(): void
     {
         $this->put('patches/webform/fix.conflict.patch', "# drupatch region 0 a.php\n<<<<<<< release a.php:1\na\n=======\nb\n>>>>>>> patch\n# drupatch end 0 a.php\n");
-        $patches = [['package' => 'drupal/webform', 'title' => 'Fix', 'source' => 'patches/webform/fix.patch']];
+        $patches = [new Declaration('drupal/webform', 'Fix', 'patches/webform/fix.patch', 'composer.json', false, [])];
 
         self::assertSame([], Decisions::onDisk($this->root, $patches, Scope::whole()));
     }
@@ -96,8 +97,8 @@ final class DecisionsTest extends TestCase
         $this->put('patches/webform/fix.conflict.patch', self::decided('a.php', 0, 'decided'));
         $this->put('patches/paragraphs/fix.conflict.patch', self::decided('b.php', 0, 'decided'));
         $patches = [
-            ['package' => 'drupal/webform', 'title' => 'Fix', 'source' => 'patches/webform/fix.patch'],
-            ['package' => 'drupal/paragraphs', 'title' => 'Fix', 'source' => 'patches/paragraphs/fix.patch'],
+            new Declaration('drupal/webform', 'Fix', 'patches/webform/fix.patch', 'composer.json', false, []),
+            new Declaration('drupal/paragraphs', 'Fix', 'patches/paragraphs/fix.patch', 'composer.json', false, []),
         ];
 
         $got = Decisions::onDisk($this->root, $patches, new Scope(['webform'], []));
@@ -108,19 +109,19 @@ final class DecisionsTest extends TestCase
 
     public function testASourceLeavingTheSiteRootIsSkipped(): void
     {
-        $patches = [['package' => 'drupal/webform', 'title' => 'Fix', 'source' => '../outside/fix.patch']];
+        $patches = [new Declaration('drupal/webform', 'Fix', '../outside/fix.patch', 'composer.json', false, [])];
 
         self::assertSame([], Decisions::onDisk($this->root, $patches, Scope::whole()));
     }
 
     /**
-     * @return list<array{package: string, title: string, source: string}>
+     * @return list<Declaration>
      */
     private static function twoPatches(): array
     {
         return [
-            ['package' => 'drupal/webform', 'title' => 'Fix', 'source' => 'patches/webform/fix.patch'],
-            ['package' => 'drupal/token', 'title' => 'Cache', 'source' => 'https://example.test/cache.patch'],
+            new Declaration('drupal/webform', 'Fix', 'patches/webform/fix.patch', 'composer.json', false, []),
+            new Declaration('drupal/token', 'Cache', 'https://example.test/cache.patch', 'composer.json', false, []),
         ];
     }
 
@@ -145,7 +146,7 @@ final class DecisionsTest extends TestCase
         $json = \json_encode(['decisions' => [['source' => 'patches/gone.patch', 'file' => 'a.php', 'region' => 0, 'choice' => 'release']]]);
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('decision 1 names patches/gone.patch, which is not a patch declared in scope; the site declares patches/webform/fix.patch, https://example.test/cache.patch');
+        $this->expectExceptionMessage('decision 1 gives patches/gone.patch, which is not a patch declared in scope; the site declares patches/webform/fix.patch, https://example.test/cache.patch');
 
         Decisions::fromDocument((string) $json, self::twoPatches(), Scope::whole());
     }

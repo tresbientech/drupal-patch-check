@@ -12,11 +12,10 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Terminal;
-use TresBienTech\Drupatch\Fetch\PatchText;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Read\Run;
 use TresBienTech\Drupatch\Read\Scope;
-use TresBienTech\Drupatch\Render\Outcomes;
+use TresBienTech\Drupatch\Read\Site;
 use TresBienTech\Drupatch\Render\Report;
 use TresBienTech\Drupatch\Text;
 use TresBienTech\Drupatch\Write\WorkingTree;
@@ -24,6 +23,9 @@ use UnexpectedValueException;
 
 /**
  * What the commands share: the options that pick a target, a scope and a shape, the rewrite of the site's declarations, and the report.
+ *
+ * @phpstan-import-type Write from Report
+ * @phpstan-import-type Rewrite from Report
  */
 abstract class PatchCommand extends BaseCommand
 {
@@ -110,7 +112,7 @@ abstract class PatchCommand extends BaseCommand
         try {
             $format = self::format(\is_string($chosen) ? $chosen : null);
         } catch (UnexpectedValueException $e) {
-            $output->writeln('<error>'.Text::t('drupatch: @message', ['@message' => $e->getMessage()]).'</error>');
+            $output->writeln(Report::message($e->getMessage(), 'error'));
 
             return null;
         }
@@ -127,11 +129,11 @@ abstract class PatchCommand extends BaseCommand
     }
 
     /**
-     * Patch text and host answers, read over the site's own network with composer's settings.
+     * The site this run is about, read once.
      */
-    protected function patchText(string $root): PatchText
+    protected function site(): Site
     {
-        return PatchText::fromComposer($this->requireComposer(), $this->getIO(), $root);
+        return Site::read($this->requireComposer(), $this->getIO());
     }
 
     /**
@@ -185,29 +187,19 @@ abstract class PatchCommand extends BaseCommand
 
     /**
      * Prints the plan in the shape asked for, with what the run wrote beside it.
+     *
+     * @param Write|null   $write   what a re-roll run wrote
+     * @param Rewrite|null $rewrite the declaration rewrite a re-roll run made
      */
-    protected function render(InputInterface $input, OutputInterface $output, string $format, Run $run, Plan $plan, ?Outcomes $outcomes): void
+    protected function render(InputInterface $input, OutputInterface $output, string $format, Run $run, Plan $plan, ?array $write, ?array $rewrite): void
     {
         if ('json' === $format) {
-            $raw = null === $outcomes ? $plan->raw : $outcomes->intoDocument($plan->raw);
-            $output->writeln((string) \json_encode($raw + [
-                'summary' => Report::summary($plan, $outcomes),
-            ] + ['written' => \array_map(
-                static fn (array $file): array => ['path' => $file['path'], 'status' => $file['status']],
-                null === $outcomes ? [] : $outcomes->written()
-            )] + ['refused' => \array_map(
-                static fn (array $refusal): array => ['path' => $refusal['path'], 'reason' => $refusal['reason']],
-                null === $outcomes ? [] : $outcomes->refused()
-            )], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES));
-            $notes = self::notes($output, true);
-            foreach (Report::unpinnedWarning(\count(Report::unpinned($plan))) as $line) {
-                $notes->writeln($line);
-            }
-        } else {
-            $scope = self::repeated($run->target, self::scope($input));
-            foreach (Report::report($plan, $run->coverage, $outcomes, Report::clamp((new Terminal())->getWidth()), $scope, null !== $run->dropTests) as $line) {
-                $output->writeln($line);
-            }
+            $output->writeln((string) \json_encode(Report::json($plan, $write, $rewrite), \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES));
+            self::notes($output, true)->writeln(Report::print(Report::unpinnedWarning($plan->manager, \count(Report::unpinned($plan)))));
+
+            return;
         }
+        $width = Report::clamp((new Terminal())->getWidth());
+        $output->writeln(Report::print(Report::check($plan, $run->coverage, $write, $rewrite, $width, self::repeated($run->target, self::scope($input)), null !== $run->dropTests)));
     }
 }

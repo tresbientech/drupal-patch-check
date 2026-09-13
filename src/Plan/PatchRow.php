@@ -5,18 +5,17 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Plan;
 
 use RuntimeException;
-use TresBienTech\Drupatch\Text;
+use TresBienTech\Drupatch\Manager;
+use TresBienTech\Drupatch\Read\Declaration;
+use TresBienTech\Drupatch\Source\IssueReference;
 
 /**
  * One patch as the plan judged it.
+ *
+ * @phpstan-type Hunk array{file: string, line: int, reason: string}
  */
 class PatchRow
 {
-    /**
-     * Verdicts that need nothing from anybody; an unknown one never reads as fine.
-     */
-    public const CLEAN_VERDICTS = [self::MERGED, self::APPLIES];
-
     /** Verdicts the run reports without failing. */
     public const TOLERATED_VERDICTS = [self::MERGED, self::APPLIES, self::UNKNOWN];
 
@@ -70,10 +69,9 @@ class PatchRow
          */
         public readonly array $judgedWithout,
         /**
-         * Every hunk the patch failed on, keyed by where it is, so a row
-         * can pair a failure with the same place in hunksShipped.
+         * Every hunk the patch failed on.
          *
-         * @var array<string, string> place => `file:line: reason`
+         * @var list<Hunk>
          */
         private readonly array $hunksFailed,
         /** How many hunks failed, before the service capped the list. */
@@ -81,34 +79,26 @@ class PatchRow
         /** How many hunks the release carries, before the same cap. */
         public readonly int $shippedTotal,
         /**
-         * The hunks the release already carries verbatim, one line each,
-         * named file:line.
+         * The hunks the release already carries verbatim.
          *
          * Every hunk, not just the first: a patch whose hunks the release
          * mostly has is the evidence that its fix landed in another form.
          *
-         * @var list<string>
+         * @var list<Hunk>
          */
         public readonly array $hunksShipped,
         /** Where the release this row is about came from: composer, or the bundle. */
         public readonly string $decidedBy,
-        /**
-         * The server's re-roll as it arrived, null when it sent none.
-         *
-         * @var array<string, mixed>|null
-         */
-        public readonly ?array $reroll,
+        /** The server's re-roll, null when it sent none. */
+        public readonly ?Reroll $reroll,
         /**
          * The core references block as the server sent it, [] when the row carries none.
          *
          * @var array<string, mixed>
          */
         public readonly array $coreReferences,
-        /**
-         * What is wrong with a patch that applied, empty when nothing is.
-         * The verdict stays what it was: the patch did apply.
-         */
-        public readonly string $failureMode,
+        /** What the service says is wrong with a patch that applied, empty when it says nothing is. */
+        private readonly string $failureMode,
         /**
          * The files behind the failure mode, `path: message` as the server
          * wrote them.
@@ -116,13 +106,16 @@ class PatchRow
          * @var list<string>
          */
         public readonly array $syntaxErrors,
+        /** The patch manager the row is read under, null to read the service's answer as sent. */
+        private readonly ?Manager $manager,
     ) {
     }
 
     /**
      * @param array<string, mixed> $data
+     * @param Manager|null         $manager the patch manager the row is read under, null to read the service's answer as sent
      */
-    public static function fromArray(array $data): self
+    public static function fromArray(array $data, ?Manager $manager): self
     {
         $package = (string) ($data['package'] ?? '');
         if ('' === $package) {
@@ -135,7 +128,7 @@ class PatchRow
 
         return new self(
             $package,
-            (string) ($data['project'] ?? \str_replace('drupal/', '', $package)),
+            (string) ($data['project'] ?? IssueReference::projectOf($package)),
             (string) ($data['version'] ?? ''),
             (string) ($data['installed'] ?? ''),
             (string) ($data['title'] ?? ''),
@@ -147,263 +140,51 @@ class PatchRow
             true === ($result['fuzzy'] ?? null),
             \is_int($result['applies_at'] ?? null) ? $result['applies_at'] : null,
             \array_values(\array_filter($without, \is_string(...))),
-            self::failedHunks($failed),
+            self::hunks($failed),
             (int) ($result['hunks_failed_total'] ?? \count($failed)),
             (int) ($result['hunks_shipped_total'] ?? \count($shipped)),
-            \array_values(\array_map(static fn (array $hunk): string => self::place($hunk), $shipped)),
+            self::hunks($shipped),
             (string) ($data['decided_by'] ?? ''),
-            \is_array($result['reroll'] ?? null) ? $result['reroll'] : null,
+            \is_array($result['reroll'] ?? null) ? Reroll::fromArray($result['reroll']) : null,
             \is_array($result['core_references'] ?? null) ? $result['core_references'] : [],
             (string) ($result['failure_mode'] ?? ''),
             \array_values(\array_filter((array) ($result['syntax_errors'] ?? []), \is_string(...))),
+            $manager,
         );
     }
 
     /**
-     * This row on a site whose patch manager applies with `git apply` alone, which refuses the patch.
-     */
-    public function refusedByTwo(): self
-    {
-        return new self(
-            $this->package,
-            $this->project,
-            $this->version,
-            $this->installed,
-            $this->title,
-            $this->source,
-            $this->verdict,
-            $this->note,
-            $this->error,
-            $this->strictRefused,
-            $this->fuzzy,
-            $this->appliesAt,
-            $this->judgedWithout,
-            $this->hunksFailed,
-            $this->failedTotal,
-            $this->shippedTotal,
-            $this->hunksShipped,
-            $this->decidedBy,
-            $this->reroll,
-            $this->coreReferences,
-            self::REFUSED_BY_TWO,
-            $this->syntaxErrors,
-        );
-    }
-
-    /**
-     * Whether the run should exit non-zero because of this row.
-     */
-    public function needsAction(): bool
-    {
-        return '' !== $this->failureMode || !\in_array($this->verdict, self::CLEAN_VERDICTS, true);
-    }
-
-    /**
-     * Whether the server's re-roll merged cleanly into a usable patch.
-     */
-    public function rerollIsClean(): bool
-    {
-        return 'clean' === ($this->reroll['status'] ?? '') && '' !== ($this->reroll['patch'] ?? '');
-    }
-
-    /**
-     * What the re-rolled patch leaves unparseable, `path: message` as the
-     * server wrote it. Only a clean merge is read for this, so a conflict
-     * file a person still has to edit is never judged by it.
+     * A server list of hunks, each as its file, the release line it was aimed at, and the reason.
      *
-     * @return list<string>
+     * @param array<array<string, mixed>> $list
+     *
+     * @return list<Hunk>
      */
-    public function rerollSyntaxErrors(): array
+    private static function hunks(array $list): array
     {
-        return \array_values(\array_filter((array) ($this->reroll['syntax_errors'] ?? []), \is_string(...)));
+        return \array_values(\array_map(
+            static fn (array $hunk): array => ['file' => (string) ($hunk['file'] ?? ''), 'line' => (int) ($hunk['line'] ?? 0), 'reason' => (string) ($hunk['reason'] ?? '')],
+            $list,
+        ));
     }
 
     /**
-     * The declaration this row came from, null when the site declared none.
+     * What is wrong with a patch that applied, empty when nothing is. The
+     * verdict stays what it was: the patch did apply.
      *
-     * Package and title pair them, because a site declares one patch per
-     * title on a package and the answer carries the site's own words back.
-     * Every reader that needs a row's declaration asks here.
-     *
-     * @param list<array{package: string, title: string, source: string, provenance: array<string, string>, ...}> $declared
-     *
-     * @return array{package: string, title: string, source: string, provenance: array<string, string>, ...}|null
+     * 2.x applies with `git apply` alone, so under it a patch only a lenient
+     * apply took stops applying. A row the service already names a failure
+     * for keeps that failure.
      */
-    public function declaredIn(array $declared): ?array
+    public function failureMode(): string
     {
-        foreach ($declared as $patch) {
-            if ($patch['package'] === $this->package && $patch['title'] === $this->title) {
-                return $patch;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * The patch the merge ran on, when the server did not use the declared one.
-     */
-    public function mergedFrom(): string
-    {
-        return (string) ($this->reroll['merged_from'] ?? '');
-    }
-
-    /**
-     * The test files the re-roll left out.
-     *
-     * @return list<string>
-     */
-    public function droppedTests(): array
-    {
-        return \array_values(\array_filter((array) ($this->reroll['dropped_tests'] ?? []), \is_string(...)));
-    }
-
-    /**
-     * The regions a conflicted re-roll leaves for a person, summed over its files.
-     */
-    public function openRegions(): int
-    {
-        return \count($this->openRegionList());
-    }
-
-    /**
-     * Every region a conflicted re-roll leaves, as the file and index a decision names it by.
-     *
-     * @return list<array{file: string, region: int}>
-     */
-    public function openRegionList(): array
-    {
-        // A merge the decisions settled keeps the conflicts it started
-        // from and reports itself clean. Nothing there is left to decide.
-        if (self::CONFLICTS !== ($this->reroll['status'] ?? '')) {
-            return [];
-        }
-        $out = [];
-        foreach ((array) ($this->reroll['conflicts'] ?? []) as $conflict) {
-            $conflict = (array) $conflict;
-            $file = (string) ($conflict['file'] ?? '');
-            if ('' === $file) {
-                continue;
-            }
-            // A file the release removed has no index entry, so the
-            // service applies no resolution to it. Offering its region
-            // would be offering a decision that decides nothing.
-            if (true === ($conflict['removed'] ?? null)) {
-                continue;
-            }
-            // The service numbers every region of the merged file, and
-            // sends the text of only the first few, so the count leads
-            // here and the hunks do not.
-            for ($region = 0; $region < (int) ($conflict['regions'] ?? 0); ++$region) {
-                $out[] = ['file' => $file, 'region' => $region];
-            }
-        }
-
-        return $out;
-    }
-
-    /**
-     * The files the release deleted, which a re-roll has nothing to merge into.
-     *
-     * @return list<string>
-     */
-    public function removedFiles(): array
-    {
-        if (self::CONFLICTS !== ($this->reroll['status'] ?? '')) {
-            return [];
-        }
-        $out = [];
-        foreach ((array) ($this->reroll['conflicts'] ?? []) as $conflict) {
-            $conflict = (array) $conflict;
-            $file = (string) ($conflict['file'] ?? '');
-            if ('' !== $file && true === ($conflict['removed'] ?? null)) {
-                $out[] = $file;
-            }
-        }
-
-        return $out;
-    }
-
-    /**
-     * The regions the merge decided on its own by keeping both sides.
-     *
-     * @return list<array{file: string, line: int}>
-     */
-    public function unioned(): array
-    {
-        return self::regionsOf($this->reroll['unioned'] ?? []);
-    }
-
-    /**
-     * A server list of file-and-line entries, as the plugin reads them.
-     *
-     * @return list<array{file: string, line: int}>
-     */
-    private static function regionsOf(mixed $list): array
-    {
-        $out = [];
-        foreach ((array) $list as $region) {
-            $region = (array) $region;
-            $file = (string) ($region['file'] ?? '');
-            if ('' !== $file) {
-                $out[] = ['file' => $file, 'line' => (int) ($region['line'] ?? 0)];
-            }
-        }
-
-        return $out;
-    }
-
-    /**
-     * One failed hunk as a person reads it: where it is, and why.
-     *
-     * @param array<string, mixed> $hunk
-     */
-    private static function hunk(array $hunk): string
-    {
-        $place = self::place($hunk);
-        $reason = (string) ($hunk['reason'] ?? '');
-        if ('' === $place || '' === $reason) {
-            return $place.$reason;
-        }
-
-        return Text::t('@place: @reason', ['@place' => $place, '@reason' => $reason]);
-    }
-
-    /**
-     * The failed hunks a row prints, keyed by place.
-     *
-     * @param array<mixed> $failed
-     *
-     * @return array<string, string>
-     */
-    private static function failedHunks(array $failed): array
-    {
-        $out = [];
-        foreach ($failed as $hunk) {
-            $hunk = (array) $hunk;
-            $out[self::place($hunk)] = self::hunk($hunk);
-        }
-
-        return $out;
-    }
-
-    /**
-     * Where a hunk is: its file, and the release line it was aimed at.
-     *
-     * @param array<string, mixed> $hunk
-     */
-    private static function place(array $hunk): string
-    {
-        $file = (string) ($hunk['file'] ?? '');
-        $line = (int) ($hunk['line'] ?? 0);
-
-        return '' === $file || $line <= 0 ? $file : Text::t('@file:@line', ['@file' => $file, '@line' => $line]);
+        return '' === $this->failureMode && $this->fuzzy && true === $this->manager?->isTwo() ? self::REFUSED_BY_TWO : $this->failureMode;
     }
 
     /**
      * What a re-roll has to fix, empty when the verdict stands.
      *
-     * @return array<string, string> place => `file:line: reason`
+     * @return list<Hunk>
      */
     public function failures(): array
     {
@@ -415,7 +196,7 @@ class PatchRow
      */
     public function fails(): bool
     {
-        return '' !== $this->failureMode || !\in_array($this->verdict, self::TOLERATED_VERDICTS, true);
+        return '' !== $this->failureMode() || !\in_array($this->verdict, self::TOLERATED_VERDICTS, true);
     }
 
     /**
@@ -423,7 +204,7 @@ class PatchRow
      */
     public function needsMention(): bool
     {
-        return self::APPLIES !== $this->verdict || '' !== $this->failureMode || $this->flaggedCoreReferences() > 0;
+        return self::APPLIES !== $this->verdict || '' !== $this->failureMode() || $this->flaggedCoreReferences() > 0;
     }
 
     /**
@@ -445,49 +226,12 @@ class PatchRow
     }
 
     /**
-     * Whether the verdict is about a release other than the installed one; the two spellings of a dev branch are one release.
-     */
-    public function movesRelease(): bool
-    {
-        if ('' === $this->installed || '' === $this->version) {
-            return false;
-        }
-
-        return self::branch($this->installed) !== self::branch($this->version);
-    }
-
-    private static function branch(string $version): string
-    {
-        if (\str_starts_with($version, 'dev-')) {
-            return \substr($version, 4);
-        }
-        if (\str_ends_with($version, '-dev')) {
-            return \substr($version, 0, -4);
-        }
-
-        return $version;
-    }
-
-    public function label(): string
-    {
-        return '' !== $this->title ? $this->title : $this->source;
-    }
-
-    /**
-     * Why a patch has no usable verdict, empty when it has one.
-     */
-    public function reason(): string
-    {
-        return '' !== $this->note ? $this->note : $this->error;
-    }
-
-    /**
      * What the row reads as: the verdict, or the failure mode when the patch
      * applied and left something broken.
      */
     public function status(): string
     {
-        return '' !== $this->failureMode ? $this->failureMode : $this->verdict;
+        return '' !== $this->failureMode() ? $this->failureMode() : $this->verdict;
     }
 
     /**
@@ -495,14 +239,6 @@ class PatchRow
      */
     public function key(): string
     {
-        return self::keyOf($this->package, $this->title);
-    }
-
-    /**
-     * The key a row is filed under, for anything that names a patch by package and title.
-     */
-    public static function keyOf(string $package, string $title): string
-    {
-        return $package."\0".$title;
+        return Declaration::keyOf($this->package, $this->title);
     }
 }

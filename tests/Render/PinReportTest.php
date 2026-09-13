@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Tests\Render;
 
 use PHPUnit\Framework\TestCase;
+use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\Read\Run;
-use TresBienTech\Drupatch\Render\PinReport;
+use TresBienTech\Drupatch\Render\Report;
 
 class PinReportTest extends TestCase
 {
@@ -15,7 +16,7 @@ class PinReportTest extends TestCase
      */
     private static function report(array $lists, int $rewritten = 0, int $unpinned = 0): string
     {
-        return \implode("\n", PinReport::lines($lists + ['vendored' => [], 'kept' => [], 'moved' => [], 'refused' => []], 'composer.json', $rewritten, $unpinned));
+        return \implode("\n", Report::print(Report::pin($lists + ['vendored' => [], 'kept' => [], 'moved' => [], 'refused' => []], 'composer.json', $rewritten, $unpinned, Manager::ofVersion('1.7.3'))));
     }
 
     /**
@@ -32,7 +33,7 @@ class PinReportTest extends TestCase
 
         self::assertStringContainsString('1 patch copied into the site', $out);
         self::assertStringContainsString("  copied into the site:\n    drupal/webform: 3521733: bfcache\n      patch/webform/mr940.diff", $out);
-        self::assertStringContainsString('composer.json: 1 declaration now names a file in the site', $out);
+        self::assertStringContainsString('composer.json: 1 declaration now points at a file in the site', $out);
     }
 
     // The site keeps what it holds, and the run says what it would take.
