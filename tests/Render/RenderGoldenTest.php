@@ -99,8 +99,8 @@ class RenderGoldenTest extends TestCase
     {
         $plan = $this->planFrom(['counts' => [], 'patches' => []]);
         $coverage = ['checked' => 0, 'skipped' => [
-            ['package' => 'acquia/cohesion', 'title' => 'Page builder fix', 'reason' => 'not a drupal.org project'],
-        ], 'unsent' => [], 'versions' => ['acquia/cohesion' => '7.6.1']];
+            ['package' => 'acme/pagebuilder', 'title' => 'Page builder fix', 'reason' => 'not a drupal.org project'],
+        ], 'unsent' => [], 'versions' => ['acme/pagebuilder' => '7.6.1']];
 
         self::assertReport('check-judged-nothing', ['headline', 'unjudged', 'tally'], Report::check($plan, $coverage, null, null, self::WIDTH, [], false));
     }
@@ -112,10 +112,10 @@ class RenderGoldenTest extends TestCase
             'patches' => [$this->row(['title' => 'Fix the alter hook', 'source' => 'patches/webform/alter.patch'])],
         ]);
         $coverage = ['checked' => 1, 'skipped' => [
-            ['package' => 'acquia/cohesion', 'title' => 'Page builder fix', 'reason' => 'not a drupal.org project'],
+            ['package' => 'acme/pagebuilder', 'title' => 'Page builder fix', 'reason' => 'not a drupal.org project'],
         ], 'unsent' => [
             ['package' => 'drupal/domain', 'title' => 'Access fix', 'source' => 'https://example.test/d.patch', 'reason' => 'the host answered 404'],
-        ], 'versions' => ['drupal/webform' => '6.2.9', 'acquia/cohesion' => '7.6.1']];
+        ], 'versions' => ['drupal/webform' => '6.2.9', 'acme/pagebuilder' => '7.6.1']];
 
         self::assertReport('check-skipped-packages', ['headline', 'unjudged', 'package', 'tally'], Report::check($plan, $coverage, null, null, self::WIDTH, [], false));
     }

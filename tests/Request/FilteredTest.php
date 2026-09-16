@@ -79,12 +79,12 @@ class FilteredTest extends TestCase
     {
         $request = $this->of([], [
             ['name' => 'symfony/console', 'version' => '6.4.0', 'notification-url' => self::PACKAGIST],
-            ['name' => 'acquia/cohesion', 'version' => '8.2.5', 'notification-url' => self::PACKAGIST],
+            ['name' => 'acme/pagebuilder', 'version' => '8.2.5', 'notification-url' => self::PACKAGIST],
         ]);
 
-        self::assertSame(['symfony/console' => '6.4.0', 'acquia/cohesion' => '8.2.5'], $request['locked']);
-        self::assertStringNotContainsString('acquia/cohesion', $request['lock']);
-        self::assertStringNotContainsString('acquia/cohesion', $request['json']);
+        self::assertSame(['symfony/console' => '6.4.0', 'acme/pagebuilder' => '8.2.5'], $request['locked']);
+        self::assertStringNotContainsString('acme/pagebuilder', $request['lock']);
+        self::assertStringNotContainsString('acme/pagebuilder', $request['json']);
     }
 
     public function testTheRequestCarriesFourKeysAndNoOthers(): void

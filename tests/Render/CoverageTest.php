@@ -28,24 +28,24 @@ class CoverageTest extends TestCase
     public function testAPackageIsNamedOnceWithItsPatchCount(): void
     {
         $coverage = $this->coverage(53, [
-            $this->skip('acquia/cohesion', 'PHP warning fix'),
-            $this->skip('acquia/cohesion', 'Fix compatibility with ECA'),
-            $this->skip('acquia/cohesion', 'Tmgmt issue fix'),
+            $this->skip('acme/pagebuilder', 'PHP warning fix'),
+            $this->skip('acme/pagebuilder', 'Fix compatibility with ECA'),
+            $this->skip('acme/pagebuilder', 'Tmgmt issue fix'),
         ]);
 
-        self::assertSame(['acquia/cohesion 7.6.1   3 patches skipped (not a drupal.org project)'], $this->unjudged($coverage));
+        self::assertSame(['acme/pagebuilder 7.6.1   3 patches skipped (not a drupal.org project)'], $this->unjudged($coverage));
     }
 
     public function testTwoPackagesGetALineEach(): void
     {
         $coverage = $this->coverage(50, [
-            $this->skip('acquia/cohesion', 'One'),
+            $this->skip('acme/pagebuilder', 'One'),
             $this->skip('drupal/nouislider_js', 'Two'),
-            $this->skip('acquia/cohesion', 'Three'),
+            $this->skip('acme/pagebuilder', 'Three'),
         ]);
 
         self::assertSame([
-            'acquia/cohesion 7.6.1   2 patches skipped (not a drupal.org project)',
+            'acme/pagebuilder 7.6.1   2 patches skipped (not a drupal.org project)',
             'drupal/nouislider_js 1.0.0   1 patch skipped (not a drupal.org project)',
         ], $this->unjudged($coverage));
     }
@@ -137,7 +137,7 @@ class CoverageTest extends TestCase
 
     public function testNoPatchTitleReachesTheOutput(): void
     {
-        $coverage = $this->coverage(53, [$this->skip('acquia/cohesion', 'Page builder lock logic')]);
+        $coverage = $this->coverage(53, [$this->skip('acme/pagebuilder', 'Page builder lock logic')]);
 
         self::assertStringNotContainsString('Page builder lock logic', \implode("\n", $this->report($coverage)));
     }
@@ -239,7 +239,7 @@ class CoverageTest extends TestCase
     private function coverage(int $patches, array $skipped = [], array $unsent = []): array
     {
         return ['checked' => $patches, 'skipped' => $skipped, 'unsent' => $unsent, 'versions' => [
-            'acquia/cohesion' => '7.6.1',
+            'acme/pagebuilder' => '7.6.1',
             'drupal/nouislider_js' => '1.0.0',
             'drupal/webform' => '6.2.9',
             'drupal/a' => '1.0.0',

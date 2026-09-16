@@ -1,5 +1,5 @@
 <comment>Drupal Patch Check: no patch could be checked; the reasons are below</comment>
 
-  <comment>acquia/cohesion 7.6.1   1 patch skipped (not a drupal.org project)</comment>
+  <comment>acme/pagebuilder 7.6.1   1 patch skipped (not a drupal.org project)</comment>
 
   patches: none

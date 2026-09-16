@@ -100,7 +100,7 @@ class TableTest extends TestCase
     {
         return self::only(self::TABLE, Report::check($plan, ['checked' => \count($plan->rows()), 'skipped' => $skipped, 'unsent' => $unsent, 'versions' => [
             'drupal/webform' => '6.2.9',
-            'acquia/cohesion' => '7.6.1',
+            'acme/pagebuilder' => '7.6.1',
         ]], $write, null, 100, [], false));
     }
 
@@ -108,11 +108,11 @@ class TableTest extends TestCase
     // judge, so it leaves that list to the check run.
     public function testAWriteRunLeavesTheSkippedPackagesToTheCheckRun(): void
     {
-        $skipped = [['package' => 'acquia/cohesion', 'title' => 'Page builder fix', 'reason' => 'not a drupal.org project']];
+        $skipped = [['package' => 'acme/pagebuilder', 'title' => 'Page builder fix', 'reason' => 'not a drupal.org project']];
 
         $lines = self::tableWith($this->plan(), $skipped, [], ['written' => [], 'refused' => []]);
 
-        self::assertStringNotContainsString('acquia/cohesion', \implode("\n", $lines));
+        self::assertStringNotContainsString('acme/pagebuilder', \implode("\n", $lines));
         self::assertSame('', $lines[1]);
         self::assertStringStartsWith('  patches: ', $lines[2], 'one blank line, with nothing between the headline and the tally');
     }
@@ -122,12 +122,12 @@ class TableTest extends TestCase
     public function testAWriteRunThatJudgedNothingKeepsTheSkippedPackages(): void
     {
         $plan = $this->planFrom(['counts' => [], 'patches' => []]);
-        $skipped = [['package' => 'acquia/cohesion', 'title' => 'Fix', 'reason' => 'not a drupal.org project']];
+        $skipped = [['package' => 'acme/pagebuilder', 'title' => 'Fix', 'reason' => 'not a drupal.org project']];
 
         $lines = self::tableWith($plan, $skipped, [], ['written' => [], 'refused' => []]);
 
         self::assertSame('<comment>Drupal Patch Check: no patch could be checked; the reasons are below</comment>', $lines[0]);
-        self::assertSame('  <comment>acquia/cohesion 7.6.1   1 patch skipped (not a drupal.org project)</comment>', $lines[2]);
+        self::assertSame('  <comment>acme/pagebuilder 7.6.1   1 patch skipped (not a drupal.org project)</comment>', $lines[2]);
     }
 
     // The package already has a heading, so what it skipped belongs
@@ -152,14 +152,14 @@ class TableTest extends TestCase
     public function testAPackageWithNothingJudgedGetsALineOfItsOwnBeforeTheGroups(): void
     {
         $lines = self::tableWith($this->plan(), [[
-            'package' => 'acquia/cohesion', 'title' => 'Page builder fix',
+            'package' => 'acme/pagebuilder', 'title' => 'Page builder fix',
             'reason' => 'not a drupal.org project',
         ]]);
-        $at = self::indexOf($lines, 'acquia/cohesion');
+        $at = self::indexOf($lines, 'acme/pagebuilder');
 
         self::assertSame(2, $at, 'right under the header');
         self::assertSame(
-            '  <comment>acquia/cohesion 7.6.1   1 patch skipped (not a drupal.org project)</comment>',
+            '  <comment>acme/pagebuilder 7.6.1   1 patch skipped (not a drupal.org project)</comment>',
             $lines[$at],
         );
         self::assertSame('', $lines[$at + 1], 'a blank line keeps it apart from the first package');
@@ -173,13 +173,13 @@ class TableTest extends TestCase
             'patches' => [$this->row()],
         ]);
         $lines = self::tableWith($plan, [[
-            'package' => 'acquia/cohesion', 'title' => 'Page builder fix',
+            'package' => 'acme/pagebuilder', 'title' => 'Page builder fix',
             'reason' => 'not a drupal.org project',
         ]]);
 
         self::assertStringContainsString('9 core patch(es)', $lines[2]);
         self::assertSame('', $lines[3]);
-        self::assertStringContainsString('acquia/cohesion', $lines[4]);
+        self::assertStringContainsString('acme/pagebuilder', $lines[4]);
     }
 
     // Counting to zero says nothing a reader can act on; the reasons
@@ -187,7 +187,7 @@ class TableTest extends TestCase
     public function testARunThatJudgedNothingSaysSoInsteadOfCounting(): void
     {
         $plan = $this->planFrom(['counts' => [], 'patches' => []]);
-        $skipped = [['package' => 'acquia/cohesion', 'title' => 'Fix', 'reason' => 'not a drupal.org project']];
+        $skipped = [['package' => 'acme/pagebuilder', 'title' => 'Fix', 'reason' => 'not a drupal.org project']];
 
         self::assertSame(
             '<comment>Drupal Patch Check: no patch could be checked; the reasons are below</comment>',

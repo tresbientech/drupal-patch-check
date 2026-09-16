@@ -1,6 +1,6 @@
 <info>Drupal Patch Check</info>: 1 patch for a move to core 11.4.5
 
-  <comment>acquia/cohesion 7.6.1   1 patch skipped (not a drupal.org project)</comment>
+  <comment>acme/pagebuilder 7.6.1   1 patch skipped (not a drupal.org project)</comment>
 
   drupal/webform 6.2.9   1 applies
      #1 · applies   Fix the alter hook                                                   alter.patch

@@ -20,7 +20,7 @@ class ScopeTest extends TestCase
 
         self::assertTrue($scope->isWhole());
         self::assertTrue($scope->has('drupal/webform', 'patches/webform/fix.patch'));
-        self::assertTrue($scope->has('acquia/cohesion', 'https://example.test/a.patch'));
+        self::assertTrue($scope->has('acme/pagebuilder', 'https://example.test/a.patch'));
     }
 
     public function testEitherSpellingOfAPackageInAnyCaseIsTheSamePackage(): void
@@ -32,7 +32,7 @@ class ScopeTest extends TestCase
         self::assertFalse($scope->hasPackage('drupal/token'));
         self::assertSame('webform', Scope::key('drupal/webform'));
         self::assertSame('webform', Scope::key('Webform'));
-        self::assertSame('cohesion', Scope::key('acquia/cohesion'));
+        self::assertSame('pagebuilder', Scope::key('acme/pagebuilder'));
     }
 
     // Core's project is drupal and its package is drupal/core, so the project
