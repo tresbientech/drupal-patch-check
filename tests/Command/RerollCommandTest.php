@@ -273,18 +273,17 @@ class RerollCommandTest extends TestCase
      */
     public static function flagsAndWhatTheySend(): iterable
     {
-        yield 'drop' => [['--drop-tests' => true], true];
-        yield 'keep' => [['--keep-tests' => true], false];
+        yield 'from-source' => [['--from-source' => true], false];
         yield 'neither' => [[], null];
     }
 
-    // The request says something about test files only when the run did,
-    // so a run naming neither flag leaves the choice to the service.
+    // The request carries the drop choice only when the run named
+    // --from-source, so a run naming no flag leaves it to the service.
     /**
      * @param array<string, bool> $flags
      */
     #[DataProvider('flagsAndWhatTheySend')]
-    public function testTheRequestCarriesTheTestFilesChoiceTheRunNamed(array $flags, ?bool $sent): void
+    public function testFromSourceDecidesTheDrop(array $flags, ?bool $sent): void
     {
         $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
 
@@ -297,40 +296,29 @@ class RerollCommandTest extends TestCase
     }
 
     /**
-     * A clean re-roll that left two test files out.
+     * A clean re-roll that left out two files the release does not ship.
      *
      * @return array<string, mixed>
      */
-    private static function withoutItsTests(): array
+    private static function withoutUnshippedFiles(): array
     {
         return self::plan('conflicts', [
             'status' => 'clean',
             'patch' => "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n",
             'verified' => true,
-            'dropped_tests' => ['tests/src/Unit/ATest.php', 'tests/src/Unit/BTest.php'],
+            'dropped_paths' => ['tests/src/Unit/ATest.php', 'tests/src/Unit/BTest.php'],
         ]);
     }
 
-    // The service left the test files out on its own, so the run says how
-    // to get them back.
-    public function testAReRollThatLeftTestsOutSaysSoUnderTheFileItWrote(): void
+    // The service left the files out on its own, so the run says how to
+    // get them back.
+    public function testAReRollThatLeftFilesOutSaysSoUnderTheFileItWrote(): void
     {
         $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
 
-        $tester = $this->drive($site, ['--force' => true], self::withoutItsTests());
+        $tester = $this->drive($site, ['--force' => true], self::withoutUnshippedFiles());
 
-        self::assertStringContainsString(Report::droppedTestsNote(2).'; a re-roll with --keep-tests keeps them', $tester->getDisplay());
-    }
-
-    // A run that asked for the drop needs no pointer back.
-    public function testARunThatAskedForTheDropGetsNoPointerBack(): void
-    {
-        $site = (new SiteFixture())->declaresPatch('Fix', 'patches/webform/fix.patch');
-
-        $tester = $this->drive($site, ['--force' => true, '--drop-tests' => true], self::withoutItsTests());
-
-        self::assertStringContainsString(Report::droppedTestsNote(2), $tester->getDisplay());
-        self::assertStringNotContainsString('--keep-tests', $tester->getDisplay());
+        self::assertStringContainsString(Report::droppedPathsNote(2).'; --from-source keeps them', $tester->getDisplay());
     }
 
     // A conflicting patch titled with an issue number is resolved to that

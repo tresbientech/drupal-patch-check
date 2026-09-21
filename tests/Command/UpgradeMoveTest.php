@@ -94,11 +94,11 @@ class UpgradeMoveTest extends TestCase
         ]];
     }
 
-    // The move asks for its re-rolls with the run's say on test files, and
+    // The move asks for its re-rolls with the run's say on the drop, and
     // with none when the run named no flag.
-    public function testTheMoveAsksWithTheTestFilesChoiceTheRunNamed(): void
+    public function testTheMoveAsksWithTheDropChoiceTheRunNamed(): void
     {
-        $this->drive(self::onOne(), self::fuzzy(), ['--keep-tests' => true]);
+        $this->drive(self::onOne(), self::fuzzy(), ['--from-source' => true]);
 
         self::assertFalse($this->server?->request()['drop_tests'] ?? null);
     }

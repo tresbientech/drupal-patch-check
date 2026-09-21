@@ -94,17 +94,17 @@ Both the title-to-file map and the expanded object form are read.
 | `--format table\|json` | check, pin, reroll | `table` by default. |
 | `--dry-run` | all five | The check and the re-roll print the request and stop. The others write nothing. |
 | `--force` | pin, reroll, add, upgrade | Skips the git question, and replaces a patch file git reports as changed or untracked. |
-| `--drop-tests` | reroll, add, upgrade | Leaves each patch's test files out of its re-roll. |
-| `--keep-tests` | reroll, add, upgrade | Keeps them in. A run given both flags is refused. |
+| `--from-source` | reroll, add, upgrade | Keeps every hunk, including the files a release package leaves out. |
 | `--decisions <file>` | reroll | Sends the regions a JSON document decides. `-` reads stdin. |
 | `--mr <number>` | reroll, add | Takes this merge request of the issue without asking. |
 | `--refresh` | pin | Takes the new commits of a merge request copied earlier. |
 | `--vendor` | upgrade | Copies every patch into the site. Without it, only the ones a re-roll lands on. |
 
-A re-roll of a core patch onto 12.0 or later leaves the patch's test files out,
-and every other re-roll keeps them. `--drop-tests` and `--keep-tests` decide for
-every re-roll in the run. The run prints a count, as in
-`the re-roll left out 2 test files, so your patch holds the fix alone`.
+A re-roll leaves out the files a release package does not ship, read from the
+release tag's own archive. `--from-source` keeps every hunk instead, for a
+site installed from source, which holds every file. The run prints a count,
+as in `the re-roll left out 2 files your release does not ship, so your patch
+holds the fix alone`.
 
 The re-roll, the pin and the add ask git about composer.json and the patches
 file before they ask the service or write anything. The run stops and prints the
@@ -378,8 +378,8 @@ Sent:
   patched package
 - `installed_core`: the core requirement each installed release declares, read
   from your vendor directory
-- `drop_tests`: whether a re-roll leaves test files out, sent only with
-  `--drop-tests` or `--keep-tests`
+- `drop_tests`: what a re-roll does with a file the release package leaves
+  out, sent only with `--from-source`, which keeps every hunk
 
 Per declaration, the request holds:
 

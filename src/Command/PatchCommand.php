@@ -6,7 +6,6 @@ namespace TresBienTech\Drupatch\Command;
 
 use Composer\Command\BaseCommand;
 use Composer\Util\ProcessExecutor;
-use RuntimeException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
@@ -43,33 +42,24 @@ abstract class PatchCommand extends BaseCommand
     }
 
     /**
-     * The flags every command that re-rolls takes, on the patch's test files.
+     * The flag every command that re-rolls takes, on the files the release package leaves out.
      */
-    protected function testFiles(): static
+    protected function fromSource(): static
     {
-        return $this
-            ->addOption('drop-tests', null, InputOption::VALUE_NONE, "Leave each patch's test files out of its re-roll. With neither flag, core 12 and later leave them out and every other patch keeps them.")
-            ->addOption('keep-tests', null, InputOption::VALUE_NONE, "Keep each patch's test files in its re-roll.");
+        return $this->addOption(
+            'from-source',
+            null,
+            InputOption::VALUE_NONE,
+            'Keep every hunk. Pass it when the site is installed from source, so it holds the files a release package leaves out.'
+        );
     }
 
     /**
-     * What the run asks a re-roll to do with test files: true drops them, false keeps them, null leaves it to the service.
-     *
-     * @throws RuntimeException when both flags were given
+     * What the run asks a re-roll to do about the files a release package leaves out: false keeps every hunk, null leaves it to the service.
      */
-    protected static function dropTests(InputInterface $input): ?bool
+    protected static function dropChoice(InputInterface $input): ?bool
     {
-        $drop = true === $input->getOption('drop-tests');
-        $keep = true === $input->getOption('keep-tests');
-        if ($drop && $keep) {
-            throw new RuntimeException('--drop-tests and --keep-tests contradict each other: pass one');
-        }
-
-        return match (true) {
-            $drop => true,
-            $keep => false,
-            default => null,
-        };
+        return true === $input->getOption('from-source') ? false : null;
     }
 
     /**
@@ -200,6 +190,6 @@ abstract class PatchCommand extends BaseCommand
             return;
         }
         $width = Report::clamp((new Terminal())->getWidth());
-        $output->writeln(Report::print(Report::check($plan, $run->coverage, $write, $rewrite, $width, self::repeated($run->target, self::scope($input)), null !== $run->dropTests)));
+        $output->writeln(Report::print(Report::check($plan, $run->coverage, $write, $rewrite, $width, self::repeated($run->target, self::scope($input)))));
     }
 }

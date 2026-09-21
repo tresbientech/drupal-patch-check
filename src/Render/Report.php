@@ -209,14 +209,13 @@ class Report
      * What a check or a re-roll run prints: the table a plain run answers with, or what a re-roll run did.
      *
      * @param Coverage     $coverage
-     * @param Write|null   $write      what a re-roll run wrote; such a run prints neither the rows nor the skipped packages
-     * @param Rewrite|null $rewrite    the declaration rewrite a re-roll run made
-     * @param list<string> $scope      the options a next run repeats, `--target 11.4.5` and each `--package`
-     * @param bool         $testsNamed whether the run named --drop-tests or --keep-tests
+     * @param Write|null   $write    what a re-roll run wrote; such a run prints neither the rows nor the skipped packages
+     * @param Rewrite|null $rewrite  the declaration rewrite a re-roll run made
+     * @param list<string> $scope    the options a next run repeats, `--target 11.4.5` and each `--package`
      *
      * @return list<Section>
      */
-    public static function check(Plan $plan, array $coverage, ?array $write, ?array $rewrite, int $width, array $scope, bool $testsNamed): array
+    public static function check(Plan $plan, array $coverage, ?array $write, ?array $rewrite, int $width, array $scope): array
     {
         $vacuous = 0 === $coverage['checked'] && [] !== $coverage['skipped'];
         $packages = [];
@@ -251,7 +250,7 @@ class Report
         }
         $files = ['re-rolled' => [], 'conflicted' => []];
         foreach ($write['written'] ?? [] as $file) {
-            \array_push($files[PatchRow::CONFLICTS === $file['status'] ? 'conflicted' : 're-rolled'], ...self::writtenFile($file, $testsNamed));
+            \array_push($files[PatchRow::CONFLICTS === $file['status'] ? 'conflicted' : 're-rolled'], ...self::writtenFile($file));
         }
         $tally = [];
         // A write run has just put re-rolls on disk that composer applied
@@ -793,14 +792,14 @@ class Report
     }
 
     /**
-     * The test files a re-roll left out of the merge.
+     * The files a re-roll left out of the merge.
      */
-    public static function droppedTestsNote(int $files): string
+    public static function droppedPathsNote(int $files): string
     {
         return Text::plural(
             $files,
-            'the re-roll left out @count test file, so your patch holds the fix alone',
-            'the re-roll left out @count test files, so your patch holds the fix alone'
+            'the re-roll left out @count file your release does not ship, so your patch holds the fix alone',
+            'the re-roll left out @count files your release does not ship, so your patch holds the fix alone'
         );
     }
 
@@ -1016,8 +1015,8 @@ class Report
         if (null !== $reroll && [] !== $reroll->unioned) {
             $out[] = self::unionNote(\count($reroll->unioned));
         }
-        if (null !== $reroll && [] !== $reroll->droppedTests) {
-            $out[] = self::droppedTestsNote(\count($reroll->droppedTests));
+        if (null !== $reroll && [] !== $reroll->droppedPaths) {
+            $out[] = self::droppedPathsNote(\count($reroll->droppedPaths));
         }
         // The service's reason speaks for a manager that applies loosely,
         // which a site on 2.x does not run.
@@ -1108,7 +1107,7 @@ class Report
      *
      * @return array{string, list<string|list<string>>}
      */
-    private static function writtenFile(array $file, bool $testsNamed): array
+    private static function writtenFile(array $file): array
     {
         // A decision gives its region by file and index.
         $under = \array_map(static fn (array $region): string => Text::t('@file region @region', ['@file' => $region['file'], '@region' => $region['region']]), $file['open']);
@@ -1127,11 +1126,11 @@ class Report
                 $under[] = 'send your re-roll to that merge request and every site using it is fixed';
             }
         }
-        // A run that named neither flag took the service's default, so the
-        // line says how to get the files back.
+        // Only a run that left the choice to the service reaches this:
+        // --from-source drops nothing, so the line says how to get the
+        // files back.
         if ([] !== $file['dropped']) {
-            $note = self::droppedTestsNote(\count($file['dropped']));
-            $under[] = $testsNamed ? $note : Text::t('@note; a re-roll with --keep-tests keeps them', ['@note' => $note]);
+            $under[] = Text::t('@note; --from-source keeps them', ['@note' => self::droppedPathsNote(\count($file['dropped']))]);
         }
         if ([] !== $file['unioned']) {
             $under[] = Text::t('@note:', ['@note' => self::unionNote(\count($file['unioned']))]);

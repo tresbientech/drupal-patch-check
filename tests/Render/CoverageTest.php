@@ -132,7 +132,7 @@ class CoverageTest extends TestCase
         $coverage = $this->coverage(50, [], [$this->withhold('drupal/webform', 'Huge', 'patches/huge.patch')]);
         $plan = $this->planFrom(['missing_files' => ['patches/huge.patch', 'patches/lost.patch'], 'patches' => [$this->row()]]);
 
-        self::assertContains('  patch text not sent for: patches/lost.patch', Report::print(Report::check($plan, $coverage, null, null, 100, [], false)));
+        self::assertContains('  patch text not sent for: patches/lost.patch', Report::print(Report::check($plan, $coverage, null, null, 100, [])));
     }
 
     public function testNoPatchTitleReachesTheOutput(): void
@@ -167,7 +167,7 @@ class CoverageTest extends TestCase
      */
     private function report(array $coverage, array $rows = []): array
     {
-        return Report::print(Report::check($this->planFrom(['patches' => $rows]), $coverage, null, null, 100, [], false));
+        return Report::print(Report::check($this->planFrom(['patches' => $rows]), $coverage, null, null, 100, []));
     }
 
     /**

@@ -60,7 +60,7 @@ class UpgradeCommand extends PatchCommand
             ->setName(self::NAME)
             ->setDescription('Move this site from cweagans/composer-patches 1.x to 2.x')
             ->addOption('vendor', null, InputOption::VALUE_NONE, 'Copy every patch into this site, rather than only the ones a re-roll has to land on.')
-            ->testFiles()
+            ->fromSource()
             ->addOption('force', null, InputOption::VALUE_NONE, 'Replace a patch file git reports as changed or untracked, and rewrite composer.json and the patches file with uncommitted changes.')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print what would change and write nothing.');
     }
@@ -69,7 +69,7 @@ class UpgradeCommand extends PatchCommand
     {
         $dryRun = true === $input->getOption('dry-run');
         try {
-            $dropTests = self::dropTests($input);
+            $dropTests = self::dropChoice($input);
             $ready = $this->prepare();
             $move = match (true) {
                 \is_string($ready) => self::stopped($ready),
@@ -110,7 +110,7 @@ class UpgradeCommand extends PatchCommand
      * @param Ready $ready
      * @param bool  $vendorAll copy every declaration into the site, not only the ones a re-roll lands on
      * @param bool  $force     replace a patch file git reports as changed, and rewrite documents with uncommitted changes
-     * @param ?bool $dropTests whether a re-roll leaves test files out, null for the service's default
+     * @param ?bool $dropTests whether a re-roll leaves out the files the release package omits, null for the service's default
      *
      * @return MoveReport
      */
@@ -198,7 +198,7 @@ class UpgradeCommand extends PatchCommand
      * whether the real run finishes.
      *
      * @param Ready $ready
-     * @param ?bool $dropTests whether a re-roll leaves test files out, null for the service's default
+     * @param ?bool $dropTests whether a re-roll leaves out the files the release package omits, null for the service's default
      */
     private function ask(array $ready, ?bool $dropTests): Plan
     {

@@ -51,7 +51,7 @@ class Run
         OutputInterface $notes,
         string $target,
         private readonly Scope $scope,
-        /** Whether a re-roll leaves test files out, null for the service's default. */
+        /** Whether a re-roll leaves out the files the release package omits, null for the service's default. */
         public readonly ?bool $dropTests = null,
     ) {
         $this->request = $site->request();

@@ -142,7 +142,7 @@ class Client
      * @param Scope                                  $scope       what the run acts on, which the plan reads its rows through
      * @param array<string, string>                  $candidates  composer name to the release composer would install
      * @param array<int, list<array<string, mixed>>> $resolutions regions a person decided, by patch position
-     * @param bool|null                              $dropTests   whether a re-roll leaves test files out, null for the service's default
+     * @param bool|null                              $dropTests   whether a re-roll leaves out the files the release package omits, null for the service's default
      *
      * @throws RuntimeException when the call or the answer failed
      */
@@ -180,7 +180,7 @@ class Client
      *
      * @param array<string, string>                  $candidates
      * @param array<int, list<array<string, mixed>>> $resolutions regions a person decided, by patch position
-     * @param bool|null                              $dropTests   whether a re-roll leaves test files out, null for the service's default
+     * @param bool|null                              $dropTests   whether a re-roll leaves out the files the release package omits, null for the service's default
      *
      * @return array<string, mixed>
      */

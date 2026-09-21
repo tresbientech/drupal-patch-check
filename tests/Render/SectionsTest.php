@@ -29,7 +29,7 @@ class SectionsTest extends TestCase
 
         self::assertSame(
             ['headline', 'warnings', 'package', 'tally', 'unpinned', 'next'],
-            self::names(Report::check($plan, ['checked' => 1, 'skipped' => [], 'unsent' => [], 'versions' => []], null, null, 100, [], false)),
+            self::names(Report::check($plan, ['checked' => 1, 'skipped' => [], 'unsent' => [], 'versions' => []], null, null, 100, [])),
         );
     }
 
@@ -56,7 +56,7 @@ class SectionsTest extends TestCase
 
         self::assertSame(
             ['headline', 'tally', 'shipped', 'dropped', 're-rolled', 'conflicted', 'refused', 'rewrite', 'next'],
-            self::names(Report::check($plan, ['checked' => 4, 'skipped' => [], 'unsent' => [], 'versions' => []], $write, $rewrite, 100, [], false)),
+            self::names(Report::check($plan, ['checked' => 4, 'skipped' => [], 'unsent' => [], 'versions' => []], $write, $rewrite, 100, [])),
         );
     }
 

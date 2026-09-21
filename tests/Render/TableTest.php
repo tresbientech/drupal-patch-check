@@ -34,7 +34,7 @@ class TableTest extends TestCase
      */
     private static function table(Plan $plan, int $width = 100, ?array $write = null): array
     {
-        return self::only(self::TABLE, Report::check($plan, self::covered($plan), $write, null, $width, [], false));
+        return self::only(self::TABLE, Report::check($plan, self::covered($plan), $write, null, $width, []));
     }
 
     /**
@@ -47,7 +47,7 @@ class TableTest extends TestCase
      */
     private static function whole(Plan $plan, ?array $write, int $width, ?array $rewrite = null): array
     {
-        return Report::print(Report::check($plan, self::covered($plan), $write, $rewrite, $width, [], false));
+        return Report::print(Report::check($plan, self::covered($plan), $write, $rewrite, $width, []));
     }
 
     /**
@@ -59,11 +59,11 @@ class TableTest extends TestCase
      *
      * @return list<string>
      */
-    private static function sections(array $names, ?array $write, ?array $rewrite = null, bool $testsNamed = false, ?Plan $plan = null): array
+    private static function sections(array $names, ?array $write, ?array $rewrite = null, ?Plan $plan = null): array
     {
         $plan ??= Plan::fromArray(self::wire(['target_core' => '11.4.5', 'counts' => [], 'patches' => []]), [], null, Scope::whole());
 
-        return self::only($names, Report::check($plan, self::covered($plan), $write, $rewrite, 100, [], $testsNamed));
+        return self::only($names, Report::check($plan, self::covered($plan), $write, $rewrite, 100, []));
     }
 
     /**
@@ -101,7 +101,7 @@ class TableTest extends TestCase
         return self::only(self::TABLE, Report::check($plan, ['checked' => \count($plan->rows()), 'skipped' => $skipped, 'unsent' => $unsent, 'versions' => [
             'drupal/webform' => '6.2.9',
             'acme/pagebuilder' => '7.6.1',
-        ]], $write, null, 100, [], false));
+        ]], $write, null, 100, []));
     }
 
     // A re-roll run did nothing about a package the service does not
@@ -518,18 +518,18 @@ class TableTest extends TestCase
         );
     }
 
-    // A re-roll leaves out the project's test files, and the row says how many.
-    public function testSaysHowManyTestFilesTheRerollLeftOut(): void
+    // A re-roll leaves out the files the release package does not ship, and the row says how many.
+    public function testSaysHowManyFilesTheRerollLeftOut(): void
     {
         $plan = $this->planFrom(['patches' => [$this->row([
             'verdict' => 'conflicts',
-            'result' => ['reroll' => ['status' => 'clean', 'patch' => "x\n", 'dropped_tests' => ['core/tests/A.php', 'core/modules/user/tests/B.php']]],
+            'result' => ['reroll' => ['status' => 'clean', 'patch' => "x\n", 'dropped_paths' => ['core/tests/A.php', 'core/modules/user/tests/B.php']]],
         ])]]);
 
         $lines = self::table($plan);
         $row = self::rowWith($lines, '<error>!</error> conflicts Fix the alter hook');
 
-        self::assertSame('                    <fg=cyan>the re-roll left out 2 test files, so your patch holds the fix alone</>', $lines[$row + 1]);
+        self::assertSame('                    <fg=cyan>the re-roll left out 2 files your release does not ship, so your patch holds the fix alone</>', $lines[$row + 1]);
     }
 
     // A row that only broke because of an earlier patch must say so, or
@@ -1128,7 +1128,7 @@ class TableTest extends TestCase
         $plan = $this->planFrom(['counts' => ['applies' => 1], 'patches' => [$this->row()]]);
         $lines = self::whole($plan, null, 100);
 
-        self::assertSame([], self::sections(['next'], null, null, false, $plan));
+        self::assertSame([], self::sections(['next'], null, null, $plan));
         self::assertStringNotContainsString('Next:', \implode("\n", $lines));
     }
 
@@ -1143,7 +1143,7 @@ class TableTest extends TestCase
                 self::sections(['re-rolled', 'conflicted'], $result),
                 self::sections(['refused'], $result),
                 self::sections(['rewrite'], $result),
-                self::sections(['next'], $result, null, false, $plan),
+                self::sections(['next'], $result, null, $plan),
             ),
             self::whole($plan, $result, 100),
         );

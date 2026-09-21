@@ -13,7 +13,7 @@ class Reroll
 {
     /**
      * @param list<string>                           $syntaxErrors
-     * @param list<string>                           $droppedTests
+     * @param list<string>                           $droppedPaths
      * @param list<array{file: string, line: int}>   $unioned
      * @param list<Conflict>                         $conflicts
      * @param list<array{file: string, region: int}> $open
@@ -38,8 +38,8 @@ class Reroll
          * file a person still has to edit is never judged by it.
          */
         public readonly array $syntaxErrors,
-        /** The test files the re-roll left out. */
-        public readonly array $droppedTests,
+        /** The files the re-roll left out, because the release package does not carry them. */
+        public readonly array $droppedPaths,
         /** The regions the merge decided on its own by keeping both sides. */
         public readonly array $unioned,
         /** Every conflicted file, with the text of the regions the service sent. */
@@ -96,7 +96,7 @@ class Reroll
             (string) ($reroll['merged_from'] ?? ''),
             (int) ($reroll['resolutions_applied'] ?? 0),
             \array_values(\array_filter((array) ($reroll['syntax_errors'] ?? []), \is_string(...))),
-            \array_values(\array_filter((array) ($reroll['dropped_tests'] ?? []), \is_string(...))),
+            \array_values(\array_filter((array) ($reroll['dropped_paths'] ?? $reroll['dropped_tests'] ?? []), \is_string(...))),
             $unioned,
             $conflicts,
             $open,

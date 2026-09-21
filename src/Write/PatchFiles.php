@@ -138,7 +138,7 @@ class PatchFiles
                 'regions' => \count($reroll->open),
                 'open' => $reroll->open,
                 'removed' => $reroll->removed,
-                'dropped' => $reroll->droppedTests,
+                'dropped' => $reroll->droppedPaths,
                 'from' => $provenance['mr'] ?? '',
             ];
         }

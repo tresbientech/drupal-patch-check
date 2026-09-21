@@ -54,7 +54,7 @@ class AddCommand extends PatchCommand
             ->setDescription('Copy a merge request patch into this site, declare it, and apply it')
             ->addArgument('issue', InputArgument::REQUIRED, 'A drupal.org issue URL, its GitLab work-item form, or a merge request URL.')
             ->addOption('mr', null, InputOption::VALUE_REQUIRED, 'Take this merge request of the issue, by its number, without asking.')
-            ->testFiles()
+            ->fromSource()
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print what would happen and write nothing.')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Write the declaration even where git reports this site\'s patches edited, and replace a copy git reports as changed.');
     }
@@ -69,7 +69,7 @@ class AddCommand extends PatchCommand
                 $dryRun,
                 true === $input->getOption('force'),
                 \is_string($wanted) ? \trim($wanted) : '',
-                self::dropTests($input),
+                self::dropChoice($input),
             );
         } catch (Throwable $e) {
             $result = self::stopped($e->getMessage());

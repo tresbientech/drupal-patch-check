@@ -102,7 +102,7 @@ class RenderGoldenTest extends TestCase
             ['package' => 'acme/pagebuilder', 'title' => 'Page builder fix', 'reason' => 'not a drupal.org project'],
         ], 'unsent' => [], 'versions' => ['acme/pagebuilder' => '7.6.1']];
 
-        self::assertReport('check-judged-nothing', ['headline', 'unjudged', 'tally'], Report::check($plan, $coverage, null, null, self::WIDTH, [], false));
+        self::assertReport('check-judged-nothing', ['headline', 'unjudged', 'tally'], Report::check($plan, $coverage, null, null, self::WIDTH, []));
     }
 
     public function testCheckSkippedPackages(): void
@@ -117,7 +117,7 @@ class RenderGoldenTest extends TestCase
             ['package' => 'drupal/domain', 'title' => 'Access fix', 'source' => 'https://example.test/d.patch', 'reason' => 'the host answered 404'],
         ], 'versions' => ['drupal/webform' => '6.2.9', 'acme/pagebuilder' => '7.6.1']];
 
-        self::assertReport('check-skipped-packages', ['headline', 'unjudged', 'package', 'tally'], Report::check($plan, $coverage, null, null, self::WIDTH, [], false));
+        self::assertReport('check-skipped-packages', ['headline', 'unjudged', 'package', 'tally'], Report::check($plan, $coverage, null, null, self::WIDTH, []));
     }
 
     public function testCheckBrokenSyntax(): void
@@ -284,7 +284,7 @@ class RenderGoldenTest extends TestCase
      */
     private static function whole(Plan $plan, ?array $write): array
     {
-        return Report::check($plan, ['checked' => \count($plan->rows()), 'skipped' => [], 'unsent' => [], 'versions' => []], $write, null, self::WIDTH, [], false);
+        return Report::check($plan, ['checked' => \count($plan->rows()), 'skipped' => [], 'unsent' => [], 'versions' => []], $write, null, self::WIDTH, []);
     }
 
     /**

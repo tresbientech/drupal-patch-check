@@ -27,7 +27,7 @@ class UnpinnedTest extends TestCase
     {
         $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => $rows]), [], null, Scope::whole());
 
-        return \implode("\n", Report::print(Report::check($plan, ['checked' => \count($rows), 'skipped' => [], 'unsent' => [], 'versions' => []], null, null, 100, [], false)));
+        return \implode("\n", Report::print(Report::check($plan, ['checked' => \count($rows), 'skipped' => [], 'unsent' => [], 'versions' => []], null, null, 100, [])));
     }
 
     /**
@@ -90,7 +90,7 @@ class UnpinnedTest extends TestCase
         $plan = Plan::fromArray(self::wire(['target_core' => '11.4.5', 'patches' => [$this->mrRow()]]), [], null, Scope::whole());
         $outcomes = ['written' => [], 'refused' => []];
 
-        $out = \implode("\n", Report::print(Report::check($plan, ['checked' => 1, 'skipped' => [], 'unsent' => [], 'versions' => []], $outcomes, null, 100, [], false)));
+        $out = \implode("\n", Report::print(Report::check($plan, ['checked' => 1, 'skipped' => [], 'unsent' => [], 'versions' => []], $outcomes, null, 100, [])));
 
         self::assertStringContainsString('1 patch is declared as a merge request URL. Anyone with a drupal.org', $out);
         self::assertStringContainsString('change between two installs. Run: composer drupatch:pin', $out);

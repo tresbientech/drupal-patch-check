@@ -43,7 +43,7 @@ class RerollCommand extends PatchCommand
             ->setName(self::NAME)
             ->setDescription("Re-roll this site's patches that no longer apply, and write what merges")
             ->shared()
-            ->testFiles()
+            ->fromSource()
             ->addOption('decisions', null, InputOption::VALUE_REQUIRED, 'A JSON document of decided regions, or - for stdin: {"decisions": [{"source", "file", "region", "choice": "release"|"patch" or "text"}]}. Merged with the conflict files; the document wins on a region both decide.')
             ->addOption('mr', null, InputOption::VALUE_REQUIRED, 'The merge request number to take for every declaration this run resolves to an issue. For a run nobody can answer; a run that can asks per issue.')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Replace a patch file git reports as changed or untracked, and rewrite a declaration file with uncommitted changes.');
@@ -62,7 +62,7 @@ class RerollCommand extends PatchCommand
         [$format, $notes] = $printing;
 
         try {
-            $dropTests = self::dropTests($input);
+            $dropTests = self::dropChoice($input);
             $run = new Run($this->site(), $this->requireComposer(), $this->getIO(), $notes, $target, self::scope($input), $dropTests);
             $patches = $run->request->patches->patches;
             $decided = Decisions::onDisk($run->site->root, $patches, self::scope($input));
