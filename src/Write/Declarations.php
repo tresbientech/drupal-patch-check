@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace TresBienTech\Drupatch\Write;
 
 use Closure;
+use Composer\Json\JsonFile;
 use Composer\Json\JsonManipulator;
 use Composer\Pcre\PcreException;
 use RuntimeException;
+use stdClass;
 use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Read\Declaration;
@@ -167,11 +169,19 @@ class Declarations
             $document = (string) $document;
             [$text, $patches] = self::document($this->root, $document);
             $patches = self::rewrite($patches, $group, $document);
+            // Composer's editor writes a list on one line, so it writes a
+            // marker and the marker is replaced by the pretty-printed map.
+            $marker = '__drupapatch_'.\bin2hex(\random_bytes(8)).'__';
+            $inComposerJson = Declaration::COMPOSER_JSON === $document;
             $json = new JsonManipulator($text);
-            self::must($document, static fn (): bool => Declaration::COMPOSER_JSON === $document
-                ? $json->addSubNode('extra', 'patches', $patches)
-                : $json->addMainKey('patches', $patches), 'its patch config could not be rewritten');
-            self::put($this->root, $document, $json->getContents());
+            self::must($document, static fn (): bool => $inComposerJson
+                ? $json->addSubNode('extra', 'patches', $marker)
+                : $json->addMainKey('patches', $marker), 'its patch config could not be rewritten');
+            // extra.patches sits two levels deep, a patches file's key one.
+            $depth = $inComposerJson ? 2 : 1;
+            $declarations = self::pretty($patches, $text, $depth);
+            $contents = \str_replace('"'.$marker.'"', $declarations, $json->getContents());
+            self::put($this->root, $document, $contents);
             $written[] = $document;
         }
 
@@ -236,7 +246,7 @@ class Declarations
             $depth = $depths[$declaration->key()] ?? null;
             $patches[$declaration->package][] = $declaration->definition(null === $depth ? [] : ['depth' => $depth]);
         }
-        self::put($root, $file, \json_encode(['patches' => $patches], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR)."\n");
+        self::put($root, $file, JsonFile::encode(['patches' => $patches])."\n");
         self::put($root, Declaration::COMPOSER_JSON, $composerJson);
 
         return [$file, Declaration::COMPOSER_JSON];
@@ -271,7 +281,7 @@ class Declarations
         }
 
         $out = [];
-        foreach ($patches + \array_fill_keys(\array_keys($added), []) as $package => $entries) {
+        foreach (self::opened($patches, \array_keys($added)) as $package => $entries) {
             if (!\is_string($package) || !\is_array($entries)) {
                 $out[$package] = $entries;
                 continue;
@@ -334,6 +344,53 @@ class Declarations
         }
 
         return $out;
+    }
+
+    /**
+     * The declarations map plus an empty entry for each package with no patches yet, inserted in alphabetical order.
+     *
+     * The new package goes just before the first package name that sorts
+     * after it. An unsorted map keeps its order around the new entry.
+     *
+     * @param array<mixed>     $patches
+     * @param list<int|string> $packages
+     *
+     * @return array<mixed>
+     */
+    private static function opened(array $patches, array $packages): array
+    {
+        foreach ($packages as $package) {
+            if (\array_key_exists($package, $patches)) {
+                continue;
+            }
+            $out = [];
+            foreach ($patches as $key => $entries) {
+                if (!isset($out[$package]) && \is_string($key) && \strcmp((string) $package, $key) < 0) {
+                    $out[$package] = [];
+                }
+                $out[$key] = $entries;
+            }
+            $out[$package] ??= [];
+            $patches = $out;
+        }
+
+        return $patches;
+    }
+
+    /**
+     * The declarations map as JSON, in the document's own indentation and line endings, for a value that sits at this depth.
+     *
+     * @param array<mixed> $patches
+     * @param string       $text    the document as it stood, which sets the indentation
+     */
+    private static function pretty(array $patches, string $text, int $depth): string
+    {
+        $indent = JsonFile::detectIndenting($text);
+        $newline = \str_contains($text, "\r\n") ? "\r\n" : "\n";
+        $encoded = JsonFile::encode([] === $patches ? new stdClass() : $patches, indent: $indent);
+
+        // JSON escapes a line break inside a string, so each \n ends a line.
+        return \str_replace("\n", $newline.\str_repeat($indent, $depth), $encoded);
     }
 
     /**

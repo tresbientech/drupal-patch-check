@@ -7,7 +7,7 @@ it re-rolls the ones that broke.
 ```
 $ composer drupatch:check --target latest
 
-Drupal Patch Check: 4 patches for a move from core 10.2.4 to 11.4.6
+Drupal Patch Check: 4 patches for a move from core 10.2.4 to 11.4.6 (the newest drupal/core-recommended allows)
 
   acme/private_module 8.2.5   6 patches skipped (not a drupal.org project)
 
@@ -417,7 +417,7 @@ patch repeats the ticket number in a comment, that comment travels with it.
 
 ## Requirements
 
-PHP 8.1 or newer and Composer 2.3 or newer. It adds no runtime dependency
+PHP 8.1 or newer and Composer 2.6 or newer. It adds no runtime dependency
 beyond `ext-json`, because it runs inside your own composer process.
 
 ## License

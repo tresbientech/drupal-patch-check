@@ -30,8 +30,8 @@ class Client
     /** The package name composer knows this plugin by. */
     public const PACKAGE = 'tresbientech/drupal-patch-check';
 
-    /** What agent() reports when composer has no release to name. */
-    public const VERSION = '0.19.0';
+    /** What agent() stands in for a release with, so no version literal lives here to fall behind the tag. */
+    public const UNKNOWN_VERSION = 'unknown';
 
     public const DEFAULT_ENDPOINT = 'https://api.tresbien.tech/v1/composer/scan';
 
@@ -72,10 +72,9 @@ class Client
 
     /**
      * What the request says it is: this plugin's name and the release
-     * composer installed. The service reads it to tell a request shaped by
-     * an older release apart from a current one. A checkout reports its
-     * branch rather than a version, so a working copy is distinguishable
-     * from a release.
+     * composer installed. The service logs it as `client_version` and
+     * judges nothing by it. A checkout reports its branch rather than a
+     * version, so a working copy is distinguishable from a release.
      */
     public static function agent(): string
     {
@@ -87,7 +86,7 @@ class Client
             $version = null;
         }
 
-        return 'drupal-patch-check/'.($version ?? self::VERSION);
+        return 'drupal-patch-check/'.($version ?? self::UNKNOWN_VERSION);
     }
 
     /**
