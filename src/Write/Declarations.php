@@ -8,6 +8,7 @@ use Closure;
 use Composer\Json\JsonManipulator;
 use Composer\Pcre\PcreException;
 use RuntimeException;
+use stdClass;
 use TresBienTech\Drupatch\Manager;
 use TresBienTech\Drupatch\Plan\Plan;
 use TresBienTech\Drupatch\Read\Declaration;
@@ -167,11 +168,15 @@ class Declarations
             $document = (string) $document;
             [$text, $patches] = self::document($this->root, $document);
             $patches = self::rewrite($patches, $group, $document);
+            // The editor writes a nested value on as few lines as it can, so
+            // it places a marker and the declarations go in pretty-printed.
+            $marker = '__drupatch_patches_'.\bin2hex(\random_bytes(8)).'__';
             $json = new JsonManipulator($text);
             self::must($document, static fn (): bool => Declaration::COMPOSER_JSON === $document
-                ? $json->addSubNode('extra', 'patches', $patches)
-                : $json->addMainKey('patches', $patches), 'its patch config could not be rewritten');
-            self::put($this->root, $document, $json->getContents());
+                ? $json->addSubNode('extra', 'patches', $marker)
+                : $json->addMainKey('patches', $marker), 'its patch config could not be rewritten');
+            $depth = Declaration::COMPOSER_JSON === $document ? 2 : 1;
+            self::put($this->root, $document, \str_replace('"'.$marker.'"', self::pretty($patches, $text, $depth), $json->getContents()));
             $written[] = $document;
         }
 
@@ -271,7 +276,7 @@ class Declarations
         }
 
         $out = [];
-        foreach ($patches + \array_fill_keys(\array_keys($added), []) as $package => $entries) {
+        foreach (self::opened($patches, \array_keys($added)) as $package => $entries) {
             if (!\is_string($package) || !\is_array($entries)) {
                 $out[$package] = $entries;
                 continue;
@@ -334,6 +339,55 @@ class Declarations
         }
 
         return $out;
+    }
+
+    /**
+     * The declarations map with an empty entry for each package it did not hold, placed before the first package that sorts after it.
+     *
+     * A site that keeps its packages sorted stays sorted, and one that does not
+     * keeps its own order.
+     *
+     * @param array<mixed>     $patches
+     * @param list<int|string> $packages
+     *
+     * @return array<mixed>
+     */
+    private static function opened(array $patches, array $packages): array
+    {
+        foreach ($packages as $package) {
+            if (\array_key_exists($package, $patches)) {
+                continue;
+            }
+            $out = [];
+            foreach ($patches as $key => $entries) {
+                if (!isset($out[$package]) && \is_string($key) && \strcmp((string) $package, $key) < 0) {
+                    $out[$package] = [];
+                }
+                $out[$key] = $entries;
+            }
+            $out[$package] ??= [];
+            $patches = $out;
+        }
+
+        return $patches;
+    }
+
+    /**
+     * The declarations map as JSON, in the document's own indentation and line endings, for a value that sits at this depth.
+     *
+     * @param array<mixed> $patches
+     * @param string       $text    the document as it stood, which sets the indentation
+     */
+    private static function pretty(array $patches, string $text, int $depth): string
+    {
+        $indent = \preg_match('{^([ \t]+)"}m', $text, $match) ? $match[1] : '    ';
+        $newline = \str_contains($text, "\r\n") ? "\r\n" : "\n";
+        $encoded = \json_encode([] === $patches ? new stdClass() : $patches, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR);
+        // A string holding a line break is escaped, so every line begins with
+        // the encoder's indentation alone.
+        $lines = \array_map(static fn (string $line): string => (string) \preg_replace_callback('{^(?:    )+}', static fn (array $spaces): string => \str_repeat($indent, \intdiv(\strlen($spaces[0]), 4)), $line), \explode("\n", $encoded));
+
+        return \implode($newline.\str_repeat($indent, $depth), $lines);
     }
 
     /**

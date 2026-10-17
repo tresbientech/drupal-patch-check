@@ -447,6 +447,76 @@ class RewriteTest extends TestCase
         self::assertSame(['Fix a', 'Fix b', '3521733: bfcache'], \array_column((array) $rewritten['drupal/webform'], 'description'));
     }
 
+    // The site reads the diff an add run leaves, so it gets the layout
+    // composer normalize would give it, not the editor's compressed one.
+    public function testAnAddedEntryIsWrittenOneValuePerLineInTheFilesIndentation(): void
+    {
+        $text = <<<'JSON'
+            {
+              "name": "test/site",
+              "extra": {
+                "patches": {
+                  "drupal/core": {
+                    "Menu cache": "patches/c.patch"
+                  }
+                }
+              }
+            }
+            JSON;
+        \file_put_contents($this->root.'/composer.json', $text);
+
+        $this->write(self::adding(), (array) $this->read('composer.json')['extra'], [self::added()]);
+
+        self::assertSame(<<<'JSON'
+            {
+              "name": "test/site",
+              "extra": {
+                "patches": {
+                  "drupal/core": {
+                    "Menu cache": "patches/c.patch"
+                  },
+                  "drupal/webform": [
+                    {
+                      "description": "3521733: bfcache",
+                      "url": "patch/webform/mr940.diff",
+                      "extra": {
+                        "drupatch": {
+                          "mr": "https://git.drupalcode.org/project/webform/-/merge_requests/940",
+                          "head": "bbb"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+
+            JSON, (string) \file_get_contents($this->root.'/composer.json'));
+    }
+
+    public function testAPatchesFileIsWrittenOneValuePerLine(): void
+    {
+        \file_put_contents($this->root.'/patches.json', "{\n\t\"patches\": {}\n}\n");
+
+        $this->write(self::adding(), [], [self::added('patches.json')]);
+
+        self::assertSame("{\n\t\"patches\": {\n\t\t\"drupal/webform\": [\n\t\t\t{\n\t\t\t\t\"description\": \"3521733: bfcache\",\n\t\t\t\t\"url\": \"patch/webform/mr940.diff\",\n\t\t\t\t\"extra\": {\n\t\t\t\t\t\"drupatch\": {\n\t\t\t\t\t\t\"mr\": \"https://git.drupalcode.org/project/webform/-/merge_requests/940\",\n\t\t\t\t\t\t\"head\": \"bbb\"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t]\n\t}\n}\n", (string) \file_get_contents($this->root.'/patches.json'));
+    }
+
+    public function testAnAddedPackageTakesItsPlaceInSortedPackages(): void
+    {
+        $patches = ['drupal/core' => ['Menu cache' => 'patches/c.patch'], 'drupal/xmlsitemap' => ['Fix x' => 'patches/x.patch']];
+
+        self::assertSame(['drupal/core', 'drupal/webform', 'drupal/xmlsitemap'], \array_keys($this->rewritten($patches, self::adding(), [self::added()])));
+    }
+
+    public function testAnAddedPackageGoesBeforeTheFirstPackageThatSortsAfterIt(): void
+    {
+        $patches = ['drupal/token' => ['Fix t' => 'patches/t.patch'], 'drupal/core' => ['Menu cache' => 'patches/c.patch'], 'drupal/zen' => ['Fix z' => 'patches/z.patch']];
+
+        self::assertSame(['drupal/token', 'drupal/core', 'drupal/webform', 'drupal/zen'], \array_keys($this->rewritten($patches, self::adding(), [self::added()])));
+    }
+
     public function testAnAddedEntryLandsInTheDocumentItsDeclarationNames(): void
     {
         \file_put_contents($this->root.'/patches.json', '{"patches": {}}');

@@ -5,6 +5,16 @@ recorded in the repository history.
 
 This project is pre-1.0. A minor version may remove an option.
 
+## Unreleased
+
+### Changed
+
+- A rewrite of the declarations writes them one value per line, in the
+  file's own indentation, the way `composer normalize` lays them out. It used
+  to leave nested values on as few lines as it could.
+- `add` puts a package the site did not patch before the first package that
+  sorts after it, so sorted declarations stay sorted. It used to put it last.
+
 ## 0.22.0
 
 Released 2026-09-21. Needs patchcheck deployed on 2026-09-21 or later.
