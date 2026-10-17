@@ -5,13 +5,14 @@ recorded in the repository history.
 
 This project is pre-1.0. A minor version may remove an option.
 
-## Unreleased
+## 0.23.0
+
+Released 2026-10-18. Needs Composer 2.6 or newer.
 
 ### Changed
 
 - The plugin needs Composer 2.6 or newer. It used to need 2.3. A site on an
   older Composer keeps the release it has.
-
 - A rewrite of the declarations writes them one value per line, in the
   file's own indentation, the way `composer normalize` lays them out. It used
   to leave nested values on as few lines as it could.
